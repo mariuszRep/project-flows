@@ -4,6 +4,7 @@ declare class MarkdownScriptGenerator {
     private setupToolHandlers;
     private generateMarkdownScript;
     private generatePlanFromPrompt;
+    private generateContentFromInstruction;
     private createTemplateFromPrompt;
     private createDefaultScript;
     run(): Promise<void>;

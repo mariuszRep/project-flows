@@ -288,19 +288,7 @@ class MarkdownScriptGenerator {
           'Technology Stack': 'Explain the chosen technologies, frameworks, and tools'
         },
         {
-          'Architecture': 'Provide overview of system architecture and design patterns'
-        },
-        {
-          'Implementation Steps': 'Show practical implementation steps with code examples'
-        },
-        {
-          'Testing Strategy': 'Demonstrate testing approaches and quality assurance methods'
-        },
-        {
-          'Deployment': 'Share deployment strategies and production considerations'
-        },
-        {
-          'Maintenance': 'Address ongoing maintenance and optimization practices'
+          'Joke': 'tell me a joke'
         }
       ]
     };
