@@ -10,8 +10,11 @@ import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+// Simple counter for task IDs
+let taskIdCounter = 1;
+const taskStorage = new Map();
 const server = new Server({
-    name: "hello-world-server",
+    name: "project-flows",
     version: "1.0.0",
 }, {
     capabilities: {
@@ -46,17 +49,27 @@ function createExecutionChain(properties) {
     }
     return sortedProps.sort((a, b) => a.execution_order - b.execution_order);
 }
-function validateDependencies(properties, args) {
+function validateDependencies(properties, args, isUpdateContext = false) {
     /**
      * Validate that dependencies are satisfied for each property that has a value.
+     * In update context, all dependencies must be provided in the same call.
      */
     for (const [propName, propConfig] of Object.entries(properties)) {
         const dependencies = propConfig.dependencies || [];
         // Only validate dependencies for properties that are actually provided and have values
         if (propName in args && args[propName]) {
             for (const dep of dependencies) {
-                if (!(dep in args) || !args[dep]) {
-                    return false;
+                if (isUpdateContext) {
+                    // In update context, dependency must be provided in the same call
+                    if (!(dep in args) || !args[dep]) {
+                        return false;
+                    }
+                }
+                else {
+                    // In create context, allow base properties to be missing if they have defaults
+                    if (!(dep in args) || !args[dep]) {
+                        return false;
+                    }
                 }
             }
         }
@@ -103,6 +116,35 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                     required: ["Title", "Summary"],
                 },
             },
+            {
+                name: "update_task",
+                description: "Update an existing task plan by task ID. Provide the task_id and any subset of fields to update. All fields except task_id are optional.",
+                inputSchema: {
+                    type: "object",
+                    properties: {
+                        task_id: {
+                            type: "number",
+                            description: "The numeric ID of the task to update"
+                        },
+                        ...allProperties
+                    },
+                    required: ["task_id"],
+                },
+            },
+            {
+                name: "get_item",
+                description: "Retrieve a task by its numeric ID. Returns the complete task data in markdown format.",
+                inputSchema: {
+                    type: "object",
+                    properties: {
+                        task_id: {
+                            type: "number",
+                            description: "The numeric ID of the task to retrieve"
+                        }
+                    },
+                    required: ["task_id"],
+                },
+            },
         ],
     };
 });
@@ -114,9 +156,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     if (name === "create_task") {
         const title = toolArgs?.Title || "";
         const summary = toolArgs?.Summary || "";
+        // Generate task ID
+        const taskId = taskIdCounter++;
         const dynamicProperties = loadDynamicSchemaProperties();
         // Validate dependencies
-        if (!validateDependencies(dynamicProperties, toolArgs || {})) {
+        if (!validateDependencies(dynamicProperties, toolArgs || {}, false)) {
             return {
                 content: [
                     {
@@ -128,8 +172,23 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
         // Create execution chain
         const executionChain = createExecutionChain(dynamicProperties);
+        // Store task data
+        const taskData = {
+            id: taskId,
+            title: String(title),
+            summary: String(summary),
+        };
+        // Add dynamic properties to task data
+        for (const { prop_name } of executionChain) {
+            const value = toolArgs?.[prop_name] || "";
+            if (value) {
+                taskData[prop_name] = value;
+            }
+        }
+        taskStorage.set(taskId, taskData);
         // Create the markdown formatted task plan
         let markdownContent = `# Task
+**Task ID:** ${taskId}
 
 **Title:** ${title}
 
@@ -140,6 +199,142 @@ ${summary}
         // Process properties in execution order
         for (const { prop_name } of executionChain) {
             const value = toolArgs?.[prop_name] || "";
+            if (value) {
+                markdownContent += `\n## ${prop_name}\n\n${value}\n`;
+            }
+        }
+        return {
+            content: [
+                {
+                    type: "text",
+                    text: markdownContent,
+                },
+            ],
+        };
+    }
+    else if (name === "update_task") {
+        // Handle updating an existing task by ID
+        const taskId = toolArgs?.task_id;
+        // Validate task ID
+        if (!taskId || typeof taskId !== 'number' || taskId < 1) {
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: "Error: Valid numeric task_id is required for update.",
+                    },
+                ],
+            };
+        }
+        // Check if task exists
+        const existingTask = taskStorage.get(taskId);
+        if (!existingTask) {
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: `Error: Task with ID ${taskId} not found.`,
+                    },
+                ],
+            };
+        }
+        const dynamicProperties = loadDynamicSchemaProperties();
+        // Filter out task_id from validation since it's not a content field
+        const contentArgs = { ...toolArgs };
+        delete contentArgs.task_id;
+        // For updates, we don't validate dependencies since we're only updating partial fields
+        // The original task creation would have validated dependencies already
+        // Update stored task data
+        if (toolArgs?.Title) {
+            existingTask.title = String(toolArgs.Title);
+        }
+        if (toolArgs?.Summary) {
+            existingTask.summary = String(toolArgs.Summary);
+        }
+        // Create execution chain to order fields when building markdown
+        const executionChain = createExecutionChain(dynamicProperties);
+        // Update dynamic properties in storage
+        for (const { prop_name } of executionChain) {
+            const value = toolArgs?.[prop_name];
+            if (value) {
+                existingTask[prop_name] = value;
+            }
+        }
+        // Save updated task back to storage
+        taskStorage.set(taskId, existingTask);
+        let markdownContent = `# Task Update
+**Task ID:** ${taskId}
+
+`;
+        // Include provided core fields first
+        if (toolArgs?.Title) {
+            markdownContent += `**Title (updated):** ${toolArgs.Title}\n\n`;
+        }
+        if (toolArgs?.Summary) {
+            markdownContent += `## Summary (updated)\n\n${toolArgs.Summary}\n`;
+        }
+        // Append any dynamic property updates in order
+        for (const { prop_name } of executionChain) {
+            const value = toolArgs?.[prop_name];
+            if (value) {
+                markdownContent += `\n## ${prop_name} (updated)\n\n${value}\n`;
+            }
+        }
+        // If no content fields were supplied, inform user
+        const hasContentUpdates = Object.keys(contentArgs).length > 0;
+        if (!hasContentUpdates) {
+            markdownContent += "No fields supplied for update.";
+        }
+        return {
+            content: [
+                {
+                    type: "text",
+                    text: markdownContent,
+                },
+            ],
+        };
+    }
+    else if (name === "get_item") {
+        // Handle retrieving a task by ID
+        const taskId = toolArgs?.task_id;
+        // Validate task ID
+        if (!taskId || typeof taskId !== 'number' || taskId < 1) {
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: "Error: Valid numeric task_id is required for retrieval.",
+                    },
+                ],
+            };
+        }
+        // Check if task exists
+        const task = taskStorage.get(taskId);
+        if (!task) {
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: `Error: Task with ID ${taskId} not found.`,
+                    },
+                ],
+            };
+        }
+        const dynamicProperties = loadDynamicSchemaProperties();
+        const executionChain = createExecutionChain(dynamicProperties);
+        // Generate markdown for the complete task
+        let markdownContent = `# Task
+**Task ID:** ${task.id}
+
+**Title:** ${task.title}
+
+## Summary
+
+${task.summary}
+`;
+        // Add dynamic properties in execution order
+        for (const { prop_name } of executionChain) {
+            const value = task[prop_name];
             if (value) {
                 markdownContent += `\n## ${prop_name}\n\n${value}\n`;
             }

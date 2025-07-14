@@ -47,12 +47,133 @@ npm run clean
 
 ## Key Implementation Details
 
-- The server provides one tool: `create_task` which accepts Title, Summary, and dynamic properties
+- The server provides three tools:
+  - `create_task`: Creates a new task plan (requires Title and Summary, accepts dynamic properties)
+  - `update_task`: Updates an existing task plan (all fields optional, validates dependencies)
+  - `get_item`: Retrieves a complete task by numeric ID
 - Dynamic properties are loaded from `schema_properties.json` with execution order and dependency management
 - Properties include Research (depends on Summary) and Items (depends on Summary and Research)
 - Output is formatted as structured markdown with sections for each property
 - Server runs over stdio communication channel
 - Equivalent functionality to the Python version with identical schema and behavior
+
+## Tool Usage Examples
+
+### create_task
+Creates a complete task plan with automatic numeric task ID generation:
+
+```json
+{
+  "name": "create_task",
+  "arguments": {
+    "Title": "Implement user authentication system",
+    "Summary": "Add secure login/logout functionality with session management",
+    "Research": "Technical requirements: OAuth 2.0, JWT tokens, password hashing with bcrypt, session storage in Redis. Business constraints: Must integrate with existing user database. Dependencies: Redis server, OAuth provider setup.",
+    "Items": "- Set up OAuth 2.0 configuration\n- Implement JWT token generation and validation\n- Create password hashing utilities\n- Build login/logout endpoints\n- Add session middleware\n- Write comprehensive tests"
+  }
+}
+```
+
+**Output includes Task ID:**
+```markdown
+# Task
+**Task ID:** 1
+
+**Title:** Implement user authentication system
+
+## Summary
+Add secure login/logout functionality with session management
+...
+```
+
+### update_task
+Updates specific fields of an existing task by numeric task ID. The `task_id` field is required, all other fields are optional. **No dependency validation is enforced for updates** - you can update any field independently.
+
+#### Single field updates:
+```json
+{
+  "name": "update_task", 
+  "arguments": {
+    "task_id": 1,
+    "Title": "Enhanced user authentication system"
+  }
+}
+```
+
+#### Update any field independently:
+```json
+{
+  "name": "update_task",
+  "arguments": {
+    "task_id": 1,
+    "Research": "Updated research findings"
+  }
+}
+```
+
+#### Multi-field updates:
+```json
+{
+  "name": "update_task",
+  "arguments": {
+    "task_id": 1,
+    "Summary": "Updated summary with new requirements",
+    "Research": "Updated research findings with additional security considerations"
+  }
+}
+```
+
+#### Task ID validation:
+- ✅ Valid: `{"task_id": 1, "Title": "..."}` (numeric ID ≥ 1)
+- ❌ Invalid: `{"Title": "..."}` (missing task_id)
+- ❌ Invalid: `{"task_id": "1", "Title": "..."}` (string ID)
+- ❌ Invalid: `{"task_id": 0, "Title": "..."}` (ID must be ≥ 1)
+
+#### Dependency behavior:
+- ✅ `{"task_id": 1, "Research": "..."}` (can update Research alone)
+- ✅ `{"task_id": 1, "Items": "..."}` (can update Items alone)
+- ✅ `{"task_id": 1, "Summary": "...", "Research": "..."}` (can update multiple fields)
+- **Note:** Dependencies are only validated during initial task creation with `create_task`, not during updates
+
+### get_item
+Retrieves a complete task by its numeric ID. Returns all stored task data in the same format as create_task.
+
+#### Basic retrieval:
+```json
+{
+  "name": "get_item",
+  "arguments": {
+    "task_id": 1
+  }
+}
+```
+
+#### Task ID validation:
+- ✅ Valid: `{"task_id": 1}` (numeric ID ≥ 1)
+- ❌ Invalid: `{}` (missing task_id)
+- ❌ Invalid: `{"task_id": "1"}` (string ID)
+- ❌ Invalid: `{"task_id": 0}` (ID must be ≥ 1)
+
+#### Output format:
+```markdown
+# Task
+**Task ID:** 1
+
+**Title:** [Task Title]
+
+## Summary
+[Task Summary]
+
+## Research
+[Research Content]
+
+## Items
+[Items Content]
+```
+
+#### Error handling:
+- **Missing task**: Returns `Error: Task with ID [id] not found.`
+- **Invalid ID**: Returns `Error: Valid numeric task_id is required for retrieval.`
 
 ## Build Process
 
