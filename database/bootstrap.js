@@ -22,8 +22,8 @@ async function loadSchemaProperties() {
   try {
     console.log('Loading schema properties into database...');
     
-    // Read schema_properties.json from the MCP project
-    const schemaPath = join(__dirname, '..', 'mcp', 'schema_properties.json');
+    // Read schema_properties.json (mounted as volume)
+    const schemaPath = join(__dirname, 'schema_properties.json');
     const schemaData = readFileSync(schemaPath, 'utf8');
     const properties = JSON.parse(schemaData);
     

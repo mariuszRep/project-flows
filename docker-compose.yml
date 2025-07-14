@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  postgres:
+    build: 
+      context: ./database
+      dockerfile: Dockerfile
+    container_name: mcp-postgres
+    environment:
+      POSTGRES_DB: mcp_tasks
+      POSTGRES_USER: mcp_user
+      POSTGRES_PASSWORD: mcp_password
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./mcp/schema_properties.json:/app/schema_properties.json:ro
+    networks:
+      - mcp-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mcp_user -d mcp_tasks"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  mcp-server:
+    build: 
+      context: ./mcp
+      dockerfile: Dockerfile
+    container_name: mcp-server
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://mcp_user:mcp_password@postgres:5432/mcp_tasks
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=mcp_tasks
+      - POSTGRES_USER=mcp_user
+      - POSTGRES_PASSWORD=mcp_password
+    volumes:
+      - ./mcp/src:/app/src
+      - ./mcp/tsconfig.json:/app/tsconfig.json
+      - ./mcp/schema_properties.json:/app/schema_properties.json
+    command: npm run dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - mcp-network
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+
+  # Optional: Database management container
+  db-admin:
+    image: adminer:latest
+    container_name: mcp-db-admin
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+    networks:
+      - mcp-network
+    restart: unless-stopped
+    profiles:
+      - admin
+
+volumes:
+  postgres_data:
+
+networks:
+  mcp-network:
+    driver: bridge
