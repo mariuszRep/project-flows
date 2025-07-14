@@ -68,15 +68,15 @@ class IntegrationTester {
       const expectedSchema = JSON.parse(readFileSync(schemaPath, 'utf8'));
       
       // Query database for schema properties
-      const result = await this.pool.query('SELECT key, value FROM schema_properties ORDER BY key');
+      const result = await this.pool.query('SELECT key, type, description, dependencies, execution_order FROM properties ORDER BY key');
       
       if (result.rows.length === 0) {
         console.log('⚠️  No schema properties found, loading them...');
         // Load schema properties (simulate bootstrap)
         for (const [key, value] of Object.entries(expectedSchema)) {
           await this.pool.query(
-            'INSERT INTO schema_properties (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2',
-            [key, JSON.stringify(value)]
+            'INSERT INTO properties (key, type, description, dependencies, execution_order, created_by) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (key) DO UPDATE SET type = $2, description = $3, dependencies = $4, execution_order = $5, updated_by = $6',
+            [key, value.type, value.description, value.dependencies || [], value.execution_order || 0, 'system']
           );
         }
         console.log('✅ Schema properties loaded successfully');
@@ -87,7 +87,7 @@ class IntegrationTester {
       // Verify properties match expected
       for (const [key, expectedValue] of Object.entries(expectedSchema)) {
         const dbRow = result.rows.find(row => row.key === key);
-        if (dbRow && JSON.stringify(JSON.parse(dbRow.value)) === JSON.stringify(expectedValue)) {
+        if (dbRow && dbRow.type === expectedValue.type && dbRow.description === expectedValue.description) {
           console.log(`   ✓ Property '${key}' matches expected value`);
         } else {
           console.log(`   ⚠️  Property '${key}' missing or incorrect`);

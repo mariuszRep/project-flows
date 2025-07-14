@@ -1,7 +1,7 @@
 -- Database schema for MCP task management system
 
 -- Table to store schema properties from schema_properties.json
-CREATE TABLE IF NOT EXISTS schema_properties (
+CREATE TABLE IF NOT EXISTS properties (
     key TEXT PRIMARY KEY,
     value JSONB NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -44,7 +44,7 @@ END;
 $$ language 'plpgsql';
 
 -- Triggers to automatically update updated_at column
-CREATE TRIGGER update_schema_properties_updated_at BEFORE UPDATE ON schema_properties
+CREATE TRIGGER update_properties_updated_at BEFORE UPDATE ON properties
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_tasks_updated_at BEFORE UPDATE ON tasks

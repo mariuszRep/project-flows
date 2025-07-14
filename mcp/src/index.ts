@@ -189,7 +189,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       } as Tool,
       {
-        name: "get_item",
+        name: "get_task",
         description: "Retrieve a task by its numeric ID. Returns the complete task data in markdown format.",
         inputSchema: {
           type: "object",
@@ -398,7 +398,7 @@ ${summary}
         } as TextContent,
       ],
     };
-  } else if (name === "get_item") {
+  } else if (name === "get_task") {
     // Handle retrieving a task by ID
     const taskId = toolArgs?.task_id;
     

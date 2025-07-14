@@ -39,12 +39,26 @@ class DatabaseService {
                 await client.query('BEGIN');
                 for (const [key, value] of Object.entries(properties)) {
                     const query = `
-            INSERT INTO schema_properties (key, value) 
-            VALUES ($1, $2) 
+            INSERT INTO properties (key, type, description, dependencies, execution_order, created_by) 
+            VALUES ($1, $2, $3, $4, $5, $6) 
             ON CONFLICT (key) 
-            DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP
+            DO UPDATE SET 
+              type = $2, 
+              description = $3, 
+              dependencies = $4, 
+              execution_order = $5, 
+              updated_by = $6, 
+              updated_at = CURRENT_TIMESTAMP
           `;
-                    await client.query(query, [key, JSON.stringify(value)]);
+                    const prop = value;
+                    await client.query(query, [
+                        key,
+                        prop.type,
+                        prop.description,
+                        prop.dependencies || [],
+                        prop.execution_order || 0,
+                        'system'
+                    ]);
                 }
                 await client.query('COMMIT');
                 console.log('Schema properties loaded successfully');
@@ -64,11 +78,16 @@ class DatabaseService {
     }
     async getSchemaProperties() {
         try {
-            const query = 'SELECT key, value FROM schema_properties ORDER BY key';
+            const query = 'SELECT key, type, description, dependencies, execution_order FROM properties ORDER BY key';
             const result = await this.pool.query(query);
             const properties = {};
             for (const row of result.rows) {
-                properties[row.key] = JSON.parse(row.value);
+                properties[row.key] = {
+                    type: row.type,
+                    description: row.description,
+                    dependencies: row.dependencies,
+                    execution_order: row.execution_order
+                };
             }
             return properties;
         }
@@ -183,7 +202,7 @@ class DatabaseService {
                 summary: task.summary,
             };
             for (const block of blocksResult.rows) {
-                taskData[block.property_name] = JSON.parse(block.content);
+                taskData[block.property_name] = block.content;
             }
             return taskData;
         }
