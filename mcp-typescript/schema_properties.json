@@ -1,0 +1,14 @@
+{
+  "Research": {
+    "type": "string", 
+    "description": "Comprehensive context including: technical requirements, business constraints, dependencies, acceptance criteria, edge cases, and background information that impacts implementation decisions.",
+    "dependencies": ["Summary"],
+    "execution_order": 3
+  },
+  "Items": {
+    "type": "string", 
+    "description": "Markdown checklist of specific, actionable, and measurable steps. Each item should be concrete enough that completion can be verified.",
+    "dependencies": ["Summary", "Research"],
+    "execution_order": 4
+  }
+}

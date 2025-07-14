@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "hello-world-typescript": {
+      "command": "node",
+      "args": ["/root/projects/mcp-test/mcp-typescript/dist/index.js"],
+      "description": "TypeScript Hello World MCP Server - Creates detailed task plans with markdown formatting"
+    }
+  }
+}
