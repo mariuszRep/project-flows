@@ -1,0 +1,17 @@
+{
+  "name": "mcp-database",
+  "version": "1.0.0",
+  "description": "Database scripts for MCP task management",
+  "type": "module",
+  "scripts": {
+    "migrate": "node migrate.js",
+    "bootstrap": "node bootstrap.js",
+    "setup": "npm run migrate && npm run bootstrap"
+  },
+  "dependencies": {
+    "pg": "^8.11.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.10.0"
+  }
+}

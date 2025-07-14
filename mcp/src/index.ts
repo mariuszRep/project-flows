@@ -15,6 +15,7 @@ import {
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
+import DatabaseService from "./database.js";
 
 interface SchemaProperty {
   type: string;
@@ -36,18 +37,16 @@ interface ExecutionChainItem {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Simple counter for task IDs
-let taskIdCounter = 1;
+// Initialize database service
+const dbService = new DatabaseService();
 
-// In-memory storage for tasks
+// Task data interface (moved to database.ts but kept here for compatibility)
 interface TaskData {
   id: number;
   title: string;
   summary: string;
   [key: string]: any; // for dynamic properties
 }
-
-const taskStorage: Map<number, TaskData> = new Map();
 
 const server = new Server(
   {
@@ -61,16 +60,23 @@ const server = new Server(
   }
 );
 
-function loadDynamicSchemaProperties(): SchemaProperties {
+async function loadDynamicSchemaProperties(): Promise<SchemaProperties> {
   /**
-   * Load schema properties from external file.
+   * Load schema properties from database.
    */
   try {
-    const schemaFile = join(__dirname, "..", "schema_properties.json");
-    const data = readFileSync(schemaFile, "utf8");
-    return JSON.parse(data);
+    return await dbService.getSchemaProperties();
   } catch (error) {
-    return {};
+    console.error('Error loading schema properties from database:', error);
+    // Fallback to file-based loading
+    try {
+      const schemaFile = join(__dirname, "..", "schema_properties.json");
+      const data = readFileSync(schemaFile, "utf8");
+      return JSON.parse(data);
+    } catch (fallbackError) {
+      console.error('Fallback file loading also failed:', fallbackError);
+      return {};
+    }
   }
 }
 
@@ -140,7 +146,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     },
   };
 
-  const dynamicProperties = loadDynamicSchemaProperties();
+  const dynamicProperties = await loadDynamicSchemaProperties();
 
   // Clean properties for schema (remove execution metadata)
   const schemaProperties: Record<string, any> = {};
@@ -209,11 +215,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   if (name === "create_task") {
     const title = toolArgs?.Title || "";
     const summary = toolArgs?.Summary || "";
-    
-    // Generate task ID
-    const taskId = taskIdCounter++;
 
-    const dynamicProperties = loadDynamicSchemaProperties();
+    const dynamicProperties = await loadDynamicSchemaProperties();
 
     // Validate dependencies
     if (!validateDependencies(dynamicProperties, toolArgs || {}, false)) {
@@ -230,9 +233,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     // Create execution chain
     const executionChain = createExecutionChain(dynamicProperties);
 
-    // Store task data
-    const taskData: TaskData = {
-      id: taskId,
+    // Prepare task data
+    const taskData: Omit<TaskData, 'id'> = {
       title: String(title),
       summary: String(summary),
     };
@@ -245,7 +247,21 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
     }
 
-    taskStorage.set(taskId, taskData);
+    // Store task in database
+    let taskId: number;
+    try {
+      taskId = await dbService.createTask(taskData);
+    } catch (error) {
+      console.error('Error creating task:', error);
+      return {
+        content: [
+          {
+            type: "text",
+            text: "Error: Failed to create task in database.",
+          } as TextContent,
+        ],
+      };
+    }
 
     // Create the markdown formatted task plan
     let markdownContent = `# Task
@@ -291,7 +307,7 @@ ${summary}
     }
 
     // Check if task exists
-    const existingTask = taskStorage.get(taskId);
+    const existingTask = await dbService.getTask(taskId);
     if (!existingTask) {
       return {
         content: [
@@ -303,7 +319,7 @@ ${summary}
       };
     }
 
-    const dynamicProperties = loadDynamicSchemaProperties();
+    const dynamicProperties = await loadDynamicSchemaProperties();
 
     // Filter out task_id from validation since it's not a content field
     const contentArgs = { ...toolArgs };
@@ -312,27 +328,40 @@ ${summary}
     // For updates, we don't validate dependencies since we're only updating partial fields
     // The original task creation would have validated dependencies already
 
-    // Update stored task data
-    if (toolArgs?.Title) {
-      existingTask.title = String(toolArgs.Title);
+    // Prepare update data
+    const updateData: Partial<TaskData> = {};
+    if (toolArgs?.Title !== undefined) {
+      updateData.title = String(toolArgs.Title);
     }
-    if (toolArgs?.Summary) {
-      existingTask.summary = String(toolArgs.Summary);
+    if (toolArgs?.Summary !== undefined) {
+      updateData.summary = String(toolArgs.Summary);
     }
 
     // Create execution chain to order fields when building markdown
     const executionChain = createExecutionChain(dynamicProperties);
 
-    // Update dynamic properties in storage
+    // Add dynamic properties to update data
     for (const { prop_name } of executionChain) {
       const value = toolArgs?.[prop_name];
-      if (value) {
-        existingTask[prop_name] = value;
+      if (value !== undefined) {
+        updateData[prop_name] = value;
       }
     }
 
-    // Save updated task back to storage
-    taskStorage.set(taskId, existingTask);
+    // Update task in database
+    try {
+      await dbService.updateTask(taskId, updateData);
+    } catch (error) {
+      console.error('Error updating task:', error);
+      return {
+        content: [
+          {
+            type: "text",
+            text: "Error: Failed to update task in database.",
+          } as TextContent,
+        ],
+      };
+    }
 
     let markdownContent = `# Task Update
 **Task ID:** ${taskId}
@@ -385,8 +414,8 @@ ${summary}
       };
     }
 
-    // Check if task exists
-    const task = taskStorage.get(taskId);
+    // Get task from database
+    const task = await dbService.getTask(taskId);
     if (!task) {
       return {
         content: [
@@ -398,7 +427,7 @@ ${summary}
       };
     }
 
-    const dynamicProperties = loadDynamicSchemaProperties();
+    const dynamicProperties = await loadDynamicSchemaProperties();
     const executionChain = createExecutionChain(dynamicProperties);
 
     // Generate markdown for the complete task
@@ -437,7 +466,29 @@ async function main() {
   /**
    * Main entry point for the server.
    */
+  // Initialize database connection
+  try {
+    await dbService.initialize();
+  } catch (error) {
+    console.error('Failed to initialize database:', error);
+    process.exit(1);
+  }
+
   const transport = new StdioServerTransport();
+  
+  // Cleanup database connection on exit
+  process.on('SIGINT', async () => {
+    console.log('Closing database connection...');
+    await dbService.close();
+    process.exit(0);
+  });
+  
+  process.on('SIGTERM', async () => {
+    console.log('Closing database connection...');
+    await dbService.close();
+    process.exit(0);
+  });
+  
   await server.connect(transport);
 }
 
