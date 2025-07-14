@@ -15,6 +15,15 @@ import {
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
+import {
+  createTask,
+  updateTask,
+  getTask,
+  addBlock,
+  updateBlock,
+  getBlockByType,
+  type Task,
+} from "./storage.js";
 
 interface SchemaProperty {
   type: string;
@@ -35,19 +44,6 @@ interface ExecutionChainItem {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-
-// Simple counter for task IDs
-let taskIdCounter = 1;
-
-// In-memory storage for tasks
-interface TaskData {
-  id: number;
-  title: string;
-  summary: string;
-  [key: string]: any; // for dynamic properties
-}
-
-const taskStorage: Map<number, TaskData> = new Map();
 
 const server = new Server(
   {
@@ -94,28 +90,18 @@ function createExecutionChain(properties: SchemaProperties): ExecutionChainItem[
 
 function validateDependencies(
   properties: SchemaProperties,
-  args: Record<string, any>,
-  isUpdateContext: boolean = false
+  args: Record<string, any>
 ): boolean {
   /**
    * Validate that dependencies are satisfied for each property that has a value.
-   * In update context, all dependencies must be provided in the same call.
    */
   for (const [propName, propConfig] of Object.entries(properties)) {
     const dependencies = propConfig.dependencies || [];
     // Only validate dependencies for properties that are actually provided and have values
     if (propName in args && args[propName]) {
       for (const dep of dependencies) {
-        if (isUpdateContext) {
-          // In update context, dependency must be provided in the same call
-          if (!(dep in args) || !args[dep]) {
-            return false;
-          }
-        } else {
-          // In create context, allow base properties to be missing if they have defaults
-          if (!(dep in args) || !args[dep]) {
-            return false;
-          }
+        if (!(dep in args) || !args[dep]) {
+          return false;
         }
       }
     }
@@ -167,35 +153,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ["Title", "Summary"],
         },
       } as Tool,
-      {
-        name: "update_task",
-        description: "Update an existing task plan by task ID. Provide the task_id and any subset of fields to update. All fields except task_id are optional.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            task_id: {
-              type: "number",
-              description: "The numeric ID of the task to update"
-            },
-            ...allProperties
-          },
-          required: ["task_id"],
-        },
-      } as Tool,
-      {
-        name: "get_item",
-        description: "Retrieve a task by its numeric ID. Returns the complete task data in markdown format.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            task_id: {
-              type: "number",
-              description: "The numeric ID of the task to retrieve"
-            }
-          },
-          required: ["task_id"],
-        },
-      } as Tool,
     ],
   };
 });
@@ -207,16 +164,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: toolArgs } = request.params;
 
   if (name === "create_task") {
-    const title = toolArgs?.Title || "";
-    const summary = toolArgs?.Summary || "";
+    const title = String(toolArgs?.Title || "");
+    const summary = String(toolArgs?.Summary || "");
     
-    // Generate task ID
-    const taskId = taskIdCounter++;
-
     const dynamicProperties = loadDynamicSchemaProperties();
 
     // Validate dependencies
-    if (!validateDependencies(dynamicProperties, toolArgs || {}, false)) {
+    if (!validateDependencies(dynamicProperties, toolArgs || {})) {
       return {
         content: [
           {
@@ -227,31 +181,30 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       };
     }
 
+    // Create task using helper function
+    const task = createTask(title);
+
+    // Add Summary block
+    if (summary) {
+      addBlock(task.id, "Summary", summary);
+    }
+
     // Create execution chain
     const executionChain = createExecutionChain(dynamicProperties);
 
-    // Store task data
-    const taskData: TaskData = {
-      id: taskId,
-      title: String(title),
-      summary: String(summary),
-    };
-
-    // Add dynamic properties to task data
+    // Add dynamic property blocks
     for (const { prop_name } of executionChain) {
-      const value = toolArgs?.[prop_name] || "";
+      const value = String(toolArgs?.[prop_name] || "");
       if (value) {
-        taskData[prop_name] = value;
+        addBlock(task.id, prop_name, value);
       }
     }
 
-    taskStorage.set(taskId, taskData);
-
     // Create the markdown formatted task plan
     let markdownContent = `# Task
-**Task ID:** ${taskId}
+**Task ID:** ${task.id}
 
-**Title:** ${title}
+**Title:** ${task.title}
 
 ## Summary
 
@@ -260,7 +213,7 @@ ${summary}
 
     // Process properties in execution order
     for (const { prop_name } of executionChain) {
-      const value = toolArgs?.[prop_name] || "";
+      const value = String(toolArgs?.[prop_name] || "");
       if (value) {
         markdownContent += `\n## ${prop_name}\n\n${value}\n`;
       }
@@ -291,7 +244,7 @@ ${summary}
     }
 
     // Check if task exists
-    const existingTask = taskStorage.get(taskId);
+    const existingTask = getTask(taskId);
     if (!existingTask) {
       return {
         content: [
@@ -309,30 +262,41 @@ ${summary}
     const contentArgs = { ...toolArgs };
     delete contentArgs.task_id;
 
-    // For updates, we don't validate dependencies since we're only updating partial fields
-    // The original task creation would have validated dependencies already
-
-    // Update stored task data
+    // Update task metadata if provided
+    const taskUpdates: Partial<Omit<Task, 'id' | 'created_at'>> = {};
     if (toolArgs?.Title) {
-      existingTask.title = String(toolArgs.Title);
+      taskUpdates.title = String(toolArgs.Title);
     }
+    
+    if (Object.keys(taskUpdates).length > 0) {
+      updateTask(taskId, taskUpdates);
+    }
+
+    // Update or create blocks
     if (toolArgs?.Summary) {
-      existingTask.summary = String(toolArgs.Summary);
+      const existingBlock = getBlockByType(taskId, "Summary");
+      if (existingBlock) {
+        updateBlock(taskId, "Summary", String(toolArgs.Summary));
+      } else {
+        addBlock(taskId, "Summary", String(toolArgs.Summary));
+      }
     }
 
     // Create execution chain to order fields when building markdown
     const executionChain = createExecutionChain(dynamicProperties);
 
-    // Update dynamic properties in storage
+    // Update dynamic property blocks
     for (const { prop_name } of executionChain) {
       const value = toolArgs?.[prop_name];
       if (value) {
-        existingTask[prop_name] = value;
+        const existingBlock = getBlockByType(taskId, prop_name);
+        if (existingBlock) {
+          updateBlock(taskId, prop_name, String(value));
+        } else {
+          addBlock(taskId, prop_name, String(value));
+        }
       }
     }
-
-    // Save updated task back to storage
-    taskStorage.set(taskId, existingTask);
 
     let markdownContent = `# Task Update
 **Task ID:** ${taskId}
@@ -386,7 +350,7 @@ ${summary}
     }
 
     // Check if task exists
-    const task = taskStorage.get(taskId);
+    const task = getTask(taskId);
     if (!task) {
       return {
         content: [
@@ -409,14 +373,18 @@ ${summary}
 
 ## Summary
 
-${task.summary}
 `;
+
+    // Get Summary block content
+    const summaryBlock = getBlockByType(taskId, "Summary");
+    markdownContent += summaryBlock ? summaryBlock.content : "";
+    markdownContent += "\n";
 
     // Add dynamic properties in execution order
     for (const { prop_name } of executionChain) {
-      const value = task[prop_name];
-      if (value) {
-        markdownContent += `\n## ${prop_name}\n\n${value}\n`;
+      const block = getBlockByType(taskId, prop_name);
+      if (block) {
+        markdownContent += `\n## ${prop_name}\n\n${block.content}\n`;
       }
     }
 
