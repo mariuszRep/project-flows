@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a TypeScript implementation of the MCP (Model Context Protocol) server, equivalent to the Python version in `/root/projects/mcp-python/`. The project contains a single MCP server that provides task creation and planning functionality through a "create_task" tool.
+This is a TypeScript implementation of the MCP (Model Context Protocol) server with SSE (Server-Sent Events) support for multiple concurrent clients. The project provides task creation and planning functionality through multiple tools with shared database persistence.
 
 ## Architecture
 
@@ -14,8 +14,10 @@ This is a TypeScript implementation of the MCP (Model Context Protocol) server, 
 
 ### Core Components
 
-- The server implements MCP protocol using the `@modelcontextprotocol/sdk` TypeScript library
-- Tool registration system with dynamic schema loading from JSON configuration
+- **SSE Multi-Client Support**: Express.js server with SSE transport for concurrent client connections
+- **Shared Database**: PostgreSQL database service shared across all client sessions
+- **Session Management**: Individual MCP server instances per client with session tracking
+- Tool registration system with dynamic schema loading from database/JSON configuration
 - Dependency validation and execution ordering for task properties
 - Markdown output formatting for task plans
 
@@ -29,7 +31,7 @@ npm install
 # Build the project
 npm run build
 
-# Run the server (connects via stdio)
+# Run the SSE server (HTTP server on port 3001)
 npm start
 
 # Development mode with auto-reload
@@ -43,6 +45,10 @@ npm run clean
 - Node.js (ES2022 compatible)
 - TypeScript 5.x
 - @modelcontextprotocol/sdk - MCP SDK for TypeScript
+- Express.js 5.x - Web server for SSE endpoints
+- CORS - Cross-origin resource sharing support
+- PostgreSQL (pg) - Database client
+- Zod - Schema validation
 - tsx - TypeScript execution for development
 
 ## Key Implementation Details
@@ -54,8 +60,10 @@ npm run clean
 - Dynamic properties are loaded from `schema_properties.json` with execution order and dependency management
 - Properties include Research (depends on Summary) and Items (depends on Summary and Research)
 - Output is formatted as structured markdown with sections for each property
-- Server runs over stdio communication channel
-- Equivalent functionality to the Python version with identical schema and behavior
+- Server runs over HTTP with SSE (Server-Sent Events) for real-time communication
+- Multiple clients can connect simultaneously, sharing the same database
+- Each client gets its own MCP server instance with session management
+- Default port: 3001 (configurable via PORT environment variable)
 
 ## Tool Usage Examples
 

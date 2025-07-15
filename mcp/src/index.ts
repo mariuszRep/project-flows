@@ -5,7 +5,10 @@
  */
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import express from "express";
+import cors from "cors";
+import { z } from "zod";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -37,8 +40,8 @@ interface ExecutionChainItem {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Initialize database service
-const dbService = new DatabaseService();
+// Initialize shared database service for all connections
+const sharedDbService = new DatabaseService();
 
 // Task data interface (moved to database.ts but kept here for compatibility)
 interface TaskData {
@@ -48,86 +51,88 @@ interface TaskData {
   [key: string]: any; // for dynamic properties
 }
 
-const server = new Server(
-  {
-    name: "project-flows",
-    version: "1.0.0",
-  },
-  {
-    capabilities: {
-      tools: {},
+// Factory function to create a configured MCP server instance
+function createMcpServer(): Server {
+  const server = new Server(
+    {
+      name: "project-flows",
+      version: "1.0.0",
     },
-  }
-);
+    {
+      capabilities: {
+        tools: {},
+      },
+    }
+  );
 
-async function loadDynamicSchemaProperties(): Promise<SchemaProperties> {
-  /**
-   * Load schema properties from database.
-   */
-  try {
-    return await dbService.getSchemaProperties();
-  } catch (error) {
-    console.error('Error loading schema properties from database:', error);
-    // Fallback to file-based loading
+  async function loadDynamicSchemaProperties(): Promise<SchemaProperties> {
+    /**
+     * Load schema properties from database.
+     */
     try {
-      const schemaFile = join(__dirname, "..", "schema_properties.json");
-      const data = readFileSync(schemaFile, "utf8");
-      return JSON.parse(data);
-    } catch (fallbackError) {
-      console.error('Fallback file loading also failed:', fallbackError);
-      return {};
+      return await sharedDbService.getSchemaProperties();
+    } catch (error) {
+      console.error('Error loading schema properties from database:', error);
+      // Fallback to file-based loading
+      try {
+        const schemaFile = join(__dirname, "..", "schema_properties.json");
+        const data = readFileSync(schemaFile, "utf8");
+        return JSON.parse(data);
+      } catch (fallbackError) {
+        console.error('Fallback file loading also failed:', fallbackError);
+        return {};
+      }
     }
   }
-}
 
-function createExecutionChain(properties: SchemaProperties): ExecutionChainItem[] {
-  /**
-   * Create execution chain based on dependencies and execution order.
-   */
-  const sortedProps: ExecutionChainItem[] = [];
-  
-  for (const [propName, propConfig] of Object.entries(properties)) {
-    const executionOrder = propConfig.execution_order ?? 999;
-    sortedProps.push({
-      execution_order: executionOrder,
-      prop_name: propName,
-      prop_config: propConfig,
-    });
+  function createExecutionChain(properties: SchemaProperties): ExecutionChainItem[] {
+    /**
+     * Create execution chain based on dependencies and execution order.
+     */
+    const sortedProps: ExecutionChainItem[] = [];
+    
+    for (const [propName, propConfig] of Object.entries(properties)) {
+      const executionOrder = propConfig.execution_order ?? 999;
+      sortedProps.push({
+        execution_order: executionOrder,
+        prop_name: propName,
+        prop_config: propConfig,
+      });
+    }
+    
+    return sortedProps.sort((a, b) => a.execution_order - b.execution_order);
   }
-  
-  return sortedProps.sort((a, b) => a.execution_order - b.execution_order);
-}
 
-function validateDependencies(
-  properties: SchemaProperties,
-  args: Record<string, any>,
-  isUpdateContext: boolean = false
-): boolean {
-  /**
-   * Validate that dependencies are satisfied for each property that has a value.
-   * In update context, all dependencies must be provided in the same call.
-   */
-  for (const [propName, propConfig] of Object.entries(properties)) {
-    const dependencies = propConfig.dependencies || [];
-    // Only validate dependencies for properties that are actually provided and have values
-    if (propName in args && args[propName]) {
-      for (const dep of dependencies) {
-        if (isUpdateContext) {
-          // In update context, dependency must be provided in the same call
-          if (!(dep in args) || !args[dep]) {
-            return false;
-          }
-        } else {
-          // In create context, allow base properties to be missing if they have defaults
-          if (!(dep in args) || !args[dep]) {
-            return false;
+  function validateDependencies(
+    properties: SchemaProperties,
+    args: Record<string, any>,
+    isUpdateContext: boolean = false
+  ): boolean {
+    /**
+     * Validate that dependencies are satisfied for each property that has a value.
+     * In update context, all dependencies must be provided in the same call.
+     */
+    for (const [propName, propConfig] of Object.entries(properties)) {
+      const dependencies = propConfig.dependencies || [];
+      // Only validate dependencies for properties that are actually provided and have values
+      if (propName in args && args[propName]) {
+        for (const dep of dependencies) {
+          if (isUpdateContext) {
+            // In update context, dependency must be provided in the same call
+            if (!(dep in args) || !args[dep]) {
+              return false;
+            }
+          } else {
+            // In create context, allow base properties to be missing if they have defaults
+            if (!(dep in args) || !args[dep]) {
+              return false;
+            }
           }
         }
       }
     }
+    return true;
   }
-  return true;
-}
 
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   /**
@@ -250,7 +255,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     // Store task in database
     let taskId: number;
     try {
-      taskId = await dbService.createTask(taskData);
+      taskId = await sharedDbService.createTask(taskData);
     } catch (error) {
       console.error('Error creating task:', error);
       return {
@@ -307,7 +312,7 @@ ${summary}
     }
 
     // Check if task exists
-    const existingTask = await dbService.getTask(taskId);
+    const existingTask = await sharedDbService.getTask(taskId);
     if (!existingTask) {
       return {
         content: [
@@ -350,7 +355,7 @@ ${summary}
 
     // Update task in database
     try {
-      await dbService.updateTask(taskId, updateData);
+      await sharedDbService.updateTask(taskId, updateData);
     } catch (error) {
       console.error('Error updating task:', error);
       return {
@@ -415,7 +420,7 @@ ${summary}
     }
 
     // Get task from database
-    const task = await dbService.getTask(taskId);
+    const task = await sharedDbService.getTask(taskId);
     if (!task) {
       return {
         content: [
@@ -462,34 +467,110 @@ ${task.summary}
   }
 });
 
+  return server;
+}
+
+// Create Express app
+const app = express();
+
+// Enable CORS for all routes
+app.use(cors());
+
+// Add request timeout and connection limits (but skip for SSE connections)
+app.use((req: any, res: any, next: any) => {
+  // Skip timeout for SSE connections since they're meant to be long-lived
+  if (req.url !== '/sse') {
+    res.setTimeout(30000, () => {
+      console.log('Request timeout for', req.url);
+      if (!res.headersSent) {
+        res.status(408).send('Request timeout');
+      }
+    });
+  }
+  next();
+});
+
+// Support multiple simultaneous connections with per-session MCP servers
+const connections: {[sessionId: string]: {transport: SSEServerTransport, server: Server}} = {};
+
+app.get("/", async (_: any, res: any) => {
+  res.status(200).send('Project Flows MCP Server - Multiple clients supported with shared database');
+});
+
+app.get("/sse", async (_: any, res: any) => {
+  try {
+    const transport = new SSEServerTransport('/messages', res);
+    const serverInstance = createMcpServer(); // Create new MCP server instance per connection
+    
+    connections[transport.sessionId] = { transport, server: serverInstance };
+    
+    // Clean up connection on close
+    res.on("close", () => {
+      console.log(`Connection closed for session: ${transport.sessionId}`);
+      delete connections[transport.sessionId];
+    });
+    
+    console.log(`New connection established with session: ${transport.sessionId}`);
+    console.log(`Active connections: ${Object.keys(connections).length}`);
+    
+    // Each server connects to its own transport
+    await serverInstance.connect(transport);
+  } catch (error) {
+    console.error('Error establishing SSE connection:', error);
+    res.status(500).send('Failed to establish connection');
+  }
+});
+
+app.post("/messages", async (req: any, res: any) => {
+  const sessionId = req.query.sessionId as string;
+  const connection = connections[sessionId];
+  
+  if (connection) {
+    try {
+      await connection.transport.handlePostMessage(req, res);
+    } catch (error) {
+      console.error(`Error handling message for session ${sessionId}:`, error);
+      res.status(500).send('Error processing message');
+    }
+  } else {
+    console.warn(`No connection found for sessionId: ${sessionId}`);
+    console.log(`Available sessions: ${Object.keys(connections).join(', ')}`);
+    res.status(400).send('No connection found for sessionId');
+  }
+});
+
 async function main() {
   /**
    * Main entry point for the server.
    */
   // Initialize database connection
   try {
-    await dbService.initialize();
+    await sharedDbService.initialize();
   } catch (error) {
     console.error('Failed to initialize database:', error);
     process.exit(1);
   }
 
-  const transport = new StdioServerTransport();
-  
   // Cleanup database connection on exit
   process.on('SIGINT', async () => {
     console.log('Closing database connection...');
-    await dbService.close();
+    await sharedDbService.close();
     process.exit(0);
   });
   
   process.on('SIGTERM', async () => {
     console.log('Closing database connection...');
-    await dbService.close();
+    await sharedDbService.close();
     process.exit(0);
   });
   
-  await server.connect(transport);
+  const port = process.env.PORT || 3001;
+  app.listen(port, () => {
+    console.log(`🚀 Project Flows MCP Server running on port ${port}`);
+    console.log('📊 Multiple clients can now connect simultaneously');
+    console.log('🗄️ Shared database ensures all clients see the same data');
+    console.log(`🔗 Connect to: http://localhost:${port}/sse`);
+  });
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

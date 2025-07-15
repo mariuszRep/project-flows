@@ -21,11 +21,16 @@
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "pg": "^8.16.3"
+    "pg": "^8.16.3",
+    "express": "^5.1.0",
+    "cors": "^2.8.5",
+    "zod": "^3.24.2"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/pg": "^8.15.4",
+    "@types/express": "^5.0.1",
+    "@types/cors": "^2.8.17",
     "tsx": "^4.0.0",
     "typescript": "^5.0.0"
   }
