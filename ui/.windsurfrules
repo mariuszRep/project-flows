@@ -1,0 +1,27 @@
+Protected Files and Directories:
+- DO NOT create, modify, or delete any files in these locations under any circumstances.
+- These files may be read and analyzed to understand the codebase.
+
+General Guidelines
+- Do not change anthing you have not been specificly asked to by the user.
+- Check for Existing Logic:
+- Verify if similar logic already exists before creating new components. If any uncertainty arises, ask the user for clarification.
+
+Request Permission:
+- Do not modify or adjust any components unless you have explicit permission. In cases of ambiguity, stop and ask for the user's direction before - proceeding.
+
+Notify and Confirm Changes:
+- If you remove or alter any logic, immediately inform the user, provide a summary of the modifications, and ask for their confirmation that the -changes meet their expectations.
+
+Styling Guidelines
+- Utilize Tailwind CSS:
+- Use Tailwind CSS for styling. If a class is defined in index.css, reference that class instead of using direct Tailwind classes. If unsure, consult with the user.
+
+Standardization with Tailwind:
+- Use standardized Tailwind CSS classes consistently across all components. Always confirm with the user if the standard does not align with their expectations.
+
+Color and Font Consistency:
+- Define color variables and use them uniformly. Ensure a single font is applied across the entire application. Confirm these choices with the user if any conflicts arise.
+
+Protected Components and Files:
+- Do not modify components in the @src/components/ui directory or any other protected components. Similarly, do not alter files like @src/index.css or @tailwind.config.ts without obtaining explicit user permission. For any uncertainty, ask the user before proceeding.

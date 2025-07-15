@@ -38,25 +38,26 @@ class DatabaseService {
             try {
                 await client.query('BEGIN');
                 for (const [key, value] of Object.entries(properties)) {
+                    const prop = value;
                     const query = `
-            INSERT INTO properties (key, type, description, dependencies, execution_order, created_by) 
-            VALUES ($1, $2, $3, $4, $5, $6) 
+            INSERT INTO properties (key, type, description, dependencies, execution_order, created_by, updated_by) 
+            VALUES ($1, $2, $3, $4, $5, $6, $7) 
             ON CONFLICT (key) 
             DO UPDATE SET 
               type = $2, 
               description = $3, 
               dependencies = $4, 
               execution_order = $5, 
-              updated_by = $6, 
+              updated_by = $7, 
               updated_at = CURRENT_TIMESTAMP
           `;
-                    const prop = value;
                     await client.query(query, [
                         key,
                         prop.type,
                         prop.description,
                         prop.dependencies || [],
                         prop.execution_order || 0,
+                        'system',
                         'system'
                     ]);
                 }
@@ -97,27 +98,27 @@ class DatabaseService {
             return {};
         }
     }
-    async createTask(taskData) {
+    async createTask(taskData, userId = 'system') {
         const client = await this.pool.connect();
         try {
             await client.query('BEGIN');
             // Insert task
             const taskQuery = `
-        INSERT INTO tasks (title, summary) 
-        VALUES ($1, $2) 
+        INSERT INTO tasks (title, summary, stage, created_by, updated_by) 
+        VALUES ($1, $2, $3, $4, $5) 
         RETURNING id
       `;
-            const taskResult = await client.query(taskQuery, [taskData.title, taskData.summary]);
+            const taskResult = await client.query(taskQuery, [taskData.title, taskData.summary, taskData.stage || 'draft', userId, userId]);
             const taskId = taskResult.rows[0].id;
             // Insert blocks for dynamic properties
             let position = 0;
             for (const [key, value] of Object.entries(taskData)) {
                 if (key !== 'title' && key !== 'summary' && value) {
                     const blockQuery = `
-            INSERT INTO blocks (task_id, property_name, content, position) 
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO blocks (task_id, property_name, content, position, created_by, updated_by) 
+            VALUES ($1, $2, $3, $4, $5, $6)
           `;
-                    await client.query(blockQuery, [taskId, key, JSON.stringify(value), position++]);
+                    await client.query(blockQuery, [taskId, key, JSON.stringify(value), position++, userId, userId]);
                 }
             }
             await client.query('COMMIT');
@@ -131,12 +132,12 @@ class DatabaseService {
             client.release();
         }
     }
-    async updateTask(taskId, updates) {
+    async updateTask(taskId, updates, userId = 'system') {
         const client = await this.pool.connect();
         try {
             await client.query('BEGIN');
             // Update task core fields if provided
-            if (updates.title !== undefined || updates.summary !== undefined) {
+            if (updates.title !== undefined || updates.summary !== undefined || updates.stage !== undefined) {
                 const updateFields = [];
                 const values = [];
                 let paramIndex = 1;
@@ -148,8 +149,14 @@ class DatabaseService {
                     updateFields.push(`summary = $${paramIndex++}`);
                     values.push(updates.summary);
                 }
+                if (updates.stage !== undefined) {
+                    updateFields.push(`stage = $${paramIndex++}`);
+                    values.push(updates.stage);
+                }
                 if (updateFields.length > 0) {
                     updateFields.push(`updated_at = CURRENT_TIMESTAMP`);
+                    updateFields.push(`updated_by = $${paramIndex++}`);
+                    values.push(userId);
                     values.push(taskId);
                     const taskQuery = `UPDATE tasks SET ${updateFields.join(', ')} WHERE id = $${paramIndex}`;
                     await client.query(taskQuery, values);
@@ -157,14 +164,14 @@ class DatabaseService {
             }
             // Update blocks for dynamic properties
             for (const [key, value] of Object.entries(updates)) {
-                if (key !== 'id' && key !== 'title' && key !== 'summary' && value !== undefined) {
+                if (key !== 'id' && key !== 'title' && key !== 'summary' && key !== 'stage' && value !== undefined) {
                     const blockQuery = `
-            INSERT INTO blocks (task_id, property_name, content, position) 
-            VALUES ($1, $2, $3, 0)
+            INSERT INTO blocks (task_id, property_name, content, position, created_by, updated_by) 
+            VALUES ($1, $2, $3, 0, $4, $5)
             ON CONFLICT (task_id, property_name) 
-            DO UPDATE SET content = $3, updated_at = CURRENT_TIMESTAMP
+            DO UPDATE SET content = $3, updated_at = CURRENT_TIMESTAMP, updated_by = $5
           `;
-                    await client.query(blockQuery, [taskId, key, JSON.stringify(value)]);
+                    await client.query(blockQuery, [taskId, key, JSON.stringify(value), userId, userId]);
                 }
             }
             await client.query('COMMIT');
@@ -181,7 +188,7 @@ class DatabaseService {
     async getTask(taskId) {
         try {
             // Get task core data
-            const taskQuery = 'SELECT id, title, summary FROM tasks WHERE id = $1';
+            const taskQuery = 'SELECT id, title, summary, stage FROM tasks WHERE id = $1';
             const taskResult = await this.pool.query(taskQuery, [taskId]);
             if (taskResult.rows.length === 0) {
                 return null;
@@ -200,6 +207,7 @@ class DatabaseService {
                 id: task.id,
                 title: task.title,
                 summary: task.summary,
+                stage: task.stage,
             };
             for (const block of blocksResult.rows) {
                 taskData[block.property_name] = block.content;
@@ -224,12 +232,13 @@ class DatabaseService {
     }
     async listTasks() {
         try {
-            const query = 'SELECT id, title, summary FROM tasks ORDER BY id';
+            const query = 'SELECT id, title, summary, stage FROM tasks ORDER BY id';
             const result = await this.pool.query(query);
             return result.rows.map((row) => ({
                 id: row.id,
                 title: row.title,
                 summary: row.summary,
+                stage: row.stage,
             }));
         }
         catch (error) {

@@ -1,0 +1,42 @@
+{
+  "_comment": "Example MCP client configurations for different clients",
+  
+  "windsurf": {
+    "mcpServers": {
+      "project-flows": {
+        "serverUrl": "http://localhost:3001/sse",
+        "headers": {
+          "X-MCP-Client": "windsurf"
+        }
+      }
+    }
+  },
+  
+  "claude-desktop": {
+    "mcpServers": {
+      "project-flows": {
+        "command": "node",
+        "args": ["/path/to/project-flows/mcp/dist/index.js"],
+        "env": {
+          "MCP_CLIENT_ID": "claude-desktop"
+        }
+      }
+    }
+  },
+  
+  "cursor": {
+    "mcpServers": {
+      "project-flows": {
+        "serverUrl": "http://localhost:3001/sse?clientId=cursor"
+      }
+    }
+  },
+  
+  "generic-http-client": {
+    "serverUrl": "http://localhost:3001/sse",
+    "headers": {
+      "X-Client-ID": "my-custom-client",
+      "User-Agent": "MyApp/1.0.0"
+    }
+  }
+}

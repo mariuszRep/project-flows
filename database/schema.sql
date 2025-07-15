@@ -1,11 +1,17 @@
 -- Database schema for MCP task management system
 
+-- Create enum type for task stages
+CREATE TYPE task_stage AS ENUM ('draft', 'backlog', 'doing', 'review', 'completed');
+
 -- Table to store schema properties from schema_properties.json
-CREATE TABLE IF NOT EXISTS properties (
+CREATE TABLE IF NOT EXISTS 
+
     key TEXT PRIMARY KEY,
     value JSONB NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    created_by TEXT NOT NULL DEFAULT 'system',
+    updated_by TEXT NOT NULL DEFAULT 'system'
 );
 
 -- Table to store tasks
@@ -13,8 +19,11 @@ CREATE TABLE IF NOT EXISTS tasks (
     id SERIAL PRIMARY KEY,
     title TEXT NOT NULL,
     summary TEXT NOT NULL,
+    stage task_stage NOT NULL DEFAULT 'draft',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    created_by TEXT NOT NULL DEFAULT 'system',
+    updated_by TEXT NOT NULL DEFAULT 'system'
 );
 
 -- Table to store blocks/properties for each task
@@ -26,6 +35,8 @@ CREATE TABLE IF NOT EXISTS blocks (
     position INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    created_by TEXT NOT NULL DEFAULT 'system',
+    updated_by TEXT NOT NULL DEFAULT 'system',
     UNIQUE(task_id, property_name)
 );
 

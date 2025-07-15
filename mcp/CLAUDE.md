@@ -15,8 +15,9 @@ This is a TypeScript implementation of the MCP (Model Context Protocol) server w
 ### Core Components
 
 - **SSE Multi-Client Support**: Express.js server with SSE transport for concurrent client connections
-- **Shared Database**: PostgreSQL database service shared across all client sessions
+- **Shared Database**: PostgreSQL database service shared across all client sessions with audit trail
 - **Session Management**: Individual MCP server instances per client with session tracking
+- **Client Identification**: Automatic client detection for audit tracking (windsurf, claude-desktop, etc.)
 - Tool registration system with dynamic schema loading from database/JSON configuration
 - Dependency validation and execution ordering for task properties
 - Markdown output formatting for task plans
@@ -64,6 +65,52 @@ npm run clean
 - Multiple clients can connect simultaneously, sharing the same database
 - Each client gets its own MCP server instance with session management
 - Default port: 3001 (configurable via PORT environment variable)
+- **Audit Trail**: All database operations track `created_by` and `updated_by` using client identification
+
+## Client Configuration
+
+The server automatically identifies MCP clients for audit tracking through multiple methods:
+
+### Method 1: Query Parameters (Recommended)
+```json
+{
+  "mcpServers": {
+    "project-flows": {
+      "serverUrl": "http://localhost:3001/sse?client=windsurf"
+    }
+  }
+}
+```
+
+### Method 2: HTTP Headers
+```json
+{
+  "mcpServers": {
+    "project-flows": {
+      "serverUrl": "http://localhost:3001/sse",
+      "headers": {
+        "X-MCP-Client": "windsurf"
+      }
+    }
+  }
+}
+```
+
+### Method 3: User-Agent Detection (Automatic)
+The server automatically detects these clients from User-Agent strings:
+- `windsurf` - Windsurf IDE
+- `claude-desktop` - Claude Desktop App
+- `cursor` - Cursor IDE
+- `vscode` - VS Code
+- `cline` - Cline extension
+
+### Audit Trail
+All tasks and blocks in the database include audit columns:
+- `created_at` / `updated_at`: Automatic timestamps
+- `created_by` / `updated_by`: Client identifier (e.g., "windsurf", "claude-desktop")
+- `stage`: Task workflow stage ('draft', 'backlog', 'doing', 'review', 'completed')
+
+This enables tracking which MCP client created or modified each record and task workflow progression.
 
 ## Tool Usage Examples
 

@@ -40,19 +40,36 @@ interface ExecutionChainItem {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+// Helper function to extract client name from user-agent
+function extractClientFromUserAgent(userAgent: string): string | null {
+  if (!userAgent) return null;
+  
+  // Common MCP client patterns
+  if (userAgent.includes('windsurf')) return 'windsurf';
+  if (userAgent.includes('claude-desktop')) return 'claude-desktop';
+  if (userAgent.includes('cursor')) return 'cursor';
+  if (userAgent.includes('vscode')) return 'vscode';
+  if (userAgent.includes('cline')) return 'cline';
+  
+  return null;
+}
+
 // Initialize shared database service for all connections
 const sharedDbService = new DatabaseService();
 
 // Task data interface (moved to database.ts but kept here for compatibility)
+type TaskStage = 'draft' | 'backlog' | 'doing' | 'review' | 'completed';
+
 interface TaskData {
   id: number;
   title: string;
   summary: string;
+  stage?: TaskStage;
   [key: string]: any; // for dynamic properties
 }
 
 // Factory function to create a configured MCP server instance
-function createMcpServer(): Server {
+function createMcpServer(clientId: string = 'unknown'): Server {
   const server = new Server(
     {
       name: "project-flows",
@@ -264,7 +281,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     // Store task in database
     let taskId: number;
     try {
-      taskId = await sharedDbService.createTask(taskData);
+      taskId = await sharedDbService.createTask(taskData, clientId);
     } catch (error) {
       console.error('Error creating task:', error);
       return {
@@ -364,7 +381,7 @@ ${summary}
 
     // Update task in database
     try {
-      await sharedDbService.updateTask(taskId, updateData);
+      await sharedDbService.updateTask(taskId, updateData, clientId);
     } catch (error) {
       console.error('Error updating task:', error);
       return {
@@ -544,18 +561,26 @@ app.use((req: any, res: any, next: any) => {
 });
 
 // Support multiple simultaneous connections with per-session MCP servers
-const connections: {[sessionId: string]: {transport: SSEServerTransport, server: Server}} = {};
+const connections: {[sessionId: string]: {transport: SSEServerTransport, server: Server, clientId: string}} = {};
 
 app.get("/", async (_: any, res: any) => {
   res.status(200).send('Project Flows MCP Server - Multiple clients supported with shared database');
 });
 
-app.get("/sse", async (_: any, res: any) => {
+app.get("/sse", async (req: any, res: any) => {
   try {
-    const transport = new SSEServerTransport('/messages', res);
-    const serverInstance = createMcpServer(); // Create new MCP server instance per connection
+    // Extract client ID from headers, query params, or user-agent as fallback
+    const clientId = req.headers['x-mcp-client'] || 
+                     req.headers['x-client-id'] || 
+                     req.query.client || 
+                     req.query.clientId || 
+                     extractClientFromUserAgent(req.headers['user-agent']) || 
+                     'unknown';
     
-    connections[transport.sessionId] = { transport, server: serverInstance };
+    const transport = new SSEServerTransport('/messages', res);
+    const serverInstance = createMcpServer(clientId); // Create new MCP server instance per connection with client ID
+    
+    connections[transport.sessionId] = { transport, server: serverInstance, clientId };
     
     // Clean up connection on close
     res.on("close", () => {
@@ -563,7 +588,7 @@ app.get("/sse", async (_: any, res: any) => {
       delete connections[transport.sessionId];
     });
     
-    console.log(`New connection established with session: ${transport.sessionId}`);
+    console.log(`New connection established with session: ${transport.sessionId}, client: ${clientId}`);
     console.log(`Active connections: ${Object.keys(connections).length}`);
     
     // Each server connects to its own transport
@@ -580,6 +605,16 @@ app.post("/messages", async (req: any, res: any) => {
   
   if (connection) {
     try {
+      // Update client ID from headers if provided in POST request
+      const headerClientId = req.headers['x-mcp-client'] || 
+                            req.headers['x-client-id'] || 
+                            extractClientFromUserAgent(req.headers['user-agent']);
+      
+      if (headerClientId && headerClientId !== connection.clientId) {
+        connection.clientId = headerClientId;
+        console.log(`Updated client ID for session ${sessionId}: ${headerClientId}`);
+      }
+      
       await connection.transport.handlePostMessage(req, res);
     } catch (error) {
       console.error(`Error handling message for session ${sessionId}:`, error);
