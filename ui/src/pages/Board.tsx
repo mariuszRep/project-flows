@@ -54,110 +54,49 @@ export default function Board() {
       if (isConnected && callTool && tools.length > 0) {
         console.log('Available tools:', tools.map(t => t.name));
         
-        // Try to get all tasks from all stages
-        const stages = ['backlog', 'doing', 'review', 'completed'];
+        // Try to get all tasks using the list_tasks tool
+        const listTasksTool = tools.find(tool => tool.name === 'list_tasks');
         
-        for (const stage of stages) {
+        if (listTasksTool) {
           try {
-            // First try the specific get_tasks_by_stage tool
-            const stageResult = await callTool('get_tasks_by_stage', { stage });
-            if (stageResult && stageResult.content && stageResult.content[0]) {
-              console.log(`Tasks from ${stage} stage:`, stageResult.content);
+            const result = await callTool('list_tasks', {});
+            if (result && result.content && result.content[0]) {
+              console.log('List tasks result:', result.content);
               
-              // Parse the task data from the tool result
-              const taskText = stageResult.content[0].text;
-              const taskMatches = taskText.match(/Task #(\d+): (.+?)(?=\nTask #|\n\n|$)/gs);
+              const contentText = result.content[0].text;
               
-              if (taskMatches) {
-                const parsedTasks = taskMatches.map((match) => {
-                  const idMatch = match.match(/Task #(\d+):/);
-                  const titleMatch = match.match(/Task #\d+: (.+?)(?=\n)/);
-                  const bodyMatch = match.match(/Body: (.+?)(?=\nTask List|\nCurrent Goal|$)/s);
-                  
-                  const id = idMatch ? parseInt(idMatch[1]) : Math.random();
-                  const title = titleMatch ? titleMatch[1].trim() : 'Untitled Task';
-                  const body = bodyMatch ? bodyMatch[1].trim() : '';
+              // Parse the markdown table format
+              const lines = contentText.split('\n').filter(line => line.trim());
+              const taskRows = lines.slice(2); // Skip header and separator
+              
+              const parsedTasks = taskRows.map((row, index) => {
+                const columns = row.split('|').map(col => col.trim()).filter(col => col);
+                
+                if (columns.length >= 4) {
+                  const id = parseInt(columns[0]) || index + 1;
+                  const title = columns[1] || 'Untitled Task';
+                  const summary = columns[2] || '';
+                  const stage = columns[3] || 'backlog';
                   
                   return {
                     id,
                     title,
-                    body,
-                    stage: stage as 'backlog' | 'doing' | 'completed',
+                    body: summary,
+                    stage: stage as 'draft' | 'backlog' | 'doing' | 'review' | 'completed',
                     project_id: 1,
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString(),
                     created_by: 'user@example.com',
                     updated_by: 'user@example.com'
                   };
-                });
-                
-                allTasks = [...allTasks, ...parsedTasks];
-              }
+                }
+                return null;
+              }).filter(task => task !== null);
+              
+              allTasks = parsedTasks;
             }
           } catch (err) {
-            console.warn(`Failed to get tasks for stage ${stage}:`, err);
-          }
-        }
-        
-        // If no tasks found, try other task tools
-        if (allTasks.length === 0) {
-          const taskTools = tools.filter(tool => 
-            tool.name.toLowerCase().includes('task') || 
-            tool.name.toLowerCase().includes('todo') ||
-            tool.name.toLowerCase().includes('get') ||
-            tool.name.toLowerCase().includes('list') ||
-            tool.name.toLowerCase().includes('fetch')
-          );
-          
-          for (const tool of taskTools) {
-            try {
-              const result = await callTool(tool.name, {});
-              if (result && result.content && result.content[0]) {
-                console.log(`Result from ${tool.name}:`, result.content);
-                
-                // Handle MCP response format: content is an array with text content
-                const contentText = result.content[0].text;
-                
-                // Parse the task data from the text content
-                const taskMatches = contentText.match(/Task #(\d+): (.+?)(?=\nTask #|\n\n|$)/gs);
-                let taskData: any[] = [];
-                
-                if (taskMatches) {
-                  taskData = taskMatches.map((match) => {
-                    const idMatch = match.match(/Task #(\d+):/);
-                    const titleMatch = match.match(/Task #\d+: (.+?)(?=\n)/);
-                    const bodyMatch = match.match(/Body: (.+?)(?=\nTask List|\nCurrent Goal|$)/s);
-                    const stageMatch = match.match(/Stage: (.+?)(?=\n)/);
-                    
-                    return {
-                      id: idMatch ? parseInt(idMatch[1]) : Math.random(),
-                      title: titleMatch ? titleMatch[1].trim() : 'Untitled Task',
-                      body: bodyMatch ? bodyMatch[1].trim() : '',
-                      stage: stageMatch ? stageMatch[1].trim() : 'backlog'
-                    };
-                  });
-                } else {
-                  // Fallback: try to parse as single task
-                  taskData = [{ title: contentText, description: `From ${tool.name}` }];
-                }
-                
-                const parsedTasks = taskData.map((task: any, index: number) => ({
-                  id: task.id || `${tool.name}-${index}-${Date.now()}`,
-                  title: task.title || task.name || task.summary || task.text || 'Untitled Task',
-                  body: task.body || task.description || task.content || task.details || '',
-                  stage: task.stage || task.status || task.state || 'backlog',
-                  project_id: task.project_id || 1,
-                  created_at: task.created_at || new Date().toISOString(),
-                  updated_at: task.updated_at || new Date().toISOString(),
-                  created_by: task.created_by || 'user@example.com',
-                  updated_by: task.updated_by || 'user@example.com'
-                }));
-                
-                allTasks = [...allTasks, ...parsedTasks];
-              }
-            } catch (toolErr) {
-              console.warn(`Tool ${tool.name} failed:`, toolErr);
-            }
+            console.warn('Failed to get tasks with list_tasks:', err);
           }
         }
       }
@@ -241,9 +180,8 @@ export default function Board() {
       
       if (updateTool && taskId && newStage) {
         await callTool(updateTool.name, {
-          id: taskId,
-          stage: newStage,
-          updated_by: 'user@example.com'
+          task_id: taskId,
+          stage: newStage
         });
         console.log(`Task ${taskId} updated to ${newStage}`);
       } else {
@@ -289,13 +227,10 @@ export default function Board() {
       }
 
       const result = await callTool('create_task', {
-        title: taskForm.title,
-        body: taskForm.body || undefined,
-        stage: taskForm.stage,
-        notes: taskForm.notes || undefined,
-        taskList: taskForm.taskList || undefined,
-        currentGoal: taskForm.currentGoal || undefined,
-        created_by: 'user@example.com'
+        Title: taskForm.title,
+        Summary: taskForm.body || 'No description provided',
+        Research: taskForm.notes || undefined,
+        Items: taskForm.taskList || undefined
       });
 
       if (result && result.content) {

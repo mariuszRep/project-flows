@@ -2,9 +2,6 @@
  * Database service layer for PostgreSQL integration
  */
 import pg from 'pg';
-import { readFileSync } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
 const { Pool } = pg;
 // Removed unused BlockData interface
 class DatabaseService {
@@ -19,62 +16,10 @@ class DatabaseService {
             // Test connection
             await this.pool.query('SELECT NOW()');
             console.log('Database connection established');
-            // Load schema properties from JSON file into database
-            await this.loadSchemaProperties();
         }
         catch (error) {
             console.error('Database initialization failed:', error);
             throw error;
-        }
-    }
-    async loadSchemaProperties() {
-        try {
-            const __filename = fileURLToPath(import.meta.url);
-            const __dirname = dirname(__filename);
-            const schemaPath = join(__dirname, '..', 'schema_properties.json');
-            const schemaData = readFileSync(schemaPath, 'utf8');
-            const properties = JSON.parse(schemaData);
-            const client = await this.pool.connect();
-            try {
-                await client.query('BEGIN');
-                for (const [key, value] of Object.entries(properties)) {
-                    const prop = value;
-                    const query = `
-            INSERT INTO properties (key, type, description, dependencies, execution_order, created_by, updated_by) 
-            VALUES ($1, $2, $3, $4, $5, $6, $7) 
-            ON CONFLICT (key) 
-            DO UPDATE SET 
-              type = $2, 
-              description = $3, 
-              dependencies = $4, 
-              execution_order = $5, 
-              updated_by = $7, 
-              updated_at = CURRENT_TIMESTAMP
-          `;
-                    await client.query(query, [
-                        key,
-                        prop.type,
-                        prop.description,
-                        prop.dependencies || [],
-                        prop.execution_order || 0,
-                        'system',
-                        'system'
-                    ]);
-                }
-                await client.query('COMMIT');
-                console.log('Schema properties loaded successfully');
-            }
-            catch (error) {
-                await client.query('ROLLBACK');
-                throw error;
-            }
-            finally {
-                client.release();
-            }
-        }
-        catch (error) {
-            console.error('Error loading schema properties:', error);
-            // Don't throw - allow service to continue even if schema loading fails
         }
     }
     async getSchemaProperties() {
@@ -230,10 +175,16 @@ class DatabaseService {
             return 1;
         }
     }
-    async listTasks() {
+    async listTasks(stageFilter) {
         try {
-            const query = 'SELECT id, title, summary, stage FROM tasks ORDER BY id';
-            const result = await this.pool.query(query);
+            let query = 'SELECT id, title, summary, stage FROM tasks';
+            let params = [];
+            if (stageFilter) {
+                query += ' WHERE stage = $1';
+                params.push(stageFilter);
+            }
+            query += ' ORDER BY id';
+            const result = await this.pool.query(query, params);
             return result.rows.map((row) => ({
                 id: row.id,
                 title: row.title,

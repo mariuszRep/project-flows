@@ -19,13 +19,12 @@ declare class DatabaseService {
     private pool;
     constructor();
     initialize(): Promise<void>;
-    private loadSchemaProperties;
     getSchemaProperties(): Promise<Record<string, SchemaProperty>>;
     createTask(taskData: Omit<TaskData, 'id'>, userId?: string): Promise<number>;
     updateTask(taskId: number, updates: Partial<TaskData>, userId?: string): Promise<boolean>;
     getTask(taskId: number): Promise<TaskData | null>;
     getNextTaskId(): Promise<number>;
-    listTasks(): Promise<TaskData[]>;
+    listTasks(stageFilter?: string): Promise<TaskData[]>;
     close(): Promise<void>;
 }
 export default DatabaseService;

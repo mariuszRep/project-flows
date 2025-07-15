@@ -3,9 +3,8 @@
 -- Create enum type for task stages
 CREATE TYPE task_stage AS ENUM ('draft', 'backlog', 'doing', 'review', 'completed');
 
--- Table to store schema properties from schema_properties.json
-CREATE TABLE IF NOT EXISTS 
-
+-- Table to store schema properties (no longer using schema_properties.json)
+CREATE TABLE IF NOT EXISTS properties (
     key TEXT PRIMARY KEY,
     value JSONB NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,

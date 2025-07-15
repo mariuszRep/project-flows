@@ -20,9 +20,7 @@ RUN npm install
 COPY schema.sql /docker-entrypoint-initdb.d/01-schema.sql
 COPY seed.sql /docker-entrypoint-initdb.d/02-seed.sql
 
-# Copy bootstrap script that will run after PostgreSQL is ready
-COPY 03-bootstrap.sh /docker-entrypoint-initdb.d/03-bootstrap.sh
-RUN chmod +x /docker-entrypoint-initdb.d/03-bootstrap.sh
+# No bootstrap script needed
 
 # Set environment variables
 ENV POSTGRES_DB=mcp_tasks

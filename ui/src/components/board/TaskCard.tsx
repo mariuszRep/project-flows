@@ -59,14 +59,21 @@ export const TaskCard: React.FC<TaskCardProps> = ({
     return new Date(dateString).toLocaleDateString();
   };
 
-  const getStageColor = (stage: TaskStage) => {
-    switch (stage) {
-      case 'backlog': return 'bg-muted text-muted-foreground';
-      case 'doing': return 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-300';
-      case 'review': return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300';
-      case 'completed': return 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300';
-      default: return 'bg-muted text-muted-foreground';
-    }
+  const getProjectColor = (project: Project | undefined) => {
+    if (!project) return 'bg-muted text-muted-foreground';
+    
+    // Use a consistent color scheme for project badges
+    const colors = [
+      'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-300',
+      'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300',
+      'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300',
+      'bg-purple-100 text-purple-800 dark:bg-purple-900/20 dark:text-purple-300',
+      'bg-pink-100 text-pink-800 dark:bg-pink-900/20 dark:text-pink-300',
+      'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/20 dark:text-indigo-300',
+    ];
+    
+    // Use project ID to consistently assign colors
+    return colors[project.id % colors.length];
   };
 
   const project = getProject(task.project_id);
@@ -81,15 +88,6 @@ export const TaskCard: React.FC<TaskCardProps> = ({
             <CardTitle className="text-sm font-medium text-card-foreground line-clamp-2">
               {task.title}
             </CardTitle>
-            {project && (
-              <div className="flex items-center gap-2 mt-1">
-                <div 
-                  className="w-2 h-2 rounded-full" 
-                  style={{ backgroundColor: project.color }}
-                />
-                <span className="text-xs text-muted-foreground">{project.name}</span>
-              </div>
-            )}
           </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -151,12 +149,14 @@ export const TaskCard: React.FC<TaskCardProps> = ({
       <CardFooter className="pt-0 pb-3">
         <div className="flex items-center justify-between w-full">
           <div className="flex items-center gap-2">
-            <Badge 
-              variant="secondary" 
-              className={`text-xs ${getStageColor(task.stage)}`}
-            >
-              {task.stage}
-            </Badge>
+            {project && (
+              <Badge 
+                variant="secondary" 
+                className={`text-xs ${getProjectColor(project)}`}
+              >
+                {project.name}
+              </Badge>
+            )}
           </div>
           <div className="text-xs text-muted-foreground">
             {formatDate(task.created_at)}

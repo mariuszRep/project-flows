@@ -197,7 +197,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       } as Tool,
       {
         name: "update_task",
-        description: "Update an existing task plan by task ID. Provide the task_id and any subset of fields to update. All fields except task_id are optional.",
+        description: "Update an existing task plan by task ID. Provide the task_id and any subset of fields to update. All fields except task_id are optional. To change a task's stage, include the 'stage' parameter with one of these values: 'draft', 'backlog', 'doing', 'review', or 'completed'.",
         inputSchema: {
           type: "object",
           properties: {
@@ -212,10 +212,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       } as Tool,
       {
         name: "list_tasks",
-        description: "List all tasks with their ID, Title, and Summary.",
+        description: "List all tasks with their ID, Title, Summary, and Stage. Optionally filter by stage.",
         inputSchema: {
           type: "object",
-          properties: {},
+          properties: {
+            stage: {
+              type: "string",
+              description: "Optional stage filter: 'draft', 'backlog', 'doing', 'review', or 'completed'"
+            }
+          },
           required: [],
         },
       } as Tool,
@@ -367,6 +372,14 @@ ${summary}
     if (toolArgs?.Summary !== undefined) {
       updateData.summary = String(toolArgs.Summary);
     }
+    // Handle stage explicitly as it's a new column in tasks table
+    if (toolArgs?.stage !== undefined) {
+      // Validate stage value
+      const validStages = ['draft', 'backlog', 'doing', 'review', 'completed'];
+      if (validStages.includes(String(toolArgs.stage))) {
+        updateData.stage = String(toolArgs.stage) as TaskStage;
+      }
+    }
 
     // Create execution chain to order fields when building markdown
     const executionChain = createExecutionChain(dynamicProperties);
@@ -376,6 +389,15 @@ ${summary}
       const value = toolArgs?.[prop_name];
       if (value !== undefined) {
         updateData[prop_name] = value;
+      }
+    }
+
+    // Handle stage parameter explicitly if provided
+    if (toolArgs?.stage !== undefined) {
+      // Validate stage value
+      const validStages = ['draft', 'backlog', 'doing', 'review', 'completed'];
+      if (validStages.includes(String(toolArgs.stage))) {
+        updateData.stage = String(toolArgs.stage) as TaskStage;
       }
     }
 
@@ -430,10 +452,11 @@ ${summary}
       ],
     };
   } else if (name === "list_tasks") {
-    // List all tasks
+    // List all tasks with optional stage filter
+    const stageFilter = toolArgs?.stage as string | undefined;
     let tasks: TaskData[];
     try {
-      tasks = await sharedDbService.listTasks();
+      tasks = await sharedDbService.listTasks(stageFilter);
     } catch (error) {
       console.error('Error listing tasks:', error);
       return {
@@ -447,22 +470,36 @@ ${summary}
     }
 
     if (tasks.length === 0) {
+      const filterMsg = stageFilter ? ` with stage '${stageFilter}'` : '';
       return {
         content: [
           {
             type: "text",
-            text: "No tasks found.",
+            text: `No tasks found${filterMsg}.`,
           } as TextContent,
         ],
       };
     }
 
-    // Build markdown table
-    let markdownContent = `| ID | Title | Summary |\n| --- | --- | --- |`;
-    for (const task of tasks) {
-      const cleanTitle = String(task.title).replace(/\n|\r/g, ' ');
-      const cleanSummary = String(task.summary).replace(/\n|\r/g, ' ');
-      markdownContent += `\n| ${task.id} | ${cleanTitle} | ${cleanSummary} |`;
+    // Build markdown table with stage column
+    let markdownContent = `| ID | Title | Summary | Stage |\n| --- | --- | --- | --- |`;
+    try {
+      for (const task of tasks) {
+        const cleanTitle = String(task.title || '').replace(/\n|\r/g, ' ');
+        const cleanSummary = String(task.summary || '').replace(/\n|\r/g, ' ');
+        const stage = task.stage || 'draft';
+        markdownContent += `\n| ${task.id} | ${cleanTitle} | ${cleanSummary} | ${stage} |`;
+      }
+    } catch (error) {
+      console.error('Error formatting tasks table:', error);
+      return {
+        content: [
+          {
+            type: "text",
+            text: "Error: Failed to format tasks table.",
+          } as TextContent,
+        ],
+      };
     }
 
     return {
