@@ -222,6 +222,21 @@ class DatabaseService {
             return 1;
         }
     }
+    async listTasks() {
+        try {
+            const query = 'SELECT id, title, summary FROM tasks ORDER BY id';
+            const result = await this.pool.query(query);
+            return result.rows.map((row) => ({
+                id: row.id,
+                title: row.title,
+                summary: row.summary,
+            }));
+        }
+        catch (error) {
+            console.error('Error fetching tasks list:', error);
+            return [];
+        }
+    }
     async close() {
         await this.pool.end();
     }

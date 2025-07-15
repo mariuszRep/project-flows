@@ -260,6 +260,21 @@ class DatabaseService {
     }
   }
 
+  async listTasks(): Promise<TaskData[]> {
+    try {
+      const query = 'SELECT id, title, summary FROM tasks ORDER BY id';
+      const result = await this.pool.query(query);
+      return result.rows.map((row: any) => ({
+        id: row.id,
+        title: row.title,
+        summary: row.summary,
+      }));
+    } catch (error) {
+      console.error('Error fetching tasks list:', error);
+      return [];
+    }
+  }
+
   async close() {
     await this.pool.end();
   }

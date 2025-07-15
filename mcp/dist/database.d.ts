@@ -23,6 +23,7 @@ declare class DatabaseService {
     updateTask(taskId: number, updates: Partial<TaskData>): Promise<boolean>;
     getTask(taskId: number): Promise<TaskData | null>;
     getNextTaskId(): Promise<number>;
+    listTasks(): Promise<TaskData[]>;
     close(): Promise<void>;
 }
 export default DatabaseService;

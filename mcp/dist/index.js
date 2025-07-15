@@ -144,6 +144,15 @@ function createMcpServer() {
                     },
                 },
                 {
+                    name: "list_tasks",
+                    description: "List all tasks with their ID, Title, and Summary.",
+                    inputSchema: {
+                        type: "object",
+                        properties: {},
+                        required: [],
+                    },
+                },
+                {
                     name: "get_task",
                     description: "Retrieve a task by its numeric ID. Returns the complete task data in markdown format.",
                     inputSchema: {
@@ -322,6 +331,49 @@ ${summary}
             const hasContentUpdates = Object.keys(contentArgs).length > 0;
             if (!hasContentUpdates) {
                 markdownContent += "No fields supplied for update.";
+            }
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: markdownContent,
+                    },
+                ],
+            };
+        }
+        else if (name === "list_tasks") {
+            // List all tasks
+            let tasks;
+            try {
+                tasks = await sharedDbService.listTasks();
+            }
+            catch (error) {
+                console.error('Error listing tasks:', error);
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: "Error: Failed to retrieve tasks list.",
+                        },
+                    ],
+                };
+            }
+            if (tasks.length === 0) {
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: "No tasks found.",
+                        },
+                    ],
+                };
+            }
+            // Build markdown table
+            let markdownContent = `| ID | Title | Summary |\n| --- | --- | --- |`;
+            for (const task of tasks) {
+                const cleanTitle = String(task.title).replace(/\n|\r/g, ' ');
+                const cleanSummary = String(task.summary).replace(/\n|\r/g, ' ');
+                markdownContent += `\n| ${task.id} | ${cleanTitle} | ${cleanSummary} |`;
             }
             return {
                 content: [
