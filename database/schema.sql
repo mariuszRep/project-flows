@@ -3,14 +3,30 @@
 -- Create enum type for task stages
 CREATE TYPE task_stage AS ENUM ('draft', 'backlog', 'doing', 'review', 'completed');
 
--- Table to store schema properties (no longer using schema_properties.json)
-CREATE TABLE IF NOT EXISTS properties (
-    key TEXT PRIMARY KEY,
-    value JSONB NOT NULL,
+CREATE TABLE IF NOT EXISTS templates (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     created_by TEXT NOT NULL DEFAULT 'system',
     updated_by TEXT NOT NULL DEFAULT 'system'
+);
+
+-- Table to store schema properties (no longer using schema_properties.json)
+CREATE TABLE IF NOT EXISTS properties ( 
+    id SERIAL PRIMARY KEY,
+    template_id INTEGER NOT NULL REFERENCES templates(id) ON DELETE CASCADE,
+    key text NOT NULL,
+    type text NOT NULL,
+    description text NOT NULL,
+    dependencies text[] DEFAULT '{}'::text[],
+    execution_order integer NOT NULL DEFAULT 0,
+    created_by TEXT NOT NULL DEFAULT 'system',
+    updated_by TEXT NOT NULL DEFAULT 'system',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(template_id, key)
 );
 
 -- Table to store tasks

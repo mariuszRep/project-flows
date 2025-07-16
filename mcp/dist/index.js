@@ -147,7 +147,7 @@ function createMcpServer(clientId = 'unknown') {
                 },
                 {
                     name: "update_task",
-                    description: "Update an existing task plan by task ID. Provide the task_id and any subset of fields to update. All fields except task_id are optional.",
+                    description: "Update an existing task plan by task ID. Provide the task_id and any subset of fields to update. All fields except task_id are optional. To change a task's stage, include the 'stage' parameter with one of these values: 'draft', 'backlog', 'doing', 'review', or 'completed'.",
                     inputSchema: {
                         type: "object",
                         properties: {
