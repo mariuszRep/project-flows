@@ -1,18 +1,38 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { X, GripVertical, Edit, Trash2, Plus, Save } from 'lucide-react';
+import { useMCP } from '@/contexts/MCPContext';
 
 
 interface TaskFormProps {
   isOpen: boolean;
   onClose: () => void;
+  templateId?: number | null;
 }
 
-export const TaskForm: React.FC<TaskFormProps> = ({ isOpen, onClose }) => {
+interface TemplateProperty {
+  type: string;
+  description: string;
+  dependencies?: string[];
+  execution_order?: number;
+  created_by?: string;
+  updated_by?: string;
+  created_at?: string;
+  updated_at?: string;
+  id?: number;
+  template_id?: number;
+  fixed?: boolean;
+}
+
+export const TaskForm: React.FC<TaskFormProps> = ({ isOpen, onClose, templateId }) => {
+  const { callTool, isConnected } = useMCP();
   const [expandedBlocks, setExpandedBlocks] = useState<number[]>([]);
+  const [properties, setProperties] = useState<Record<string, TemplateProperty>>({});
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     title: 'Task',
     template: 'Task',
@@ -35,6 +55,74 @@ export const TaskForm: React.FC<TaskFormProps> = ({ isOpen, onClose }) => {
       }
     ]
   });
+
+  // Function to fetch template properties
+  const fetchTemplateProperties = async (templateId: number) => {
+    if (!isConnected) {
+      setError('Not connected to MCP server');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+      const result = await callTool('get_template_properties', { template_id: templateId });
+      
+      if (result.content && result.content[0] && result.content[0].text) {
+        const propertiesData = JSON.parse(result.content[0].text);
+        setProperties(propertiesData);
+        
+        // Convert properties to blocks
+        const blocks = Object.entries(propertiesData)
+          .sort(([, a], [, b]) => (a.execution_order || 999) - (b.execution_order || 999))
+          .map(([key, property], index) => ({
+            title: key,
+            describe: property.description,
+            order: property.execution_order || index + 1
+          }));
+        
+        setFormData(prevData => ({
+          ...prevData,
+          blocks
+        }));
+      } else {
+        setProperties({});
+        // Reset to default blocks if no properties
+        setFormData(prevData => ({
+          ...prevData,
+          blocks: [
+            {
+              title: 'Prompt',
+              describe: 'Description of the original request or problem statement. Include the \'what\' and \'why\' - what needs to be accomplished and why it\'s important.',
+              order: 1
+            },
+            {
+              title: 'Notes',
+              describe: 'Comprehensive context including: technical requirements, business constraints, dependencies, acceptance criteria, edge cases, and background information that impacts implementation decisions.',
+              order: 2
+            },
+            {
+              title: 'Items',
+              describe: 'Markdown checklist of specific, actionable, and measurable steps. Each item should be concrete enough that completion can be verified.',
+              order: 3
+            }
+          ]
+        }));
+      }
+    } catch (error) {
+      console.error('Error fetching template properties:', error);
+      setError('Failed to fetch template properties');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Effect to fetch template properties when templateId changes
+  useEffect(() => {
+    if (templateId && isConnected) {
+      fetchTemplateProperties(templateId);
+    }
+  }, [templateId, isConnected]);
 
   const handleBlockUpdate = (index: number, field: 'title' | 'describe', value: string) => {
     const updatedBlocks = [...formData.blocks];
@@ -114,6 +202,20 @@ export const TaskForm: React.FC<TaskFormProps> = ({ isOpen, onClose }) => {
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-6 w-full">
+          {/* Loading State */}
+          {loading && (
+            <div className="text-center p-4">
+              <p>Loading template properties...</p>
+            </div>
+          )}
+          
+          {/* Error State */}
+          {error && (
+            <div className="text-center text-red-500 p-4">
+              <p>{error}</p>
+            </div>
+          )}
+          
           {/* Template Header */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">

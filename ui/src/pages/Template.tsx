@@ -6,15 +6,65 @@ import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { TaskForm } from '@/components/template/TaskForm';
+import { useMCP } from '@/contexts/MCPContext';
+
+interface Template {
+  id: number;
+  name: string;
+  description: string;
+  created_at: string;
+  updated_at: string;
+  created_by: string;
+  updated_by: string;
+}
 
 export default function Template() {
   const navigate = useNavigate();
   const { selectedSession, setSelectedSession } = useSession();
+  const { callTool, isConnected } = useMCP();
+  const [templates, setTemplates] = useState<Template[]>([]);
   const [isTaskFormOpen, setIsTaskFormOpen] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   
   // Function to handle navigation to settings page
   const handleSettingsClick = () => {
     navigate('/settings');
+  };
+
+  // Function to fetch templates from MCP server
+  const fetchTemplates = async () => {
+    if (!isConnected) {
+      setError('Not connected to MCP server');
+      setLoading(false);
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+      const result = await callTool('list_templates');
+      
+      if (result.content && result.content[0] && result.content[0].text) {
+        const templatesData = JSON.parse(result.content[0].text);
+        setTemplates(templatesData);
+      } else {
+        setTemplates([]);
+      }
+    } catch (error) {
+      console.error('Error fetching templates:', error);
+      setError('Failed to fetch templates');
+      setTemplates([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Function to handle card click
+  const handleCardClick = (templateId: number) => {
+    setSelectedTemplateId(templateId);
+    setIsTaskFormOpen(true);
   };
 
   useEffect(() => {
@@ -27,6 +77,12 @@ export default function Template() {
 
     checkAuth();
   }, [navigate]);
+
+  useEffect(() => {
+    if (isConnected) {
+      fetchTemplates();
+    }
+  }, [isConnected]);
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
@@ -54,52 +110,57 @@ export default function Template() {
       <div className="flex flex-col items-center justify-center min-h-full p-6">
         <h2 className="text-2xl font-semibold text-center mb-8">Template Page</h2>
         
-        <div className="flex gap-6 max-w-4xl w-full">
-          {/* Global Card */}
-          <Card className="flex-1 cursor-pointer hover:shadow-lg transition-shadow">
-            <CardHeader>
-              <CardTitle className="text-lg text-center">Global</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground text-center">
-                Global templates and settings
-              </p>
-            </CardContent>
-          </Card>
-
-          {/* Project Card */}
-          <Card className="flex-1 cursor-pointer hover:shadow-lg transition-shadow">
-            <CardHeader>
-              <CardTitle className="text-lg text-center">Project</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground text-center">
-                Project-specific templates
-              </p>
-            </CardContent>
-          </Card>
-
-          {/* Task Card */}
-          <Card 
-            className="flex-1 cursor-pointer hover:shadow-lg transition-shadow"
-            onClick={() => setIsTaskFormOpen(true)}
-          >
-            <CardHeader>
-              <CardTitle className="text-lg text-center">Task</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground text-center">
-                Create and manage task templates
-              </p>
-            </CardContent>
-          </Card>
-        </div>
+        {loading && (
+          <div className="text-center">
+            <p>Loading templates...</p>
+          </div>
+        )}
+        
+        {error && (
+          <div className="text-center text-red-500 mb-4">
+            <p>{error}</p>
+            <Button onClick={fetchTemplates} variant="outline" className="mt-2">
+              Retry
+            </Button>
+          </div>
+        )}
+        
+        {!loading && !error && templates.length === 0 && (
+          <div className="text-center text-muted-foreground">
+            <p>No templates found</p>
+          </div>
+        )}
+        
+        {!loading && !error && templates.length > 0 && (
+          <div className="grid gap-6 max-w-4xl w-full grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+            {templates.map((template) => (
+              <Card 
+                key={template.id}
+                className="cursor-pointer hover:shadow-lg transition-shadow"
+                onClick={() => handleCardClick(template.id)}
+              >
+                <CardHeader>
+                  <CardTitle className="text-lg text-center">{template.name}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground text-center">
+                    {template.description}
+                  </p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Task Form Modal */}
       <TaskForm 
         isOpen={isTaskFormOpen}
-        onClose={() => setIsTaskFormOpen(false)}
+        onClose={() => {
+          setIsTaskFormOpen(false);
+          setSelectedTemplateId(null);
+        }}
+        templateId={selectedTemplateId}
       />
     </HeaderAndSidebarLayout>
   );

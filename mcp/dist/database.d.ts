@@ -32,6 +32,16 @@ declare class DatabaseService {
     getTask(taskId: number): Promise<TaskData | null>;
     getNextTaskId(): Promise<number>;
     listTasks(stageFilter?: string): Promise<TaskData[]>;
+    getTemplates(): Promise<Array<{
+        id: number;
+        name: string;
+        description: string;
+        created_at: Date;
+        updated_at: Date;
+        created_by: string;
+        updated_by: string;
+    }>>;
+    getTemplateProperties(templateId: number): Promise<Record<string, SchemaProperty>>;
     close(): Promise<void>;
 }
 export default DatabaseService;

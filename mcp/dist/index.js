@@ -191,6 +191,29 @@ function createMcpServer(clientId = 'unknown') {
                         required: ["task_id"],
                     },
                 },
+                {
+                    name: "list_templates",
+                    description: "List all available templates from the templates table.",
+                    inputSchema: {
+                        type: "object",
+                        properties: {},
+                        required: [],
+                    },
+                },
+                {
+                    name: "get_template_properties",
+                    description: "Get properties for a specific template by template ID.",
+                    inputSchema: {
+                        type: "object",
+                        properties: {
+                            template_id: {
+                                type: "number",
+                                description: "The numeric ID of the template"
+                            }
+                        },
+                        required: ["template_id"],
+                    },
+                },
             ],
         };
     });
@@ -494,6 +517,99 @@ ${task.summary}
                     },
                 ],
             };
+        }
+        else if (name === "list_templates") {
+            // List all templates from the templates table
+            try {
+                const templates = await sharedDbService.getTemplates();
+                if (templates.length === 0) {
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: "No templates found.",
+                            },
+                        ],
+                    };
+                }
+                // Build JSON response with template data
+                const templateData = templates.map(template => ({
+                    id: template.id,
+                    name: template.name,
+                    description: template.description,
+                    created_at: template.created_at,
+                    updated_at: template.updated_at,
+                    created_by: template.created_by,
+                    updated_by: template.updated_by,
+                }));
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: JSON.stringify(templateData, null, 2),
+                        },
+                    ],
+                };
+            }
+            catch (error) {
+                console.error('Error listing templates:', error);
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: "Error: Failed to retrieve templates list.",
+                        },
+                    ],
+                };
+            }
+        }
+        else if (name === "get_template_properties") {
+            // Get properties for a specific template
+            const templateId = toolArgs?.template_id;
+            // Validate template ID
+            if (!templateId || typeof templateId !== 'number' || templateId < 1) {
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: "Error: Valid numeric template_id is required.",
+                        },
+                    ],
+                };
+            }
+            try {
+                const properties = await sharedDbService.getTemplateProperties(templateId);
+                if (Object.keys(properties).length === 0) {
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: `No properties found for template ID ${templateId}.`,
+                            },
+                        ],
+                    };
+                }
+                // Return JSON response with properties data
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: JSON.stringify(properties, null, 2),
+                        },
+                    ],
+                };
+            }
+            catch (error) {
+                console.error('Error fetching template properties:', error);
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: "Error: Failed to retrieve template properties.",
+                        },
+                    ],
+                };
+            }
         }
         else {
             throw new Error(`Unknown tool: ${name}`);
