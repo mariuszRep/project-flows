@@ -6,6 +6,13 @@ interface SchemaProperty {
     description: string;
     dependencies?: string[];
     execution_order?: number;
+    created_by?: string;
+    updated_by?: string;
+    created_at?: Date;
+    updated_at?: Date;
+    id?: number;
+    template_id?: number;
+    fixed?: boolean;
 }
 type TaskStage = 'draft' | 'backlog' | 'doing' | 'review' | 'completed';
 interface TaskData {

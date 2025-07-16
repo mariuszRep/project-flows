@@ -109,19 +109,20 @@ function createMcpServer(clientId = 'unknown') {
         /**
          * List available tools.
          */
-        const baseProperties = {
-            Title: {
-                type: "string",
-                description: "Clear, specific, and actionable task title. Use action verbs and be precise about what needs to be accomplished. Examples: 'Implement user login with OAuth', 'Fix database connection timeout issue', 'Design API endpoints for user management'",
-                execution_order: 1,
-            },
-            Summary: {
-                type: "string",
-                description: "Description of the original request or problem statement. Include the 'what' and 'why' - what needs to be accomplished and why it's important.",
-                execution_order: 2,
-            },
-        };
+        // Load all properties from the database
         const dynamicProperties = await loadDynamicSchemaProperties();
+        // Filter properties for tasks (template_id = 1)
+        const taskProperties = {};
+        const otherProperties = {};
+        for (const [propName, propConfig] of Object.entries(dynamicProperties)) {
+            // Check if this is a task property (template_id = 1)
+            if (propConfig.template_id === 1) {
+                taskProperties[propName] = propConfig;
+            }
+            else {
+                otherProperties[propName] = propConfig;
+            }
+        }
         // Clean properties for schema (remove execution metadata)
         const schemaProperties = {};
         for (const [propName, propConfig] of Object.entries(dynamicProperties)) {
@@ -133,6 +134,8 @@ function createMcpServer(clientId = 'unknown') {
             }
             schemaProperties[propName] = cleanConfig;
         }
+        // Use task properties as base properties if available, otherwise use empty object
+        const baseProperties = Object.keys(taskProperties).length > 0 ? taskProperties : {};
         const allProperties = { ...baseProperties, ...schemaProperties };
         return {
             tools: [

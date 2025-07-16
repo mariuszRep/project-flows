@@ -11,6 +11,13 @@ interface SchemaProperty {
   description: string;
   dependencies?: string[];
   execution_order?: number;
+  created_by?: string;
+  updated_by?: string;
+  created_at?: Date;
+  updated_at?: Date;
+  id?: number;
+  template_id?: number;
+  fixed?: boolean;
 }
 
 type TaskStage = 'draft' | 'backlog' | 'doing' | 'review' | 'completed';
@@ -48,7 +55,7 @@ class DatabaseService {
 
   async getSchemaProperties(): Promise<Record<string, SchemaProperty>> {
     try {
-      const query = 'SELECT key, type, description, dependencies, execution_order FROM properties ORDER BY key';
+      const query = 'SELECT key, type, description, dependencies, execution_order, created_by, updated_by, created_at, updated_at, id, template_id, fixed FROM properties ORDER BY key';
       const result = await this.pool.query(query);
       
       const properties: Record<string, SchemaProperty> = {};
@@ -57,7 +64,14 @@ class DatabaseService {
           type: row.type,
           description: row.description,
           dependencies: row.dependencies,
-          execution_order: row.execution_order
+          execution_order: row.execution_order,
+          created_by: row.created_by,
+          updated_by: row.updated_by,
+          created_at: row.created_at,
+          updated_at: row.updated_at,
+          id: row.id,
+          template_id: row.template_id,
+          fixed: row.fixed
         };
       }
       
