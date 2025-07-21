@@ -21,7 +21,7 @@ interface Template {
 export default function Template() {
   const navigate = useNavigate();
   const { selectedSession, setSelectedSession } = useSession();
-  const { callTool, isConnected } = useMCP();
+  const { callTool, isConnected, connect, isLoading: mcpLoading, error: mcpError } = useMCP();
   const [templates, setTemplates] = useState<Template[]>([]);
   const [isTaskFormOpen, setIsTaskFormOpen] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null);
@@ -81,8 +81,11 @@ export default function Template() {
   useEffect(() => {
     if (isConnected) {
       fetchTemplates();
+    } else if (!isConnected && !mcpLoading && !mcpError) {
+      // Auto-connect to MCP server if not connected
+      connect();
     }
-  }, [isConnected]);
+  }, [isConnected, mcpLoading, mcpError, connect]);
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
@@ -116,11 +119,33 @@ export default function Template() {
           </div>
         )}
         
-        {error && (
+        {(error || mcpError) && (
           <div className="text-center text-red-500 mb-4">
-            <p>{error}</p>
-            <Button onClick={fetchTemplates} variant="outline" className="mt-2">
-              Retry
+            <p>{error || mcpError}</p>
+            {error && (
+              <Button onClick={fetchTemplates} variant="outline" className="mt-2 mr-2">
+                Retry
+              </Button>
+            )}
+            {mcpError && (
+              <Button onClick={connect} variant="outline" className="mt-2">
+                Connect to MCP Server
+              </Button>
+            )}
+          </div>
+        )}
+        
+        {!isConnected && mcpLoading && (
+          <div className="text-center text-muted-foreground mb-4">
+            <p>Connecting to MCP server...</p>
+          </div>
+        )}
+        
+        {!isConnected && !mcpLoading && !mcpError && (
+          <div className="text-center mb-4">
+            <p className="text-muted-foreground mb-2">Not connected to MCP server</p>
+            <Button onClick={connect} variant="outline">
+              Connect to MCP Server
             </Button>
           </div>
         )}

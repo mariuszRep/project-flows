@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS properties (
     description text NOT NULL,
     dependencies text[] DEFAULT '{}'::text[],
     execution_order integer NOT NULL DEFAULT 0,
+    fixed BOOLEAN DEFAULT FALSE,
     created_by TEXT NOT NULL DEFAULT 'system',
     updated_by TEXT NOT NULL DEFAULT 'system',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,

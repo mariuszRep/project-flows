@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -37,27 +37,17 @@ export const TaskForm: React.FC<TaskFormProps> = ({ isOpen, onClose, templateId 
     title: 'Task',
     template: 'Task',
     stage: 'backlog',
-    blocks: [
-      {
-        title: 'Prompt',
-        describe: 'Description of the original request or problem statement. Include the \'what\' and \'why\' - what needs to be accomplished and why it\'s important.',
-        order: 1
-      },
-      {
-        title: 'Notes',
-        describe: 'Comprehensive context including: technical requirements, business constraints, dependencies, acceptance criteria, edge cases, and background information that impacts implementation decisions.',
-        order: 2
-      },
-      {
-        title: 'Items',
-        describe: 'Markdown checklist of specific, actionable, and measurable steps. Each item should be concrete enough that completion can be verified.',
-        order: 3
-      }
-    ]
+    blocks: [] as Array<{
+      title: string;
+      describe: string;
+      order: number;
+      type?: string;
+      dependencies?: string[];
+    }>
   });
 
   // Function to fetch template properties
-  const fetchTemplateProperties = async (templateId: number) => {
+  const fetchTemplateProperties = useCallback(async (templateId: number) => {
     if (!isConnected) {
       setError('Not connected to MCP server');
       return;
@@ -66,47 +56,53 @@ export const TaskForm: React.FC<TaskFormProps> = ({ isOpen, onClose, templateId 
     try {
       setLoading(true);
       setError(null);
+      console.log('Fetching template properties for templateId:', templateId);
       const result = await callTool('get_template_properties', { template_id: templateId });
+      console.log('MCP tool result:', result);
       
       if (result.content && result.content[0] && result.content[0].text) {
         const propertiesData = JSON.parse(result.content[0].text);
+        console.log('Parsed properties data:', propertiesData);
         setProperties(propertiesData);
         
-        // Convert properties to blocks
-        const blocks = Object.entries(propertiesData)
-          .sort(([, a], [, b]) => (a.execution_order || 999) - (b.execution_order || 999))
-          .map(([key, property], index) => ({
-            title: key,
-            describe: property.description,
-            order: property.execution_order || index + 1
-          }));
+        // Convert properties to blocks - handle both object and array formats
+        let blocks = [];
+        if (Array.isArray(propertiesData)) {
+          // If propertiesData is an array of property objects
+          blocks = propertiesData
+            .sort((a, b) => (a.execution_order || 999) - (b.execution_order || 999))
+            .map((property, index) => ({
+              title: property.key || property.name || `Property ${index + 1}`,
+              describe: property.description || '',
+              order: property.execution_order || index + 1,
+              type: property.type || 'string',
+              dependencies: property.dependencies || []
+            }));
+        } else {
+          // If propertiesData is an object with property keys
+          blocks = Object.entries(propertiesData)
+            .sort(([, a], [, b]) => (a.execution_order || 999) - (b.execution_order || 999))
+            .map(([key, property], index) => ({
+              title: key,
+              describe: property.description || '',
+              order: property.execution_order || index + 1,
+              type: property.type || 'string',
+              dependencies: property.dependencies || []
+            }));
+        }
         
+        console.log('Converted blocks:', blocks);
         setFormData(prevData => ({
           ...prevData,
           blocks
         }));
       } else {
+        console.log('No content in MCP result or result is empty');
         setProperties({});
-        // Reset to default blocks if no properties
+        // Set empty blocks if no properties found
         setFormData(prevData => ({
           ...prevData,
-          blocks: [
-            {
-              title: 'Prompt',
-              describe: 'Description of the original request or problem statement. Include the \'what\' and \'why\' - what needs to be accomplished and why it\'s important.',
-              order: 1
-            },
-            {
-              title: 'Notes',
-              describe: 'Comprehensive context including: technical requirements, business constraints, dependencies, acceptance criteria, edge cases, and background information that impacts implementation decisions.',
-              order: 2
-            },
-            {
-              title: 'Items',
-              describe: 'Markdown checklist of specific, actionable, and measurable steps. Each item should be concrete enough that completion can be verified.',
-              order: 3
-            }
-          ]
+          blocks: []
         }));
       }
     } catch (error) {
@@ -115,16 +111,25 @@ export const TaskForm: React.FC<TaskFormProps> = ({ isOpen, onClose, templateId 
     } finally {
       setLoading(false);
     }
-  };
+  }, [isConnected, callTool]);
 
   // Effect to fetch template properties when templateId changes
   useEffect(() => {
     if (templateId && isConnected) {
       fetchTemplateProperties(templateId);
+    } else if (!templateId) {
+      // Reset to empty state when no template is selected
+      setFormData(prevData => ({
+        ...prevData,
+        blocks: []
+      }));
+      setProperties({});
+      setError(null);
+      setLoading(false);
     }
-  }, [templateId, isConnected]);
+  }, [templateId, isConnected, fetchTemplateProperties]);
 
-  const handleBlockUpdate = (index: number, field: 'title' | 'describe', value: string) => {
+  const handleBlockUpdate = (index: number, field: 'title' | 'describe' | 'type' | 'dependencies', value: string | string[]) => {
     const updatedBlocks = [...formData.blocks];
     updatedBlocks[index] = {
       ...updatedBlocks[index],
@@ -145,7 +150,9 @@ export const TaskForm: React.FC<TaskFormProps> = ({ isOpen, onClose, templateId 
     const newBlock = {
       title: '',
       describe: '',
-      order: formData.blocks.length + 1
+      order: formData.blocks.length + 1,
+      type: 'string',
+      dependencies: []
     };
     setFormData({
       ...formData,
@@ -238,6 +245,21 @@ export const TaskForm: React.FC<TaskFormProps> = ({ isOpen, onClose, templateId 
 
           {/* Form Blocks */}
           <div className="space-y-4 w-full">
+            {formData.blocks.length === 0 && !loading && (
+              <div className="text-center py-8 border-2 border-dashed border-border rounded-lg">
+                <p className="text-muted-foreground mb-4">
+                  {templateId ? "No properties found for this template." : "No template selected."}
+                </p>
+                <Button 
+                  variant="outline" 
+                  onClick={addNewBlock}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add First Block
+                </Button>
+              </div>
+            )}
             {formData.blocks.map((block, index) => {
               const isExpanded = expandedBlocks.includes(index);
               return (
@@ -286,14 +308,37 @@ export const TaskForm: React.FC<TaskFormProps> = ({ isOpen, onClose, templateId 
                   
                   {isExpanded && (
                     <CardContent className="pt-0 pl-10">
-                      <div className="space-y-2">
-                        <Textarea
-                          value={block.describe}
-                          onChange={(e) => handleBlockUpdate(index, 'describe', e.target.value)}
-                          placeholder="Block description"
-                          rows={3}
-                          className="text-sm text-muted-foreground border-0 px-0 shadow-none focus-visible:ring-0 bg-transparent resize-none w-full"
-                        />
+                      <div className="space-y-4">
+                        <div>
+                          <label className="text-xs font-medium text-muted-foreground mb-1 block">Description</label>
+                          <Textarea
+                            value={block.describe}
+                            onChange={(e) => handleBlockUpdate(index, 'describe', e.target.value)}
+                            placeholder="Block description"
+                            rows={3}
+                            className="text-sm border-0 px-0 shadow-none focus-visible:ring-0 bg-transparent resize-none w-full"
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="text-xs font-medium text-muted-foreground mb-1 block">Type</label>
+                            <Input
+                              value={block.type || ''}
+                              onChange={(e) => handleBlockUpdate(index, 'type', e.target.value)}
+                              placeholder="e.g., string, text, number"
+                              className="text-sm border-0 px-0 shadow-none focus-visible:ring-0 bg-transparent"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs font-medium text-muted-foreground mb-1 block">Dependencies</label>
+                            <Input
+                              value={block.dependencies?.join(', ') || ''}
+                              onChange={(e) => handleBlockUpdate(index, 'dependencies', e.target.value.split(',').map(dep => dep.trim()).filter(Boolean))}
+                              placeholder="e.g., Summary, Research"
+                              className="text-sm border-0 px-0 shadow-none focus-visible:ring-0 bg-transparent"
+                            />
+                          </div>
+                        </div>
                       </div>
                     </CardContent>
                   )}
@@ -304,6 +349,20 @@ export const TaskForm: React.FC<TaskFormProps> = ({ isOpen, onClose, templateId 
                         <p className="text-sm text-muted-foreground">
                           {block.describe || 'No description provided'}
                         </p>
+                        {(block.type || block.dependencies?.length) && (
+                          <div className="flex flex-wrap gap-2 mt-2">
+                            {block.type && (
+                              <span className="inline-flex items-center px-2 py-1 rounded-md text-xs bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                                Type: {block.type}
+                              </span>
+                            )}
+                            {block.dependencies && block.dependencies.length > 0 && (
+                              <span className="inline-flex items-center px-2 py-1 rounded-md text-xs bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200">
+                                Depends: {block.dependencies.join(', ')}
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </CardContent>
                   )}
@@ -311,17 +370,19 @@ export const TaskForm: React.FC<TaskFormProps> = ({ isOpen, onClose, templateId 
               );
             })}
             
-            {/* Add New Block Button */}
-            <div className="border-2 border-dashed border-border rounded-lg p-8 text-center w-full">
-              <Button 
-                variant="ghost" 
-                onClick={addNewBlock}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Add New Block
-              </Button>
-            </div>
+            {/* Add New Block Button - only show when there are existing blocks */}
+            {formData.blocks.length > 0 && (
+              <div className="border-2 border-dashed border-border rounded-lg p-8 text-center w-full">
+                <Button 
+                  variant="ghost" 
+                  onClick={addNewBlock}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add New Block
+                </Button>
+              </div>
+            )}
           </div>
 
         </form>
