@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a TypeScript implementation of the MCP (Model Context Protocol) server, equivalent to the Python version in `/root/projects/mcp-python/`. The project contains a single MCP server that provides task creation and planning functionality through a "create_task" tool.
+This is a TypeScript implementation of the MCP (Model Context Protocol) server with SSE (Server-Sent Events) support for multiple concurrent clients. The project provides task creation and planning functionality through multiple tools with shared database persistence.
 
 ## Architecture
 
@@ -14,8 +14,11 @@ This is a TypeScript implementation of the MCP (Model Context Protocol) server, 
 
 ### Core Components
 
-- The server implements MCP protocol using the `@modelcontextprotocol/sdk` TypeScript library
-- Tool registration system with dynamic schema loading from JSON configuration
+- **SSE Multi-Client Support**: Express.js server with SSE transport for concurrent client connections
+- **Shared Database**: PostgreSQL database service shared across all client sessions with audit trail
+- **Session Management**: Individual MCP server instances per client with session tracking
+- **Client Identification**: Automatic client detection for audit tracking (windsurf, claude-desktop, etc.)
+- Tool registration system with dynamic schema loading from database/JSON configuration
 - Dependency validation and execution ordering for task properties
 - Markdown output formatting for task plans
 
@@ -29,7 +32,7 @@ npm install
 # Build the project
 npm run build
 
-# Run the server (connects via stdio)
+# Run the SSE server (HTTP server on port 3001)
 npm start
 
 # Development mode with auto-reload
@@ -43,6 +46,10 @@ npm run clean
 - Node.js (ES2022 compatible)
 - TypeScript 5.x
 - @modelcontextprotocol/sdk - MCP SDK for TypeScript
+- Express.js 5.x - Web server for SSE endpoints
+- CORS - Cross-origin resource sharing support
+- PostgreSQL (pg) - Database client
+- Zod - Schema validation
 - tsx - TypeScript execution for development
 
 ## Key Implementation Details
@@ -54,8 +61,56 @@ npm run clean
 - Dynamic properties are loaded from `schema_properties.json` with execution order and dependency management
 - Properties include Research (depends on Summary) and Items (depends on Summary and Research)
 - Output is formatted as structured markdown with sections for each property
-- Server runs over stdio communication channel
-- Equivalent functionality to the Python version with identical schema and behavior
+- Server runs over HTTP with SSE (Server-Sent Events) for real-time communication
+- Multiple clients can connect simultaneously, sharing the same database
+- Each client gets its own MCP server instance with session management
+- Default port: 3001 (configurable via PORT environment variable)
+- **Audit Trail**: All database operations track `created_by` and `updated_by` using client identification
+
+## Client Configuration
+
+The server automatically identifies MCP clients for audit tracking through multiple methods:
+
+### Method 1: Query Parameters (Recommended)
+```json
+{
+  "mcpServers": {
+    "project-flows": {
+      "serverUrl": "http://localhost:3001/sse?client=windsurf"
+    }
+  }
+}
+```
+
+### Method 2: HTTP Headers
+```json
+{
+  "mcpServers": {
+    "project-flows": {
+      "serverUrl": "http://localhost:3001/sse",
+      "headers": {
+        "X-MCP-Client": "windsurf"
+      }
+    }
+  }
+}
+```
+
+### Method 3: User-Agent Detection (Automatic)
+The server automatically detects these clients from User-Agent strings:
+- `windsurf` - Windsurf IDE
+- `claude-desktop` - Claude Desktop App
+- `cursor` - Cursor IDE
+- `vscode` - VS Code
+- `cline` - Cline extension
+
+### Audit Trail
+All tasks and blocks in the database include audit columns:
+- `created_at` / `updated_at`: Automatic timestamps
+- `created_by` / `updated_by`: Client identifier (e.g., "windsurf", "claude-desktop")
+- `stage`: Task workflow stage ('draft', 'backlog', 'doing', 'review', 'completed')
+
+This enables tracking which MCP client created or modified each record and task workflow progression.
 
 ## Tool Usage Examples
 
