@@ -294,6 +294,197 @@ class DatabaseService {
     }
   }
 
+  async createProperty(templateId: number, propertyData: {
+    key: string;
+    type: string;
+    description: string;
+    dependencies?: string[];
+    execution_order?: number;
+    fixed?: boolean;
+  }, userId: string = 'system'): Promise<number> {
+    try {
+      console.log('Database createProperty called with:', {
+        templateId,
+        propertyData,
+        userId
+      });
+
+      const query = `
+        INSERT INTO properties (template_id, key, type, description, dependencies, execution_order, fixed, created_by, updated_by) 
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) 
+        RETURNING id
+      `;
+      const values = [
+        templateId,
+        propertyData.key,
+        propertyData.type,
+        propertyData.description,
+        propertyData.dependencies || [],
+        propertyData.execution_order || 0,
+        propertyData.fixed || false,
+        userId,
+        userId
+      ];
+
+      console.log('Executing query with values:', { query, values });
+
+      const result = await this.pool.query(query, values);
+      const propertyId = result.rows[0].id;
+      
+      console.log('Property created successfully in database with ID:', propertyId);
+      return propertyId;
+    } catch (error) {
+      console.error('Database error creating property:', error);
+      console.error('Error details:', {
+        code: error.code,
+        detail: error.detail,
+        constraint: error.constraint
+      });
+      throw error;
+    }
+  }
+
+  async updateProperty(propertyId: number, updates: {
+    key?: string;
+    type?: string;
+    description?: string;
+    dependencies?: string[];
+    execution_order?: number;
+    fixed?: boolean;
+  }, userId: string = 'system'): Promise<boolean> {
+    try {
+      const updateFields = [];
+      const values = [];
+      let paramIndex = 1;
+
+      if (updates.key !== undefined) {
+        updateFields.push(`key = $${paramIndex++}`);
+        values.push(updates.key);
+      }
+      if (updates.type !== undefined) {
+        updateFields.push(`type = $${paramIndex++}`);
+        values.push(updates.type);
+      }
+      if (updates.description !== undefined) {
+        updateFields.push(`description = $${paramIndex++}`);
+        values.push(updates.description);
+      }
+      if (updates.dependencies !== undefined) {
+        updateFields.push(`dependencies = $${paramIndex++}`);
+        values.push(updates.dependencies);
+      }
+      if (updates.execution_order !== undefined) {
+        updateFields.push(`execution_order = $${paramIndex++}`);
+        values.push(updates.execution_order);
+      }
+      if (updates.fixed !== undefined) {
+        updateFields.push(`fixed = $${paramIndex++}`);
+        values.push(updates.fixed);
+      }
+
+      if (updateFields.length === 0) {
+        return false; // No fields to update
+      }
+
+      updateFields.push(`updated_at = CURRENT_TIMESTAMP`);
+      updateFields.push(`updated_by = $${paramIndex++}`);
+      values.push(userId);
+      values.push(propertyId);
+
+      const query = `UPDATE properties SET ${updateFields.join(', ')} WHERE id = $${paramIndex}`;
+      const result = await this.pool.query(query, values);
+      return result.rowCount > 0;
+    } catch (error) {
+      console.error('Error updating property:', error);
+      throw error;
+    }
+  }
+
+  async deleteProperty(propertyId: number): Promise<boolean> {
+    const client = await this.pool.connect();
+    
+    try {
+      await client.query('BEGIN');
+
+      // First, get the property details to check if it's fixed and get the key
+      const propertyQuery = 'SELECT key, fixed FROM properties WHERE id = $1';
+      const propertyResult = await client.query(propertyQuery, [propertyId]);
+      
+      if (propertyResult.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return false; // Property doesn't exist
+      }
+
+      const property = propertyResult.rows[0];
+      
+      // Check if property is fixed (cannot be deleted)
+      if (property.fixed) {
+        await client.query('ROLLBACK');
+        throw new Error(`Property "${property.key}" is fixed and cannot be deleted`);
+      }
+
+      // Check for existing blocks using this property
+      const blocksQuery = 'SELECT COUNT(*) as count FROM blocks WHERE property_name = $1';
+      const blocksResult = await client.query(blocksQuery, [property.key]);
+      const blockCount = parseInt(blocksResult.rows[0].count);
+
+      if (blockCount > 0) {
+        await client.query('ROLLBACK');
+        throw new Error(`Property "${property.key}" cannot be deleted because it is used by ${blockCount} existing task block(s). Delete the tasks using this property first.`);
+      }
+
+      // Safe to delete - no references exist
+      const deleteQuery = 'DELETE FROM properties WHERE id = $1';
+      const deleteResult = await client.query(deleteQuery, [propertyId]);
+      
+      await client.query('COMMIT');
+      return deleteResult.rowCount > 0;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('Error deleting property:', error);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async listProperties(templateId?: number): Promise<Array<SchemaProperty & { key: string }>> {
+    try {
+      let query = `
+        SELECT id, template_id, key, type, description, dependencies, execution_order, fixed,
+               created_by, updated_by, created_at, updated_at 
+        FROM properties
+      `;
+      let params: any[] = [];
+      
+      if (templateId) {
+        query += ' WHERE template_id = $1';
+        params.push(templateId);
+      }
+      
+      query += ' ORDER BY template_id, execution_order, key';
+      
+      const result = await this.pool.query(query, params);
+      return result.rows.map((row: any) => ({
+        id: row.id,
+        template_id: row.template_id,
+        key: row.key,
+        type: row.type,
+        description: row.description,
+        dependencies: row.dependencies,
+        execution_order: row.execution_order,
+        fixed: row.fixed,
+        created_by: row.created_by,
+        updated_by: row.updated_by,
+        created_at: row.created_at,
+        updated_at: row.updated_at
+      }));
+    } catch (error) {
+      console.error('Error listing properties:', error);
+      return [];
+    }
+  }
+
   async close() {
     await this.pool.end();
   }
