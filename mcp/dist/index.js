@@ -123,13 +123,35 @@ function createMcpServer(clientId = 'unknown') {
                 otherProperties[propName] = propConfig;
             }
         }
-        // Clean properties for schema (remove execution metadata)
+        // Clean properties for schema (remove execution metadata and convert types)
         const schemaProperties = {};
         for (const [propName, propConfig] of Object.entries(dynamicProperties)) {
             const cleanConfig = {};
             for (const [key, value] of Object.entries(propConfig)) {
                 if (!["dependencies", "execution_order"].includes(key)) {
-                    cleanConfig[key] = value;
+                    if (key === "type") {
+                        // Convert custom types to JSON Schema types
+                        switch (value) {
+                            case "text":
+                                cleanConfig[key] = "string";
+                                break;
+                            case "list":
+                                cleanConfig[key] = "array";
+                                cleanConfig["items"] = { "type": "string" };
+                                break;
+                            case "number":
+                                cleanConfig[key] = "number";
+                                break;
+                            case "boolean":
+                                cleanConfig[key] = "boolean";
+                                break;
+                            default:
+                                cleanConfig[key] = "string"; // fallback to string for unknown types
+                        }
+                    }
+                    else {
+                        cleanConfig[key] = value;
+                    }
                 }
             }
             schemaProperties[propName] = cleanConfig;

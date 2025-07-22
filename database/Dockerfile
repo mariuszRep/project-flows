@@ -11,7 +11,6 @@ WORKDIR /app
 # Copy Node.js scripts and dependencies
 COPY package.json ./
 COPY migrate.js ./
-COPY bootstrap.js ./
 
 # Install Node.js dependencies
 RUN npm install
@@ -19,8 +18,6 @@ RUN npm install
 # Copy initialization scripts
 COPY schema.sql /docker-entrypoint-initdb.d/01-schema.sql
 COPY seed.sql /docker-entrypoint-initdb.d/02-seed.sql
-
-# No bootstrap script needed
 
 # Set environment variables
 ENV POSTGRES_DB=mcp_tasks
