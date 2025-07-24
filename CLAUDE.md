@@ -98,7 +98,7 @@ npm run lint
 
 ### UI Architecture
 - **Context providers**: SessionContext for session state, MCPContext for MCP client management
-- **Protected routing**: Authentication required for dashboard, tools, template, board pages
+- **Open access**: All pages are publicly accessible without authentication
 - **Theme support**: Dark/light mode with next-themes
 - **State management**: React Query for server state, React Context for app state
 
@@ -130,8 +130,7 @@ Retrieves complete task data by numeric ID. Returns structured markdown format.
 
 ### Required Environment Variables
 - `DATABASE_URL`: PostgreSQL connection string
-- `VITE_SUPABASE_URL`: Supabase project URL (UI only)
-- `VITE_SUPABASE_ANON_KEY`: Supabase anonymous key (UI only)
+- `VITE_API_BASE_URL`: MCP server URL (UI only)
 
 ### MCP Client Configuration
 Server runs on `http://localhost:3001/sse` with optional `?client=` parameter for audit tracking.

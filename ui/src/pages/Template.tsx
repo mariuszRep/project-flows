@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { HeaderAndSidebarLayout } from '@/components/layout/HeaderAndSidebarLayout';
 import { useSession } from '@/contexts/SessionContext';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { TaskForm } from '@/components/template/TaskForm';
@@ -68,17 +67,6 @@ export default function Template() {
   };
 
   useEffect(() => {
-    const checkAuth = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        navigate('/auth');
-      }
-    };
-
-    checkAuth();
-  }, [navigate]);
-
-  useEffect(() => {
     if (isConnected) {
       fetchTemplates();
     } else if (!isConnected && !mcpLoading && !mcpError) {
@@ -86,11 +74,6 @@ export default function Template() {
       connect();
     }
   }, [isConnected, mcpLoading, mcpError, connect]);
-
-  const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    navigate('/auth');
-  };
 
   // These are placeholder props that HeaderAndSidebarLayout component requires
   // but aren't needed for the Template page functionality
@@ -107,7 +90,6 @@ export default function Template() {
   return (
     <HeaderAndSidebarLayout
       {...placeholderProps}
-      handleSignOut={handleSignOut}
       onSettingsClick={handleSettingsClick}
     >
       <div className="flex flex-col items-center justify-center min-h-full p-6">

@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { HeaderAndSidebarLayout } from '@/components/layout/HeaderAndSidebarLayout';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
 import { Task } from '@/types/task';
 import { Project } from '@/types/project';
 import { TaskBoard } from '@/components/board/TaskBoard';
@@ -160,11 +159,6 @@ export default function Board() {
     fetchTasks();
   }, [isConnected, tools]);
 
-  const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    navigate('/auth');
-  };
-
   const handleTaskUpdate = async (taskId?: number, newStage?: string) => {
     if (!isConnected || !callTool) {
       console.log('MCP not connected, skipping task update');
@@ -275,7 +269,6 @@ export default function Board() {
 
   return (
     <HeaderAndSidebarLayout
-      handleSignOut={handleSignOut}
       onSettingsClick={handleSettingsClick}
     >
       <div className="space-y-6">

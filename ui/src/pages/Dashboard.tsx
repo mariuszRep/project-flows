@@ -1,5 +1,4 @@
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { LogOut, Activity, Layout as LayoutIcon, Settings as SettingsIcon, Wrench, Kanban } from "lucide-react";
@@ -8,13 +7,8 @@ import { HeaderLayout } from "@/components/layout/HeaderLayout";
 const Dashboard = () => {
   const navigate = useNavigate();
 
-  const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    navigate("/auth");
-  };
-
   return (
-    <HeaderLayout handleSignOut={handleSignOut}>
+    <HeaderLayout>
       <div>
         <div className="text-center mx-auto max-w-5xl w-full">
           <h1 className="text-4xl font-bold gradient-text mb-4">
