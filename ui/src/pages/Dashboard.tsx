@@ -12,10 +12,10 @@ const Dashboard = () => {
       <div>
         <div className="text-center mx-auto max-w-5xl w-full">
           <h1 className="text-4xl font-bold gradient-text mb-4">
-            Welcome to the App!
+            Welcome to Project Flows!
           </h1>
           <p className="text-muted-foreground text-lg mb-8">
-            You have successfully signed in.
+            Manage your projects with powerful workflow automation and task management.
           </p>
           
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
@@ -27,7 +27,7 @@ const Dashboard = () => {
                   Task Board
                 </CardTitle>
                 <CardDescription>
-                  Manage your tasks with drag-and-drop kanban boards.
+                  Organize and track your project tasks with intuitive kanban boards.
                 </CardDescription>
               </CardHeader>
             </Card>
@@ -40,7 +40,7 @@ const Dashboard = () => {
                 Template
               </CardTitle>
               <CardDescription>
-                Create and manage workflow automations with visual canvas.
+                Design and manage project templates for consistent workflows.
               </CardDescription>
             </CardHeader>
           </Card>
@@ -53,7 +53,7 @@ const Dashboard = () => {
                 MCP Tools
               </CardTitle>
               <CardDescription>
-                Connect to Model Context Protocol servers and execute tools.
+                Access powerful MCP tools to enhance your project workflows.
               </CardDescription>
             </CardHeader>
           </Card>
@@ -66,7 +66,7 @@ const Dashboard = () => {
                 UI Components
               </CardTitle>
               <CardDescription>
-                Explore the UI component library with interactive examples.
+                Browse Project Flows UI components and design system.
               </CardDescription>
             </CardHeader>
           </Card>
@@ -79,7 +79,7 @@ const Dashboard = () => {
                 Settings
               </CardTitle>
               <CardDescription>
-                Customize application appearance and preferences.
+                Configure Project Flows settings and preferences.
               </CardDescription>
             </CardHeader>
           </Card>
