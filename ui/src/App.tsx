@@ -9,7 +9,8 @@ import Layout from "./pages/Layout";
 import Template from "./pages/Template";
 import Tools from "./pages/Tools";
 import Settings from "./pages/Settings";
-import Board from "./pages/Board";
+import TaskBoard from "./pages/TaskBoard";
+import TaskList from "./pages/TaskList";
 import { SessionProvider } from "./contexts/SessionContext";
 import { MCPProvider } from "./contexts/MCPContext";
 
@@ -31,7 +32,8 @@ const App = () => (
                 <Route path="/tools" element={<Tools />} />
                 <Route path="/layout" element={<Layout />} />
                 <Route path="/settings" element={<Settings />} />
-                <Route path="/board" element={<Board />} />
+                <Route path="/task-board" element={<TaskBoard />} />
+                <Route path="/task-list" element={<TaskList />} />
               </Routes>
             </BrowserRouter>
           </MCPProvider>

@@ -20,7 +20,7 @@ const Dashboard = () => {
           
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
             {/* Board Card */}
-            <Card className="card-hover" onClick={() => navigate('/board')}>
+            <Card className="card-hover" onClick={() => navigate('/task-board')}>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Kanban className="w-5 h-5" />
@@ -33,7 +33,7 @@ const Dashboard = () => {
             </Card>
 
             {/* Task Manager Card */}
-            <Card className="card-hover" onClick={() => navigate('/tasks')}>
+            <Card className="card-hover" onClick={() => navigate('/task-list')}>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Filter className="w-5 h-5" />
