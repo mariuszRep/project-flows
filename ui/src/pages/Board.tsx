@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { HeaderAndSidebarLayout } from '@/components/layout/HeaderAndSidebarLayout';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
 import { Task } from '@/types/task';
 import { Project } from '@/types/project';
 import { TaskBoard } from '@/components/board/TaskBoard';
@@ -10,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { MCPDisconnectedState, NoTasksState } from '@/components/ui/empty-state';
 import { Plus, X } from 'lucide-react';
 import { useMCP } from '@/contexts/MCPContext';
 
@@ -24,7 +24,7 @@ export default function Board() {
   const [taskForm, setTaskForm] = useState({
     title: '',
     body: '',
-    stage: 'draft' as const,
+    stage: 'draft' as 'draft' | 'backlog' | 'doing' | 'review' | 'completed',
     notes: '',
     taskList: '',
     currentGoal: ''
@@ -101,44 +101,6 @@ export default function Board() {
         }
       }
       
-      // If no tasks found from MCP tools, use fallback data
-      if (allTasks.length === 0) {
-        allTasks = [
-          {
-            id: 1,
-            title: 'Design new user interface',
-            body: 'Create wireframes and mockups for the new dashboard interface',
-            stage: 'backlog',
-            project_id: 1,
-            created_at: '2024-01-15T10:00:00Z',
-            updated_at: '2024-01-15T10:00:00Z',
-            created_by: 'user@example.com',
-            updated_by: 'user@example.com'
-          },
-          {
-            id: 2,
-            title: 'Implement API endpoints',
-            body: 'Set up REST API endpoints for user management',
-            stage: 'doing',
-            project_id: 1,
-            created_at: '2024-01-15T11:00:00Z',
-            updated_at: '2024-01-15T11:00:00Z',
-            created_by: 'user@example.com',
-            updated_by: 'user@example.com'
-          },
-          {
-            id: 3,
-            title: 'Setup project structure',
-            body: 'Initialize React project with TypeScript and Tailwind CSS',
-            stage: 'completed',
-            project_id: 1,
-            created_at: '2024-01-14T09:00:00Z',
-            updated_at: '2024-01-14T09:00:00Z',
-            created_by: 'user@example.com',
-            updated_by: 'user@example.com'
-          }
-        ];
-      }
       
       // Remove duplicates based on id
       const uniqueTasks = allTasks.filter((task, index, self) => 
@@ -159,11 +121,6 @@ export default function Board() {
   useEffect(() => {
     fetchTasks();
   }, [isConnected, tools]);
-
-  const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    navigate('/auth');
-  };
 
   const handleTaskUpdate = async (taskId?: number, newStage?: string) => {
     if (!isConnected || !callTool) {
@@ -240,7 +197,7 @@ export default function Board() {
         setTaskForm({
           title: '',
           body: '',
-          stage: 'draft' as const,
+          stage: 'draft' as 'draft' | 'backlog' | 'doing' | 'review' | 'completed',
           notes: '',
           taskList: '',
           currentGoal: ''
@@ -265,7 +222,7 @@ export default function Board() {
     setTaskForm({
       title: '',
       body: '',
-      stage: 'draft' as const,
+      stage: 'draft' as 'draft' | 'backlog' | 'doing' | 'review' | 'completed',
       notes: '',
       taskList: '',
       currentGoal: ''
@@ -275,7 +232,6 @@ export default function Board() {
 
   return (
     <HeaderAndSidebarLayout
-      handleSignOut={handleSignOut}
       onSettingsClick={handleSettingsClick}
     >
       <div className="space-y-6">
@@ -284,11 +240,6 @@ export default function Board() {
             <h1 className="text-2xl font-bold text-foreground">Task Board</h1>
             <p className="text-sm text-muted-foreground">
               Manage your tasks with drag-and-drop kanban boards
-              {!isConnected && (
-                <span className="text-amber-600 ml-2">
-                  (MCP not connected - using demo data)
-                </span>
-              )}
             </p>
           </div>
           <Button onClick={() => setShowAddTaskForm(true)} disabled={!isConnected}>
@@ -345,7 +296,7 @@ export default function Board() {
                 <Label htmlFor="stage">Stage</Label>
                 <Select
                   value={taskForm.stage}
-                  onValueChange={(value) => setTaskForm(prev => ({ ...prev, stage: value as any }))}
+                  onValueChange={(value) => setTaskForm(prev => ({ ...prev, stage: value as 'draft' | 'backlog' | 'doing' | 'review' | 'completed' }))}
                   disabled={isCreatingTask}
                 >
                   <SelectTrigger>
@@ -422,6 +373,10 @@ export default function Board() {
               <p className="text-muted-foreground">Loading tasks...</p>
             </div>
           </div>
+        ) : !isConnected ? (
+          <MCPDisconnectedState />
+        ) : tasks.length === 0 ? (
+          <NoTasksState />
         ) : (
           <TaskBoard
             tasks={tasks}

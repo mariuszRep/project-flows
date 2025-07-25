@@ -34,19 +34,14 @@ import {
 import { Info } from "lucide-react";
 import { HeaderLayout } from "@/components/layout/HeaderLayout";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
 
 export default function Layout() {
   const { toast } = useToast();
   const navigate = useNavigate();
 
-  const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    navigate("/auth");
-  };
 
   return (
-    <HeaderLayout handleSignOut={handleSignOut}>
+    <HeaderLayout>
       <div>
         <div className="mx-auto text-center">
           <h1 className="text-3xl font-bold mb-8">UI Component Library</h1>

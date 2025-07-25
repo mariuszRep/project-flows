@@ -5,7 +5,6 @@ import { Moon, Sun, Monitor } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { HeaderLayout } from '@/components/layout/HeaderLayout';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
 import { ConnectionStatus } from '@/components/MCP/ConnectionStatus';
 import { useMCP } from '@/contexts/MCPContext';
 
@@ -23,19 +22,13 @@ function Settings() {
     tools
   } = useMCP();
   
-  const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    navigate('/auth');
-  };
   
   const handleSettingsClick = () => {
     // Already on settings page, no need to navigate
   };
 
   return (
-    <HeaderLayout
-      handleSignOut={handleSignOut}
-    >
+    <HeaderLayout>
       <div>
         <div className="max-w-3xl mx-auto text-center">
           <h1 className="text-2xl font-bold mb-6">Settings</h1>

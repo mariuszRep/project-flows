@@ -1,8 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { HeaderAndSidebarLayout } from '@/components/layout/HeaderAndSidebarLayout';
 import { useSession } from '@/contexts/SessionContext';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
 import { useMCP } from '@/contexts/MCPContext';
 import { MCPToolSidebar } from '@/components/MCP/MCPToolSidebar';
 import { ToolExecutor } from '@/components/MCP/ToolExecutor';
@@ -30,22 +29,6 @@ export default function Tools() {
     callTool 
   } = useMCP();
 
-  useEffect(() => {
-    const checkAuth = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        navigate('/auth');
-      }
-    };
-
-    checkAuth();
-  }, [navigate]);
-
-  const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    navigate('/auth');
-  };
-
   const handleSettingsClick = () => {
     navigate('/settings');
   };
@@ -72,7 +55,6 @@ export default function Tools() {
   return (
     <HeaderAndSidebarLayout
       {...placeholderProps}
-      handleSignOut={handleSignOut}
       onSettingsClick={handleSettingsClick}
       sidebarContent={
         <MCPToolSidebar

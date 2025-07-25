@@ -1,0 +1,36 @@
+# Dependencies
+/node_modules
+/mcp/node_modules
+/ui/node_modules
+
+# Build artifacts
+/mcp/dist
+/ui/dist
+
+# Docker
+.dockerignore
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Editor-specific
+.vscode/
+.idea/
+*.swp
+
+# Claude-specific
+.claude/
+CLAUDE.md
