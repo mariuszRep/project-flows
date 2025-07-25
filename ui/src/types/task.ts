@@ -1,4 +1,4 @@
-export type TaskStage = 'backlog' | 'doing' | 'review' | 'completed';
+export type TaskStage = 'draft' | 'backlog' | 'doing' | 'review' | 'completed';
 
 export interface Task {
   id: number;
