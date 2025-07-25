@@ -16,7 +16,11 @@ function Settings() {
     isLoading,
     error,
     serverUrl,
+    autoConnect,
+    connectionState,
+    connectionProgress,
     setServerUrl,
+    setAutoConnect,
     connect,
     disconnect,
     tools
@@ -85,9 +89,13 @@ function Settings() {
                 error={error}
                 toolCount={tools.length}
                 serverUrl={serverUrl}
+                autoConnect={autoConnect}
+                connectionState={connectionState}
+                connectionProgress={connectionProgress}
                 onConnect={connect}
                 onDisconnect={disconnect}
                 onServerUrlChange={setServerUrl}
+                onAutoConnectChange={setAutoConnect}
               />
             </CardContent>
           </Card>
