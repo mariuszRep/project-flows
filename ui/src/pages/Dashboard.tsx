@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
-import { LogOut, Activity, Layout as LayoutIcon, Settings as SettingsIcon, Wrench, Kanban } from "lucide-react";
+import { LogOut, Activity, Layout as LayoutIcon, Settings as SettingsIcon, Wrench, Kanban, Filter } from "lucide-react";
 import { HeaderLayout } from "@/components/layout/HeaderLayout";
 
 const Dashboard = () => {
@@ -28,6 +28,19 @@ const Dashboard = () => {
                 </CardTitle>
                 <CardDescription>
                   Organize and track your project tasks with intuitive kanban boards.
+                </CardDescription>
+              </CardHeader>
+            </Card>
+
+            {/* Task Manager Card */}
+            <Card className="card-hover" onClick={() => navigate('/tasks')}>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Filter className="w-5 h-5" />
+                  Task Manager
+                </CardTitle>
+                <CardDescription>
+                  Filter and manage tasks by stage with multi-select filtering options.
                 </CardDescription>
               </CardHeader>
             </Card>
