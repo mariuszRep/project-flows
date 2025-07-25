@@ -10,7 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { MCPDisconnectedState, NoTasksState } from '@/components/ui/empty-state';
-import { Plus, X } from 'lucide-react';
+import { Plus, X, Filter } from 'lucide-react';
 import { useMCP } from '@/contexts/MCPContext';
 
 export default function Board() {
@@ -242,10 +242,16 @@ export default function Board() {
               Manage your tasks with drag-and-drop kanban boards
             </p>
           </div>
-          <Button onClick={() => setShowAddTaskForm(true)} disabled={!isConnected}>
-            <Plus className="h-4 w-4 mr-2" />
-            Add Task
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => navigate('/tasks')}>
+              <Filter className="h-4 w-4 mr-2" />
+              Task Manager
+            </Button>
+            <Button onClick={() => setShowAddTaskForm(true)} disabled={!isConnected}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add Task
+            </Button>
+          </div>
         </div>
 
         {error && (

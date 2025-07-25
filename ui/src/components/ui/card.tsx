@@ -9,7 +9,7 @@ const Card = React.forwardRef<
   <div
     ref={ref}
     className={cn(
-      "w-full max-w-md shared-ui bg-surface text-foreground",
+      "w-full shared-ui bg-surface text-foreground",
       className
     )}
     {...props}
