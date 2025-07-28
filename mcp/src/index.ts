@@ -708,6 +708,8 @@ ${summary}
 
 **Title:** ${task.title}
 
+**Stage:** ${task.stage || 'draft'}
+
 ## Summary
 
 ${task.summary}
@@ -831,9 +833,9 @@ ${task.summary}
     const key = toolArgs?.key;
     const type = toolArgs?.type;
     const description = toolArgs?.description;
-    const dependencies = toolArgs?.dependencies || [];
-    const execution_order = toolArgs?.execution_order || 0;
-    const fixed = toolArgs?.fixed || false;
+    const dependencies = toolArgs?.dependencies || [] as string[];
+    const execution_order = toolArgs?.execution_order || 0 as number;
+    const fixed = toolArgs?.fixed || false as boolean;
     
     // Validate required parameters
     if (!templateId || typeof templateId !== 'number' || templateId < 1) {

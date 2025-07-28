@@ -42,6 +42,26 @@ declare class DatabaseService {
         updated_by: string;
     }>>;
     getTemplateProperties(templateId: number): Promise<Record<string, SchemaProperty>>;
+    createProperty(templateId: number, propertyData: {
+        key: string;
+        type: string;
+        description: string;
+        dependencies?: string[];
+        execution_order?: number;
+        fixed?: boolean;
+    }, userId?: string): Promise<number>;
+    updateProperty(propertyId: number, updates: {
+        key?: string;
+        type?: string;
+        description?: string;
+        dependencies?: string[];
+        execution_order?: number;
+        fixed?: boolean;
+    }, userId?: string): Promise<boolean>;
+    deleteProperty(propertyId: number): Promise<boolean>;
+    listProperties(templateId?: number): Promise<Array<SchemaProperty & {
+        key: string;
+    }>>;
     close(): Promise<void>;
 }
 export default DatabaseService;

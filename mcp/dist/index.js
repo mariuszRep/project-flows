@@ -236,6 +236,112 @@ function createMcpServer(clientId = 'unknown') {
                         required: ["template_id"],
                     },
                 },
+                {
+                    name: "create_property",
+                    description: "Create a new property for a specific template by template ID.",
+                    inputSchema: {
+                        type: "object",
+                        properties: {
+                            template_id: {
+                                type: "number",
+                                description: "The numeric ID of the template"
+                            },
+                            key: {
+                                type: "string",
+                                description: "The property key/name (must be unique within template)"
+                            },
+                            type: {
+                                type: "string",
+                                description: "The property type (e.g., 'text', 'list', 'number', 'boolean')"
+                            },
+                            description: {
+                                type: "string",
+                                description: "Description of what this property is for"
+                            },
+                            dependencies: {
+                                type: "array",
+                                items: { type: "string" },
+                                description: "Optional array of property keys this property depends on"
+                            },
+                            execution_order: {
+                                type: "number",
+                                description: "Optional execution order (defaults to 0)"
+                            },
+                            fixed: {
+                                type: "boolean",
+                                description: "Optional flag indicating if property is fixed/immutable (defaults to false)"
+                            }
+                        },
+                        required: ["template_id", "key", "type", "description"],
+                    },
+                },
+                {
+                    name: "update_property",
+                    description: "Update an existing property by property ID. All fields except property_id are optional.",
+                    inputSchema: {
+                        type: "object",
+                        properties: {
+                            property_id: {
+                                type: "number",
+                                description: "The numeric ID of the property to update"
+                            },
+                            key: {
+                                type: "string",
+                                description: "The property key/name"
+                            },
+                            type: {
+                                type: "string",
+                                description: "The property type"
+                            },
+                            description: {
+                                type: "string",
+                                description: "Description of the property"
+                            },
+                            dependencies: {
+                                type: "array",
+                                items: { type: "string" },
+                                description: "Array of property keys this property depends on"
+                            },
+                            execution_order: {
+                                type: "number",
+                                description: "Execution order"
+                            },
+                            fixed: {
+                                type: "boolean",
+                                description: "Flag indicating if property is fixed/immutable"
+                            }
+                        },
+                        required: ["property_id"],
+                    },
+                },
+                {
+                    name: "delete_property",
+                    description: "Delete a property by property ID.",
+                    inputSchema: {
+                        type: "object",
+                        properties: {
+                            property_id: {
+                                type: "number",
+                                description: "The numeric ID of the property to delete"
+                            }
+                        },
+                        required: ["property_id"],
+                    },
+                },
+                {
+                    name: "list_properties",
+                    description: "List all properties, optionally filtered by template ID.",
+                    inputSchema: {
+                        type: "object",
+                        properties: {
+                            template_id: {
+                                type: "number",
+                                description: "Optional template ID to filter properties"
+                            }
+                        },
+                        required: [],
+                    },
+                },
             ],
         };
     });
@@ -520,6 +626,8 @@ ${summary}
 
 **Title:** ${task.title}
 
+**Stage:** ${task.stage || 'draft'}
+
 ## Summary
 
 ${task.summary}
@@ -628,6 +736,260 @@ ${task.summary}
                         {
                             type: "text",
                             text: "Error: Failed to retrieve template properties.",
+                        },
+                    ],
+                };
+            }
+        }
+        else if (name === "create_property") {
+            // Create a new property for a template
+            const templateId = toolArgs?.template_id;
+            const key = toolArgs?.key;
+            const type = toolArgs?.type;
+            const description = toolArgs?.description;
+            const dependencies = toolArgs?.dependencies || [];
+            const execution_order = toolArgs?.execution_order || 0;
+            const fixed = toolArgs?.fixed || false;
+            // Validate required parameters
+            if (!templateId || typeof templateId !== 'number' || templateId < 1) {
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: "Error: Valid numeric template_id is required.",
+                        },
+                    ],
+                };
+            }
+            if (!key || typeof key !== 'string' || !key.trim()) {
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: "Error: Property key is required and must be a non-empty string.",
+                        },
+                    ],
+                };
+            }
+            if (!type || typeof type !== 'string' || !type.trim()) {
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: "Error: Property type is required and must be a non-empty string.",
+                        },
+                    ],
+                };
+            }
+            if (!description || typeof description !== 'string' || !description.trim()) {
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: "Error: Property description is required and must be a non-empty string.",
+                        },
+                    ],
+                };
+            }
+            try {
+                console.log('Creating property with params:', {
+                    templateId,
+                    key: key.trim(),
+                    type: type.trim(),
+                    description: description.trim(),
+                    dependencies,
+                    execution_order,
+                    fixed,
+                    clientId
+                });
+                const propertyId = await sharedDbService.createProperty(templateId, {
+                    key: key.trim(),
+                    type: type.trim(),
+                    description: description.trim(),
+                    dependencies,
+                    execution_order,
+                    fixed
+                }, clientId);
+                console.log('Property created successfully with ID:', propertyId);
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: `Property created successfully with ID: ${propertyId}`,
+                        },
+                    ],
+                };
+            }
+            catch (error) {
+                console.error('Error creating property - Full error details:', error);
+                const errorMessage = error instanceof Error ? error.message : "Failed to create property";
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: `Error: ${errorMessage}`,
+                        },
+                    ],
+                };
+            }
+        }
+        else if (name === "update_property") {
+            // Update an existing property by ID
+            const propertyId = toolArgs?.property_id;
+            // Validate property ID
+            if (!propertyId || typeof propertyId !== 'number' || propertyId < 1) {
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: "Error: Valid numeric property_id is required.",
+                        },
+                    ],
+                };
+            }
+            // Build updates object with only provided fields
+            const updates = {};
+            if (toolArgs?.key !== undefined)
+                updates.key = String(toolArgs.key).trim();
+            if (toolArgs?.type !== undefined)
+                updates.type = String(toolArgs.type).trim();
+            if (toolArgs?.description !== undefined)
+                updates.description = String(toolArgs.description).trim();
+            if (toolArgs?.dependencies !== undefined)
+                updates.dependencies = toolArgs.dependencies;
+            if (toolArgs?.execution_order !== undefined)
+                updates.execution_order = toolArgs.execution_order;
+            if (toolArgs?.fixed !== undefined)
+                updates.fixed = toolArgs.fixed;
+            try {
+                const success = await sharedDbService.updateProperty(propertyId, updates, clientId);
+                if (success) {
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: `Property ${propertyId} updated successfully.`,
+                            },
+                        ],
+                    };
+                }
+                else {
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: `Error: Property with ID ${propertyId} not found or no changes made.`,
+                            },
+                        ],
+                    };
+                }
+            }
+            catch (error) {
+                console.error('Error updating property:', error);
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: "Error: Failed to update property.",
+                        },
+                    ],
+                };
+            }
+        }
+        else if (name === "delete_property") {
+            // Delete a property by ID
+            const propertyId = toolArgs?.property_id;
+            // Validate property ID
+            if (!propertyId || typeof propertyId !== 'number' || propertyId < 1) {
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: "Error: Valid numeric property_id is required.",
+                        },
+                    ],
+                };
+            }
+            try {
+                const success = await sharedDbService.deleteProperty(propertyId);
+                if (success) {
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: `Property ${propertyId} deleted successfully.`,
+                            },
+                        ],
+                    };
+                }
+                else {
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: `Error: Property with ID ${propertyId} not found.`,
+                            },
+                        ],
+                    };
+                }
+            }
+            catch (error) {
+                console.error('Error deleting property:', error);
+                const errorMessage = error instanceof Error ? error.message : "Failed to delete property.";
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: `Error: ${errorMessage}`,
+                        },
+                    ],
+                };
+            }
+        }
+        else if (name === "list_properties") {
+            // List properties, optionally filtered by template ID
+            const templateId = toolArgs?.template_id;
+            // Validate template ID if provided
+            if (templateId !== undefined && (typeof templateId !== 'number' || templateId < 1)) {
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: "Error: If provided, template_id must be a valid number.",
+                        },
+                    ],
+                };
+            }
+            try {
+                const properties = await sharedDbService.listProperties(templateId);
+                if (properties.length === 0) {
+                    const filterMsg = templateId ? ` for template ID ${templateId}` : '';
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: `No properties found${filterMsg}.`,
+                            },
+                        ],
+                    };
+                }
+                // Return JSON response with properties data
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: JSON.stringify(properties, null, 2),
+                        },
+                    ],
+                };
+            }
+            catch (error) {
+                console.error('Error listing properties:', error);
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: "Error: Failed to retrieve properties list.",
                         },
                     ],
                 };

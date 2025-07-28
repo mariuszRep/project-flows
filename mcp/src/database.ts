@@ -336,9 +336,9 @@ class DatabaseService {
     } catch (error) {
       console.error('Database error creating property:', error);
       console.error('Error details:', {
-        code: error.code,
-        detail: error.detail,
-        constraint: error.constraint
+        code: (error as any).code,
+        detail: (error as any).detail,
+        constraint: (error as any).constraint
       });
       throw error;
     }
@@ -393,7 +393,7 @@ class DatabaseService {
 
       const query = `UPDATE properties SET ${updateFields.join(', ')} WHERE id = $${paramIndex}`;
       const result = await this.pool.query(query, values);
-      return result.rowCount > 0;
+      return (result.rowCount || 0) > 0;
     } catch (error) {
       console.error('Error updating property:', error);
       throw error;
@@ -438,7 +438,7 @@ class DatabaseService {
       const deleteResult = await client.query(deleteQuery, [propertyId]);
       
       await client.query('COMMIT');
-      return deleteResult.rowCount > 0;
+      return (deleteResult.rowCount || 0) > 0;
     } catch (error) {
       await client.query('ROLLBACK');
       console.error('Error deleting property:', error);

@@ -55,13 +55,14 @@ const DraftTasks = () => {
               const taskRows = lines.slice(2); // Skip header and separator
               
               const parsedTasks = taskRows.map((row, index) => {
-                const columns = row.split('|').map(col => col.trim()).filter(col => col);
+                const columns = row.split('|').map(col => col.trim());
+                // Don't filter out empty columns - keep them to maintain column positions
                 
-                if (columns.length >= 4) {
-                  const id = parseInt(columns[0]) || index + 1;
-                  const title = columns[1] || 'Untitled Task';
-                  const summary = columns[2] || '';
-                  const stage = columns[3] || 'draft';
+                if (columns.length >= 5) { // Need at least 5 elements: ['', id, title, summary, stage, '']
+                  const id = parseInt(columns[1]) || index + 1; // Skip first empty element
+                  const title = columns[2] || 'Untitled Task';
+                  const summary = columns[3] || '';
+                  const stage = columns[4] || 'draft';
                   
                   return {
                     id,
