@@ -35,7 +35,7 @@ export function Sidebar({
           <Button
             variant="primary"
             size="icon"
-            onClick={() => navigate('/dashboard')}
+            onClick={() => navigate('/')}
             className="flex-shrink-0"
           >
             <Home className="h-[1.2rem] w-[1.2rem]" />

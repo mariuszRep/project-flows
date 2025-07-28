@@ -14,14 +14,14 @@ interface EmptyStateProps {
 
 export function EmptyState({ icon, title, description, action }: EmptyStateProps) {
   return (
-    <div className="flex flex-col items-center justify-center h-64 text-center">
-      <div className="mb-4 text-muted-foreground">
+    <div className="flex flex-col items-center justify-center h-64 text-center p-6 border border-dashed rounded-lg bg-muted/10">
+      <div className="mb-4 text-muted-foreground bg-muted/20 p-4 rounded-full">
         {icon || <AlertCircle className="h-12 w-12" />}
       </div>
       <h3 className="text-lg font-semibold text-foreground mb-2">{title}</h3>
-      <p className="text-sm text-muted-foreground mb-4 max-w-md">{description}</p>
+      <p className="text-sm text-muted-foreground mb-6 max-w-md">{description}</p>
       {action && (
-        <Button onClick={action.onClick} variant="outline">
+        <Button onClick={action.onClick} variant="default">
           {action.label}
         </Button>
       )}
@@ -32,9 +32,13 @@ export function EmptyState({ icon, title, description, action }: EmptyStateProps
 export function MCPDisconnectedState() {
   return (
     <EmptyState
-      icon={<WifiOff className="h-12 w-12" />}
+      icon={<WifiOff className="h-12 w-12 text-amber-500" />}
       title="MCP Server Not Connected"
-      description="Connect to the MCP server to view and manage your tasks. Please ensure the MCP server is running and accessible."
+      description="To view and manage your tasks, you need to connect to the MCP server. Tasks are only available when connected to the server. Please check that the server is running at the correct address and port, then try refreshing the page or configure connection settings."
+      action={{
+        label: "Configure Connection",
+        onClick: () => window.location.href = "/settings"
+      }}
     />
   );
 }
@@ -42,9 +46,22 @@ export function MCPDisconnectedState() {
 export function NoTasksState() {
   return (
     <EmptyState
-      icon={<AlertCircle className="h-12 w-12" />}
-      title="No Tasks Found"
-      description="You don't have any tasks yet. Create your first task to get started with your project board."
+      icon={<AlertCircle className="h-12 w-12 text-blue-500" />}
+      title="No Tasks Available"
+      description="You're connected to the MCP server, but no tasks were found. Click the 'Add Task' button above to create your first task and get started organizing your project workflow."
+      action={{
+        label: "Create First Task",
+        onClick: () => {
+          // Find the Add Task button by looking for buttons that contain the text
+          const buttons = Array.from(document.querySelectorAll('button'));
+          const addTaskButton = buttons.find(button => 
+            button.textContent?.includes('Add Task')
+          );
+          if (addTaskButton) {
+            addTaskButton.click();
+          }
+        }
+      }}
     />
   );
 }

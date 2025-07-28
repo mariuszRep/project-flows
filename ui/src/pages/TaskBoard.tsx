@@ -49,58 +49,63 @@ export default function Board() {
     setError(null);
     
     try {
-      let allTasks: Task[] = [];
-      
-      if (isConnected && callTool && tools.length > 0) {
-        console.log('Available tools:', tools.map(t => t.name));
-        
-        // Try to get all tasks using the list_tasks tool
-        const listTasksTool = tools.find(tool => tool.name === 'list_tasks');
-        
-        if (listTasksTool) {
-          try {
-            const result = await callTool('list_tasks', {});
-            if (result && result.content && result.content[0]) {
-              console.log('List tasks result:', result.content);
-              
-              const contentText = result.content[0].text;
-              
-              // Parse the markdown table format
-              const lines = contentText.split('\n').filter(line => line.trim());
-              const taskRows = lines.slice(2); // Skip header and separator
-              
-              const parsedTasks = taskRows.map((row, index) => {
-                const columns = row.split('|').map(col => col.trim()).filter(col => col);
-                
-                if (columns.length >= 4) {
-                  const id = parseInt(columns[0]) || index + 1;
-                  const title = columns[1] || 'Untitled Task';
-                  const summary = columns[2] || '';
-                  const stage = columns[3] || 'backlog';
-                  
-                  return {
-                    id,
-                    title,
-                    body: summary,
-                    stage: stage as 'draft' | 'backlog' | 'doing' | 'review' | 'completed',
-                    project_id: 1,
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                    created_by: 'user@example.com',
-                    updated_by: 'user@example.com'
-                  };
-                }
-                return null;
-              }).filter(task => task !== null);
-              
-              allTasks = parsedTasks;
-            }
-          } catch (err) {
-            console.warn('Failed to get tasks with list_tasks:', err);
-          }
-        }
+      // If not connected to MCP, clear tasks and return early
+      if (!isConnected || !callTool || tools.length === 0) {
+        console.log('MCP not connected, clearing tasks');
+        setTasks([]);
+        setIsLoading(false);
+        return;
       }
       
+      let allTasks: Task[] = [];
+      
+      console.log('Available tools:', tools.map(t => t.name));
+      
+      // Try to get all tasks using the list_tasks tool
+      const listTasksTool = tools.find(tool => tool.name === 'list_tasks');
+      
+      if (listTasksTool) {
+        try {
+          const result = await callTool('list_tasks', {});
+          if (result && result.content && result.content[0]) {
+            console.log('List tasks result:', result.content);
+            
+            const contentText = result.content[0].text;
+            
+            // Parse the markdown table format
+            const lines = contentText.split('\n').filter(line => line.trim());
+            const taskRows = lines.slice(2); // Skip header and separator
+            
+            const parsedTasks = taskRows.map((row, index) => {
+              const columns = row.split('|').map(col => col.trim()).filter(col => col);
+              
+              if (columns.length >= 4) {
+                const id = parseInt(columns[0]) || index + 1;
+                const title = columns[1] || 'Untitled Task';
+                const summary = columns[2] || '';
+                const stage = columns[3] || 'backlog';
+                
+                return {
+                  id,
+                  title,
+                  body: summary,
+                  stage: stage as 'draft' | 'backlog' | 'doing' | 'review' | 'completed',
+                  project_id: 1,
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString(),
+                  created_by: 'user@example.com',
+                  updated_by: 'user@example.com'
+                };
+              }
+              return null;
+            }).filter(task => task !== null);
+            
+            allTasks = parsedTasks;
+          }
+        } catch (err) {
+          console.warn('Failed to get tasks with list_tasks:', err);
+        }
+      }
       
       // Remove duplicates based on id
       const uniqueTasks = allTasks.filter((task, index, self) => 
@@ -119,7 +124,14 @@ export default function Board() {
   };
 
   useEffect(() => {
-    fetchTasks();
+    if (!isConnected) {
+      // Clear tasks when disconnected
+      setTasks([]);
+      setIsLoading(false);
+    } else {
+      // Fetch tasks when connected
+      fetchTasks();
+    }
   }, [isConnected, tools]);
 
   const handleTaskUpdate = async (taskId?: number, newStage?: string) => {
@@ -243,7 +255,7 @@ export default function Board() {
             </p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => navigate('/tasks')}>
+            <Button variant="outline" onClick={() => navigate('/task-list')}>
               <Filter className="h-4 w-4 mr-2" />
               Task Manager
             </Button>

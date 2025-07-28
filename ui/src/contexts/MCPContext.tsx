@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
+import { connectionService, ConnectionState, ConnectionProgress } from '../services/connectionService';
+import { useConnectionPersistence } from '../hooks/useConnectionPersistence';
 
 interface Tool {
   name: string;
@@ -15,7 +17,11 @@ interface MCPContextState {
   isLoading: boolean;
   error: string | null;
   serverUrl: string;
+  autoConnect: boolean;
+  connectionState: ConnectionState;
+  connectionProgress: ConnectionProgress | null;
   setServerUrl: (url: string) => void;
+  setAutoConnect: (enabled: boolean) => void;
   connect: () => Promise<void>;
   disconnect: () => Promise<void>;
   callTool: (name: string, args?: any) => Promise<any>;
@@ -28,56 +34,85 @@ interface MCPProviderProps {
 }
 
 export const MCPProvider: React.FC<MCPProviderProps> = ({ children }) => {
-  const [serverUrl, setServerUrl] = useState<string>('http://localhost:3001/sse');
+  const { settings, updateSettings, updateLastConnection } = useConnectionPersistence();
   const [state, setState] = useState({
     client: null as Client | null,
     tools: [] as Tool[],
     isConnected: false,
     isLoading: false,
     error: null as string | null,
+    connectionState: ConnectionState.DISCONNECTED as ConnectionState,
+    connectionProgress: null as ConnectionProgress | null,
   });
+  const [heartbeatCleanup, setHeartbeatCleanup] = useState<(() => void) | null>(null);
 
   const connect = useCallback(async () => {
     setState(prev => ({ ...prev, isLoading: true, error: null }));
     
-    try {
-      // Add client identification for audit tracking
-      const urlWithClient = new URL(serverUrl);
-      urlWithClient.searchParams.set('client', 'ui-client');
-      
-      const transport = new SSEClientTransport(urlWithClient);
-      const client = new Client(
-        { name: 'ui-client', version: '1.0.0' }, 
-        { capabilities: { tools: {} } }
+    const result = await connectionService.connectWithRetry(
+      settings.serverUrl,
+      settings.maxRetryAttempts,
+      (progress) => {
+        setState(prev => ({ 
+          ...prev, 
+          connectionState: progress.state,
+          connectionProgress: progress,
+          isLoading: progress.state === ConnectionState.CONNECTING || progress.state === ConnectionState.RECONNECTING,
+          error: progress.error || null,
+        }));
+      }
+    );
+
+    if (result.success && result.client && result.tools) {
+      // Setup heartbeat monitoring
+      const cleanup = connectionService.createConnectionHeartbeat(
+        result.client,
+        30000,
+        () => {
+          setState(prev => ({
+            ...prev,
+            connectionState: ConnectionState.CONNECTION_LOST,
+            error: 'Connection lost to MCP server',
+          }));
+          // Auto-reconnect if enabled
+          if (settings.autoConnect) {
+            setTimeout(() => connect(), 2000);
+          }
+        }
       );
-      
-      await client.connect(transport);
-      
-      // List available tools
-      const toolsResponse = await client.listTools();
-      const tools = toolsResponse.tools || [];
+      setHeartbeatCleanup(() => cleanup);
       
       setState(prev => ({
         ...prev,
-        client,
-        tools,
+        client: result.client!,
+        tools: result.tools!,
         isConnected: true,
         isLoading: false,
         error: null,
+        connectionState: ConnectionState.CONNECTED,
+        connectionProgress: null,
       }));
       
-      console.log('Connected to MCP server', { tools: tools.length });
-    } catch (error) {
-      console.error('Failed to connect to MCP server:', error);
+      updateLastConnection();
+      console.log('Connected to MCP server', { tools: result.tools!.length });
+    } else {
       setState(prev => ({
         ...prev,
         isLoading: false,
-        error: error instanceof Error ? error.message : 'Connection failed',
+        isConnected: false,
+        connectionState: ConnectionState.FAILED,
+        error: result.error || 'Connection failed',
       }));
     }
-  }, [serverUrl]);
+  }, [settings.serverUrl, settings.maxRetryAttempts, settings.autoConnect, updateLastConnection]);
 
   const disconnect = useCallback(async () => {
+    // Cleanup heartbeat
+    if (heartbeatCleanup) {
+      heartbeatCleanup();
+      setHeartbeatCleanup(null);
+    }
+    
     if (state.client) {
       try {
         await state.client.close();
@@ -92,8 +127,10 @@ export const MCPProvider: React.FC<MCPProviderProps> = ({ children }) => {
       isConnected: false,
       isLoading: false,
       error: null,
+      connectionState: ConnectionState.DISCONNECTED,
+      connectionProgress: null,
     }));
-  }, [state.client]);
+  }, [state.client, heartbeatCleanup]);
 
   const callTool = useCallback(async (name: string, args: any = {}) => {
     if (!state.client || !state.isConnected) {
@@ -109,18 +146,66 @@ export const MCPProvider: React.FC<MCPProviderProps> = ({ children }) => {
     }
   }, [state.client, state.isConnected]);
 
+  // Auto-connect on mount if enabled
+  useEffect(() => {
+    if (settings.autoConnect && !state.isConnected && state.connectionState === ConnectionState.DISCONNECTED) {
+      console.log('Auto-connecting to MCP server...');
+      connect();
+    }
+  }, [settings.autoConnect, state.isConnected, state.connectionState, connect]);
+
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
+      if (heartbeatCleanup) {
+        heartbeatCleanup();
+      }
       if (state.client) {
         state.client.close().catch(console.error);
       }
     };
-  }, [state.client]);
+  }, [state.client, heartbeatCleanup]);
+
+  // Listen for browser online/offline events
+  useEffect(() => {
+    const handleOnline = () => {
+      if (settings.autoConnect && !state.isConnected) {
+        console.log('Browser back online, attempting to reconnect...');
+        connect();
+      }
+    };
+
+    const handleOffline = () => {
+      setState(prev => ({
+        ...prev,
+        connectionState: ConnectionState.CONNECTION_LOST,
+        error: 'Browser is offline',
+      }));
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [settings.autoConnect, state.isConnected, connect]);
+
+  const setServerUrl = useCallback((url: string) => {
+    updateSettings({ serverUrl: url });
+  }, [updateSettings]);
+
+  const setAutoConnect = useCallback((enabled: boolean) => {
+    updateSettings({ autoConnect: enabled });
+  }, [updateSettings]);
 
   const contextValue: MCPContextState = {
     ...state,
-    serverUrl,
+    serverUrl: settings.serverUrl,
+    autoConnect: settings.autoConnect,
     setServerUrl,
+    setAutoConnect,
     connect,
     disconnect,
     callTool,
