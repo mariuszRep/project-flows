@@ -122,7 +122,7 @@ const DraftTasks = () => {
         const result = await callTool('get_task', { task_id: taskId });
         console.log('Task details:', result);
         // For now, just navigate to board - later could show task details modal
-        navigate('/board');
+        navigate('/task-board');
       }
     } catch (err) {
       console.error('Error getting task details:', err);
@@ -166,11 +166,11 @@ const DraftTasks = () => {
         }
       </p>
       <div className="flex gap-3 justify-center">
-        <Button onClick={() => navigate('/board')}>
+        <Button onClick={() => navigate('/task-board')}>
           <Plus className="h-4 w-4 mr-2" />
           Create Task
         </Button>
-        <Button variant="outline" onClick={() => navigate('/board')}>
+        <Button variant="outline" onClick={() => navigate('/task-board')}>
           View Board
         </Button>
       </div>
@@ -192,11 +192,11 @@ const DraftTasks = () => {
             </p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => navigate('/board')}>
+            <Button variant="outline" onClick={() => navigate('/task-board')}>
               <ArrowRight className="h-4 w-4 mr-2" />
               View Board
             </Button>
-            <Button onClick={() => navigate('/board')}>
+            <Button onClick={() => navigate('/task-board')}>
               <Plus className="h-4 w-4 mr-2" />
               Create Task
             </Button>
