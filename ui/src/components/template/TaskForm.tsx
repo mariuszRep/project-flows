@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { X, GripVertical, Edit, Trash2, Plus, Save } from 'lucide-react';
 import { useMCP } from '@/contexts/MCPContext';
+import { DragDropContext, Droppable, Draggable, DropResult } from 'react-beautiful-dnd';
 
 
 interface TaskFormProps {
@@ -170,6 +171,44 @@ export const TaskForm: React.FC<TaskFormProps> = ({ isOpen, onClose, templateId 
     const updatedBlocks = formData.blocks.filter((_, i) => i !== index);
     setFormData({ ...formData, blocks: updatedBlocks });
     setExpandedBlocks(expandedBlocks.filter(i => i !== index).map(i => i > index ? i - 1 : i));
+  };
+
+  const handleDragEnd = (result: DropResult) => {
+    if (!result.destination) {
+      return;
+    }
+
+    const sourceIndex = result.source.index;
+    const destinationIndex = result.destination.index;
+
+    if (sourceIndex === destinationIndex) {
+      return;
+    }
+
+    const updatedBlocks = [...formData.blocks];
+    const [reorderedItem] = updatedBlocks.splice(sourceIndex, 1);
+    updatedBlocks.splice(destinationIndex, 0, reorderedItem);
+
+    // Update order property for all blocks based on their new position
+    const reorderedBlocks = updatedBlocks.map((block, index) => ({
+      ...block,
+      order: index + 1
+    }));
+
+    setFormData({ ...formData, blocks: reorderedBlocks });
+
+    // Update expanded blocks indices
+    const updatedExpandedBlocks = expandedBlocks.map(expandedIndex => {
+      if (expandedIndex === sourceIndex) {
+        return destinationIndex;
+      } else if (sourceIndex < destinationIndex && expandedIndex > sourceIndex && expandedIndex <= destinationIndex) {
+        return expandedIndex - 1;
+      } else if (sourceIndex > destinationIndex && expandedIndex >= destinationIndex && expandedIndex < sourceIndex) {
+        return expandedIndex + 1;
+      }
+      return expandedIndex;
+    });
+    setExpandedBlocks(updatedExpandedBlocks);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -435,14 +474,33 @@ export const TaskForm: React.FC<TaskFormProps> = ({ isOpen, onClose, templateId 
                 </Button>
               </div>
             )}
-            {formData.blocks.map((block, index) => {
-              const isExpanded = expandedBlocks.includes(index);
-              return (
-                <Card key={index} className="bg-surface border border-border w-full max-w-none relative">
-                  <div className="absolute left-2 top-1/2 z-10 flex flex-col items-center">
-                    <GripVertical className="h-4 w-4 text-muted-foreground transform -translate-y-1/2" />
-                    <span className="text-xs text-muted-foreground">{block.order}</span>
-                  </div>
+            <DragDropContext onDragEnd={handleDragEnd}>
+              <Droppable droppableId="blocks">
+                {(provided, snapshot) => (
+                  <div
+                    {...provided.droppableProps}
+                    ref={provided.innerRef}
+                    className={`space-y-4 ${snapshot.isDraggingOver ? 'bg-muted/50 rounded-lg p-2' : ''}`}
+                  >
+                    {formData.blocks.map((block, index) => {
+                      const isExpanded = expandedBlocks.includes(index);
+                      return (
+                        <Draggable key={`block-${index}`} draggableId={`block-${index}`} index={index}>
+                          {(provided, snapshot) => (
+                            <Card 
+                              ref={provided.innerRef}
+                              {...provided.draggableProps}
+                              className={`bg-surface border border-border w-full max-w-none relative transition-all ${
+                                snapshot.isDragging ? 'shadow-lg ring-2 ring-primary/20 bg-background' : ''
+                              }`}
+                            >
+                              <div 
+                                {...provided.dragHandleProps}
+                                className="absolute left-2 top-1/2 z-10 flex flex-col items-center cursor-grab active:cursor-grabbing"
+                              >
+                                <GripVertical className="h-4 w-4 text-muted-foreground transform -translate-y-1/2" />
+                                <span className="text-xs text-muted-foreground">{block.order}</span>
+                              </div>
                   <div className="absolute right-2 top-2 z-10 flex items-center gap-2">
                     <Button 
                       variant="ghost" 
@@ -550,9 +608,16 @@ export const TaskForm: React.FC<TaskFormProps> = ({ isOpen, onClose, templateId 
                       </div>
                     </CardContent>
                   )}
-                </Card>
-              );
-            })}
+                            </Card>
+                          )}
+                        </Draggable>
+                      );
+                    })}
+                    {provided.placeholder}
+                  </div>
+                )}
+              </Droppable>
+            </DragDropContext>
             
             {/* Add New Block Button - only show when there are existing blocks */}
             {formData.blocks.length > 0 && (
