@@ -54,18 +54,18 @@ class DatabaseService {
         const client = await this.pool.connect();
         try {
             await client.query('BEGIN');
-            // Insert task
+            // Insert task with only stage
             const taskQuery = `
-        INSERT INTO tasks (title, summary, stage, created_by, updated_by) 
-        VALUES ($1, $2, $3, $4, $5) 
+        INSERT INTO tasks (stage, created_by, updated_by) 
+        VALUES ($1, $2, $3) 
         RETURNING id
       `;
-            const taskResult = await client.query(taskQuery, [taskData.title, taskData.summary, taskData.stage || 'draft', userId, userId]);
+            const taskResult = await client.query(taskQuery, [taskData.stage || 'draft', userId, userId]);
             const taskId = taskResult.rows[0].id;
-            // Insert blocks for dynamic properties
+            // Insert blocks for all properties including Title and Description (previously title/summary)
             let position = 0;
             for (const [key, value] of Object.entries(taskData)) {
-                if (key !== 'title' && key !== 'summary' && value) {
+                if (key !== 'stage' && value) {
                     const blockQuery = `
             INSERT INTO blocks (task_id, property_name, content, position, created_by, updated_by) 
             VALUES ($1, $2, $3, $4, $5, $6)
@@ -88,35 +88,18 @@ class DatabaseService {
         const client = await this.pool.connect();
         try {
             await client.query('BEGIN');
-            // Update task core fields if provided
-            if (updates.title !== undefined || updates.summary !== undefined || updates.stage !== undefined) {
-                const updateFields = [];
-                const values = [];
-                let paramIndex = 1;
-                if (updates.title !== undefined) {
-                    updateFields.push(`title = $${paramIndex++}`);
-                    values.push(updates.title);
-                }
-                if (updates.summary !== undefined) {
-                    updateFields.push(`summary = $${paramIndex++}`);
-                    values.push(updates.summary);
-                }
-                if (updates.stage !== undefined) {
-                    updateFields.push(`stage = $${paramIndex++}`);
-                    values.push(updates.stage);
-                }
-                if (updateFields.length > 0) {
-                    updateFields.push(`updated_at = CURRENT_TIMESTAMP`);
-                    updateFields.push(`updated_by = $${paramIndex++}`);
-                    values.push(userId);
-                    values.push(taskId);
-                    const taskQuery = `UPDATE tasks SET ${updateFields.join(', ')} WHERE id = $${paramIndex}`;
-                    await client.query(taskQuery, values);
-                }
+            // Update task stage if provided
+            if (updates.stage !== undefined) {
+                const taskQuery = `
+          UPDATE tasks 
+          SET stage = $1, updated_at = CURRENT_TIMESTAMP, updated_by = $2 
+          WHERE id = $3
+        `;
+                await client.query(taskQuery, [updates.stage, userId, taskId]);
             }
-            // Update blocks for dynamic properties
+            // Update blocks for all other properties (including Title and Description)
             for (const [key, value] of Object.entries(updates)) {
-                if (key !== 'id' && key !== 'title' && key !== 'summary' && key !== 'stage' && value !== undefined) {
+                if (key !== 'id' && key !== 'stage' && value !== undefined) {
                     const blockQuery = `
             INSERT INTO blocks (task_id, property_name, content, position, created_by, updated_by) 
             VALUES ($1, $2, $3, 0, $4, $5)
@@ -139,14 +122,14 @@ class DatabaseService {
     }
     async getTask(taskId) {
         try {
-            // Get task core data
-            const taskQuery = 'SELECT id, title, summary, stage FROM tasks WHERE id = $1';
+            // Get task core data (only id and stage now)
+            const taskQuery = 'SELECT id, stage FROM tasks WHERE id = $1';
             const taskResult = await this.pool.query(taskQuery, [taskId]);
             if (taskResult.rows.length === 0) {
                 return null;
             }
             const task = taskResult.rows[0];
-            // Get blocks for dynamic properties
+            // Get blocks for all properties including Title and Description
             const blocksQuery = `
         SELECT property_name, content 
         FROM blocks 
@@ -157,12 +140,17 @@ class DatabaseService {
             // Build complete task data
             const taskData = {
                 id: task.id,
-                title: task.title,
-                summary: task.summary,
                 stage: task.stage,
             };
             for (const block of blocksResult.rows) {
-                taskData[block.property_name] = block.content;
+                // Parse JSON content back to original value
+                try {
+                    taskData[block.property_name] = JSON.parse(block.content);
+                }
+                catch (parseError) {
+                    // If JSON parsing fails, store as string
+                    taskData[block.property_name] = block.content;
+                }
             }
             return taskData;
         }
@@ -184,20 +172,56 @@ class DatabaseService {
     }
     async listTasks(stageFilter) {
         try {
-            let query = 'SELECT id, title, summary, stage FROM tasks';
+            // Get basic task data
+            let query = 'SELECT id, stage FROM tasks';
             let params = [];
             if (stageFilter) {
                 query += ' WHERE stage = $1';
                 params.push(stageFilter);
             }
             query += ' ORDER BY id';
-            const result = await this.pool.query(query, params);
-            return result.rows.map((row) => ({
-                id: row.id,
-                title: row.title,
-                summary: row.summary,
-                stage: row.stage,
-            }));
+            const tasksResult = await this.pool.query(query, params);
+            if (tasksResult.rows.length === 0) {
+                return [];
+            }
+            // Get all blocks for these tasks
+            const taskIds = tasksResult.rows.map(row => row.id);
+            const blocksQuery = `
+        SELECT task_id, property_name, content 
+        FROM blocks 
+        WHERE task_id = ANY($1)
+        ORDER BY task_id, position
+      `;
+            const blocksResult = await this.pool.query(blocksQuery, [taskIds]);
+            // Group blocks by task_id
+            const blocksByTask = {};
+            for (const block of blocksResult.rows) {
+                if (!blocksByTask[block.task_id]) {
+                    blocksByTask[block.task_id] = [];
+                }
+                blocksByTask[block.task_id].push({
+                    property_name: block.property_name,
+                    content: block.content
+                });
+            }
+            // Build complete task data
+            return tasksResult.rows.map((row) => {
+                const taskData = {
+                    id: row.id,
+                    stage: row.stage,
+                };
+                // Add blocks for this task
+                const taskBlocks = blocksByTask[row.id] || [];
+                for (const block of taskBlocks) {
+                    try {
+                        taskData[block.property_name] = JSON.parse(block.content);
+                    }
+                    catch (parseError) {
+                        taskData[block.property_name] = block.content;
+                    }
+                }
+                return taskData;
+            });
         }
         catch (error) {
             console.error('Error fetching tasks list:', error);
@@ -319,7 +343,7 @@ class DatabaseService {
             values.push(propertyId);
             const query = `UPDATE properties SET ${updateFields.join(', ')} WHERE id = $${paramIndex}`;
             const result = await this.pool.query(query, values);
-            return result.rowCount > 0;
+            return (result.rowCount || 0) > 0;
         }
         catch (error) {
             console.error('Error updating property:', error);
@@ -355,7 +379,7 @@ class DatabaseService {
             const deleteQuery = 'DELETE FROM properties WHERE id = $1';
             const deleteResult = await client.query(deleteQuery, [propertyId]);
             await client.query('COMMIT');
-            return deleteResult.rowCount > 0;
+            return (deleteResult.rowCount || 0) > 0;
         }
         catch (error) {
             await client.query('ROLLBACK');

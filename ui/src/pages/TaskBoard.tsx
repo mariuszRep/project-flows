@@ -81,20 +81,23 @@ export default function Board() {
               
               if (columns.length >= 4) {
                 const id = parseInt(columns[0]) || index + 1;
-                const title = columns[1] || 'Untitled Task';
-                const summary = columns[2] || '';
+                const titleColumn = columns[1] || 'Untitled Task';
+                const descriptionColumn = columns[2] || '';
                 const stage = columns[3] || 'backlog';
                 
                 return {
                   id,
-                  title,
-                  body: summary,
+                  title: titleColumn, // For backward compatibility
+                  body: descriptionColumn, // For backward compatibility
                   stage: stage as 'draft' | 'backlog' | 'doing' | 'review' | 'completed',
                   project_id: 1,
                   created_at: new Date().toISOString(),
                   updated_at: new Date().toISOString(),
                   created_by: 'user@example.com',
-                  updated_by: 'user@example.com'
+                  updated_by: 'user@example.com',
+                  // Store original block-based properties
+                  Title: titleColumn,
+                  Description: descriptionColumn
                 };
               }
               return null;
@@ -197,7 +200,7 @@ export default function Board() {
 
       const result = await callTool('create_task', {
         Title: taskForm.title,
-        Summary: taskForm.body || 'No description provided',
+        Description: taskForm.body || 'No description provided',
         Research: taskForm.notes || undefined,
         Items: taskForm.taskList || undefined
       });

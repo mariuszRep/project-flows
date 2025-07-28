@@ -17,8 +17,6 @@ interface SchemaProperty {
 type TaskStage = 'draft' | 'backlog' | 'doing' | 'review' | 'completed';
 interface TaskData {
     id: number;
-    title: string;
-    summary: string;
     stage?: TaskStage;
     [key: string]: any;
 }

@@ -351,8 +351,6 @@ function createMcpServer(clientId = 'unknown') {
          */
         const { name, arguments: toolArgs } = request.params;
         if (name === "create_task") {
-            const title = toolArgs?.Title || "";
-            const summary = toolArgs?.Summary || "";
             const dynamicProperties = await loadDynamicSchemaProperties();
             // Validate dependencies
             if (!validateDependencies(dynamicProperties, toolArgs || {}, false)) {
@@ -367,16 +365,19 @@ function createMcpServer(clientId = 'unknown') {
             }
             // Create execution chain
             const executionChain = createExecutionChain(dynamicProperties);
-            // Prepare task data
-            const taskData = {
-                title: String(title),
-                summary: String(summary),
-            };
-            // Add dynamic properties to task data
+            // Prepare task data - all properties go into blocks now
+            const taskData = {};
+            // Add all properties (including Title and Summary/Description) to task data
             for (const { prop_name } of executionChain) {
                 const value = toolArgs?.[prop_name] || "";
                 if (value) {
                     taskData[prop_name] = value;
+                }
+            }
+            // Also add any properties not in the execution chain
+            for (const [key, value] of Object.entries(toolArgs || {})) {
+                if (value && !taskData[key]) {
+                    taskData[key] = value;
                 }
             }
             // Store task in database
@@ -396,19 +397,21 @@ function createMcpServer(clientId = 'unknown') {
                 };
             }
             // Create the markdown formatted task plan
+            const title = toolArgs?.Title || "";
+            const description = toolArgs?.Description || toolArgs?.Summary || "";
             let markdownContent = `# Task
 **Task ID:** ${taskId}
 
 **Title:** ${title}
 
-## Summary
+## Description
 
-${summary}
+${description}
 `;
             // Process properties in execution order
             for (const { prop_name } of executionChain) {
                 const value = toolArgs?.[prop_name] || "";
-                if (value) {
+                if (value && prop_name !== 'Title' && prop_name !== 'Description') {
                     markdownContent += `\n## ${prop_name}\n\n${value}\n`;
                 }
             }
@@ -453,15 +456,9 @@ ${summary}
             delete contentArgs.task_id;
             // For updates, we don't validate dependencies since we're only updating partial fields
             // The original task creation would have validated dependencies already
-            // Prepare update data
+            // Prepare update data - all non-stage properties go to blocks
             const updateData = {};
-            if (toolArgs?.Title !== undefined) {
-                updateData.title = String(toolArgs.Title);
-            }
-            if (toolArgs?.Summary !== undefined) {
-                updateData.summary = String(toolArgs.Summary);
-            }
-            // Handle stage explicitly as it's a new column in tasks table
+            // Handle stage explicitly as it's a column in tasks table
             if (toolArgs?.stage !== undefined) {
                 // Validate stage value
                 const validStages = ['draft', 'backlog', 'doing', 'review', 'completed'];
@@ -471,19 +468,17 @@ ${summary}
             }
             // Create execution chain to order fields when building markdown
             const executionChain = createExecutionChain(dynamicProperties);
-            // Add dynamic properties to update data
+            // Add all properties (including Title, Summary/Description) to update data
             for (const { prop_name } of executionChain) {
                 const value = toolArgs?.[prop_name];
                 if (value !== undefined) {
                     updateData[prop_name] = value;
                 }
             }
-            // Handle stage parameter explicitly if provided
-            if (toolArgs?.stage !== undefined) {
-                // Validate stage value
-                const validStages = ['draft', 'backlog', 'doing', 'review', 'completed'];
-                if (validStages.includes(String(toolArgs.stage))) {
-                    updateData.stage = String(toolArgs.stage);
+            // Also add any properties not in the execution chain (except task_id and stage)
+            for (const [key, value] of Object.entries(toolArgs || {})) {
+                if (key !== 'task_id' && key !== 'stage' && value !== undefined && !updateData.hasOwnProperty(key)) {
+                    updateData[key] = value;
                 }
             }
             // Update task in database
@@ -509,13 +504,16 @@ ${summary}
             if (toolArgs?.Title) {
                 markdownContent += `**Title (updated):** ${toolArgs.Title}\n\n`;
             }
+            if (toolArgs?.Description) {
+                markdownContent += `## Description (updated)\n\n${toolArgs.Description}\n`;
+            }
             if (toolArgs?.Summary) {
                 markdownContent += `## Summary (updated)\n\n${toolArgs.Summary}\n`;
             }
             // Append any dynamic property updates in order
             for (const { prop_name } of executionChain) {
                 const value = toolArgs?.[prop_name];
-                if (value) {
+                if (value && prop_name !== 'Title' && prop_name !== 'Description' && prop_name !== 'Summary') {
                     markdownContent += `\n## ${prop_name} (updated)\n\n${value}\n`;
                 }
             }
@@ -563,13 +561,13 @@ ${summary}
                 };
             }
             // Build markdown table with stage column
-            let markdownContent = `| ID | Title | Summary | Stage |\n| --- | --- | --- | --- |`;
+            let markdownContent = `| ID | Title | Description | Stage |\n| --- | --- | --- | --- |`;
             try {
                 for (const task of tasks) {
-                    const cleanTitle = String(task.title || '').replace(/\n|\r/g, ' ');
-                    const cleanSummary = String(task.summary || '').replace(/\n|\r/g, ' ');
+                    const cleanTitle = String(task.Title || '').replace(/\n|\r/g, ' ');
+                    const cleanDescription = String(task.Description || task.Summary || '').replace(/\n|\r/g, ' ');
                     const stage = task.stage || 'draft';
-                    markdownContent += `\n| ${task.id} | ${cleanTitle} | ${cleanSummary} | ${stage} |`;
+                    markdownContent += `\n| ${task.id} | ${cleanTitle} | ${cleanDescription} | ${stage} |`;
                 }
             }
             catch (error) {
@@ -621,21 +619,23 @@ ${summary}
             const dynamicProperties = await loadDynamicSchemaProperties();
             const executionChain = createExecutionChain(dynamicProperties);
             // Generate markdown for the complete task
+            const title = task.Title || '';
+            const description = task.Description || task.Summary || '';
             let markdownContent = `# Task
 **Task ID:** ${task.id}
 
-**Title:** ${task.title}
+**Title:** ${title}
 
 **Stage:** ${task.stage || 'draft'}
 
-## Summary
+## Description
 
-${task.summary}
+${description}
 `;
             // Add dynamic properties in execution order
             for (const { prop_name } of executionChain) {
                 const value = task[prop_name];
-                if (value) {
+                if (value && prop_name !== 'Title' && prop_name !== 'Description' && prop_name !== 'Summary') {
                     markdownContent += `\n## ${prop_name}\n\n${value}\n`;
                 }
             }
