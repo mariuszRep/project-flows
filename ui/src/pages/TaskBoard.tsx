@@ -5,10 +5,7 @@ import { Task } from '@/types/task';
 import { Project } from '@/types/project';
 import { TaskBoard } from '@/components/board/TaskBoard';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import TaskForm from '@/components/forms/TaskForm';
 import { MCPDisconnectedState, NoTasksState } from '@/components/ui/empty-state';
 import { Plus, X, Filter } from 'lucide-react';
 import { useMCP } from '@/contexts/MCPContext';
@@ -20,15 +17,6 @@ export default function Board() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showAddTaskForm, setShowAddTaskForm] = useState(false);
-  const [isCreatingTask, setIsCreatingTask] = useState(false);
-  const [taskForm, setTaskForm] = useState({
-    title: '',
-    body: '',
-    stage: 'draft' as 'draft' | 'backlog' | 'doing' | 'review' | 'completed',
-    notes: '',
-    taskList: '',
-    currentGoal: ''
-  });
 
   const [projects] = useState<Project[]>([
     {
@@ -177,71 +165,16 @@ export default function Board() {
     navigate('/settings');
   };
 
-  const handleAddTask = async () => {
-    if (!taskForm.title.trim()) {
-      setError('Task title is required');
-      return;
-    }
-
-    if (!isConnected || !callTool) {
-      setError('MCP not connected');
-      return;
-    }
-
-    setIsCreatingTask(true);
+  const handleTaskSuccess = async (task: Task) => {
+    console.log('Task created successfully:', task);
+    setShowAddTaskForm(false);
     setError(null);
-
-    try {
-      const createTaskTool = tools.find(tool => tool.name === 'create_task');
-      
-      if (!createTaskTool) {
-        throw new Error('create_task tool not available');
-      }
-
-      const result = await callTool('create_task', {
-        Title: taskForm.title,
-        Description: taskForm.body || 'No description provided',
-        Research: taskForm.notes || undefined,
-        Items: taskForm.taskList || undefined
-      });
-
-      if (result && result.content) {
-        console.log('Task created:', result.content);
-        
-        // Reset form
-        setTaskForm({
-          title: '',
-          body: '',
-          stage: 'draft' as 'draft' | 'backlog' | 'doing' | 'review' | 'completed',
-          notes: '',
-          taskList: '',
-          currentGoal: ''
-        });
-        
-        // Close form
-        setShowAddTaskForm(false);
-        
-        // Refresh tasks
-        await fetchTasks();
-      }
-    } catch (err) {
-      console.error('Error creating task:', err);
-      setError(err instanceof Error ? err.message : 'Failed to create task');
-    } finally {
-      setIsCreatingTask(false);
-    }
+    // Refresh tasks after successful creation
+    await fetchTasks();
   };
 
-  const handleCancelAddTask = () => {
+  const handleTaskCancel = () => {
     setShowAddTaskForm(false);
-    setTaskForm({
-      title: '',
-      body: '',
-      stage: 'draft' as 'draft' | 'backlog' | 'doing' | 'review' | 'completed',
-      notes: '',
-      taskList: '',
-      currentGoal: ''
-    });
     setError(null);
   };
 
@@ -275,117 +208,14 @@ export default function Board() {
           </div>
         )}
 
-        {showAddTaskForm && (
-          <div className="bg-surface dark:bg-surface border border-border rounded-lg p-6 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold">Create New Task</h3>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleCancelAddTask}
-                disabled={isCreatingTask}
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-            
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="title">Title *</Label>
-                <Input
-                  id="title"
-                  value={taskForm.title}
-                  onChange={(e) => setTaskForm(prev => ({ ...prev, title: e.target.value }))}
-                  placeholder="Enter task title..."
-                  disabled={isCreatingTask}
-                />
-              </div>
-              
-              <div>
-                <Label htmlFor="body">Description</Label>
-                <Textarea
-                  id="body"
-                  value={taskForm.body}
-                  onChange={(e) => setTaskForm(prev => ({ ...prev, body: e.target.value }))}
-                  placeholder="Enter task description..."
-                  rows={3}
-                  disabled={isCreatingTask}
-                />
-              </div>
-              
-              <div>
-                <Label htmlFor="stage">Stage</Label>
-                <Select
-                  value={taskForm.stage}
-                  onValueChange={(value) => setTaskForm(prev => ({ ...prev, stage: value as 'draft' | 'backlog' | 'doing' | 'review' | 'completed' }))}
-                  disabled={isCreatingTask}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select stage" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="draft">Draft</SelectItem>
-                    <SelectItem value="backlog">Backlog</SelectItem>
-                    <SelectItem value="doing">Doing</SelectItem>
-                    <SelectItem value="review">Review</SelectItem>
-                    <SelectItem value="completed">Completed</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              
-              <div>
-                <Label htmlFor="notes">Notes</Label>
-                <Textarea
-                  id="notes"
-                  value={taskForm.notes}
-                  onChange={(e) => setTaskForm(prev => ({ ...prev, notes: e.target.value }))}
-                  placeholder="Additional notes or context..."
-                  rows={2}
-                  disabled={isCreatingTask}
-                />
-              </div>
-              
-              <div>
-                <Label htmlFor="taskList">Task List</Label>
-                <Textarea
-                  id="taskList"
-                  value={taskForm.taskList}
-                  onChange={(e) => setTaskForm(prev => ({ ...prev, taskList: e.target.value }))}
-                  placeholder="- [ ] Step 1&#10;- [ ] Step 2&#10;- [ ] Step 3"
-                  rows={3}
-                  disabled={isCreatingTask}
-                />
-              </div>
-              
-              <div>
-                <Label htmlFor="currentGoal">Current Goal</Label>
-                <Input
-                  id="currentGoal"
-                  value={taskForm.currentGoal}
-                  onChange={(e) => setTaskForm(prev => ({ ...prev, currentGoal: e.target.value }))}
-                  placeholder="What's the immediate next step?"
-                  disabled={isCreatingTask}
-                />
-              </div>
-              
-              <div className="flex justify-end space-x-2 pt-4">
-                <Button
-                  variant="outline"
-                  onClick={handleCancelAddTask}
-                  disabled={isCreatingTask}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleAddTask}
-                  disabled={isCreatingTask || !taskForm.title.trim()}
-                >
-                  {isCreatingTask ? 'Creating...' : 'Create Task'}
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
+        <TaskForm
+          mode="create"
+          templateId={1}
+          initialStage="draft"
+          onSuccess={handleTaskSuccess}
+          onCancel={handleTaskCancel}
+          isOpen={showAddTaskForm}
+        />
 
         {isLoading ? (
           <div className="flex items-center justify-center h-64">
