@@ -86,7 +86,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
         <div className="flex items-start justify-between">
           <div className="flex-1">
             <CardTitle className="text-sm font-medium text-card-foreground line-clamp-2">
-              {task.title}
+              <span className="text-muted-foreground">#{task.id}</span> {task.title}
             </CardTitle>
           </div>
           <DropdownMenu>

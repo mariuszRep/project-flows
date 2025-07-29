@@ -9,6 +9,7 @@ import { useMCP } from '@/contexts/MCPContext';
 import { Task, TaskStage } from '@/types/task';
 import { MCPDisconnectedState } from '@/components/ui/empty-state';
 import { FileText, Plus, Edit, ArrowRight, Filter } from 'lucide-react';
+import TaskForm from '@/components/forms/TaskForm';
 
 const DraftTasks = () => {
   const navigate = useNavigate();
@@ -19,6 +20,9 @@ const DraftTasks = () => {
   
   // Filter state - default to draft only
   const [selectedStages, setSelectedStages] = useState<TaskStage[]>(['draft']);
+  
+  // Edit task state
+  const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
   
   const stages: { key: TaskStage; title: string; color: string }[] = [
     { key: 'draft', title: 'Draft', color: 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200' },
@@ -116,18 +120,21 @@ const DraftTasks = () => {
     setSelectedStages(['draft']); // Reset to draft only
   };
 
-  const handleTaskClick = async (taskId: number) => {
-    try {
-      const getTaskTool = tools.find(tool => tool.name === 'get_task');
-      if (getTaskTool && isConnected && callTool) {
-        const result = await callTool('get_task', { task_id: taskId });
-        console.log('Task details:', result);
-        // For now, just navigate to board - later could show task details modal
-        navigate('/task-board');
-      }
-    } catch (err) {
-      console.error('Error getting task details:', err);
-    }
+  const handleEditTask = (taskId: number) => {
+    setEditingTaskId(taskId);
+  };
+  
+  const handleEditSuccess = async (task: Task) => {
+    console.log('Task updated successfully:', task);
+    setEditingTaskId(null);
+    setError(null);
+    // Refresh tasks after successful update
+    await fetchAllTasks();
+  };
+  
+  const handleEditCancel = () => {
+    setEditingTaskId(null);
+    setError(null);
   };
 
   const handleMoveTask = async (taskId: number, newStage: TaskStage) => {
@@ -295,7 +302,7 @@ const DraftTasks = () => {
                         <div className="flex-1 min-w-0 pr-4">
                           <div className="flex items-center gap-3 mb-2">
                             <CardTitle className="text-lg font-semibold truncate">
-                              {task.title}
+                              <span className="text-muted-foreground">#{task.id}</span> {task.title}
                             </CardTitle>
                             <Badge variant="secondary" className={`flex-shrink-0 ${getStageColor(task.stage)}`}>
                               {stages.find(s => s.key === task.stage)?.title}
@@ -311,10 +318,10 @@ const DraftTasks = () => {
                           <Button 
                             size="sm" 
                             variant="outline"
-                            onClick={() => handleTaskClick(task.id)}
+                            onClick={() => handleEditTask(task.id)}
                           >
                             <Edit className="h-3 w-3 mr-1" />
-                            View
+                            Edit
                           </Button>
                           {canMoveForward && (
                             <Button 
@@ -334,6 +341,16 @@ const DraftTasks = () => {
             </div>
           </div>
         )}
+        
+        {/* Edit Task Form */}
+        <TaskForm
+          mode="edit"
+          taskId={editingTaskId || 0}
+          templateId={1}
+          onSuccess={handleEditSuccess}
+          onCancel={handleEditCancel}
+          isOpen={!!editingTaskId}
+        />
       </div>
     </HeaderAndSidebarLayout>
   );
