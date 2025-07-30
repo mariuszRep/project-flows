@@ -8,7 +8,7 @@ interface TaskBoardProps {
   tasks: Task[];
   setTasks: React.Dispatch<React.SetStateAction<Task[]>>;
   onTaskUpdate: (taskId?: number, newStage?: string) => void;
-  onTaskDelete: () => void;
+  onTaskDelete: (taskId: number, taskTitle: string) => void;
   projects: Project[];
 }
 

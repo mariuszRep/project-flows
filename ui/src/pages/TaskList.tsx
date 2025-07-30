@@ -8,6 +8,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { useMCP } from '@/contexts/MCPContext';
 import { Task, TaskStage } from '@/types/task';
 import { MCPDisconnectedState } from '@/components/ui/empty-state';
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { FileText, Plus, Edit, ArrowRight, Filter } from 'lucide-react';
 import TaskForm from '@/components/forms/TaskForm';
 
@@ -23,6 +24,17 @@ const DraftTasks = () => {
   
   // Edit task state
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
+  
+  // Delete task state
+  const [deleteDialog, setDeleteDialog] = useState<{
+    isOpen: boolean;
+    taskId: number | null;
+    taskTitle: string;
+  }>({
+    isOpen: false,
+    taskId: null,
+    taskTitle: '',
+  });
   
   const stages: { key: TaskStage; title: string; color: string }[] = [
     { key: 'draft', title: 'Draft', color: 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200' },
@@ -135,6 +147,59 @@ const DraftTasks = () => {
   const handleEditCancel = () => {
     setEditingTaskId(null);
     setError(null);
+  };
+
+  const handleTaskDelete = (taskId: number, taskTitle: string) => {
+    setDeleteDialog({
+      isOpen: true,
+      taskId,
+      taskTitle,
+    });
+  };
+
+  const confirmTaskDelete = async () => {
+    if (!isConnected || !callTool || !deleteDialog.taskId) {
+      console.log('MCP not connected or no task ID, skipping delete');
+      setDeleteDialog({ isOpen: false, taskId: null, taskTitle: '' });
+      return;
+    }
+
+    try {
+      const deleteTool = tools.find(tool => tool.name === 'delete_task');
+      
+      if (deleteTool) {
+        const result = await callTool('delete_task', {
+          task_id: deleteDialog.taskId
+        });
+        
+        console.log('Delete result:', result);
+        
+        // Remove task from local state immediately for better UX
+        setAllTasks(prevTasks => prevTasks.filter(task => task.id !== deleteDialog.taskId));
+        
+        // Close edit form if the deleted task was being edited
+        if (editingTaskId === deleteDialog.taskId) {
+          setEditingTaskId(null);
+        }
+        
+        // Refresh tasks from server to ensure consistency
+        await fetchAllTasks();
+      } else {
+        console.log('Delete tool not available');
+        setError('Delete functionality is not available');
+      }
+    } catch (err) {
+      console.error('Error deleting task:', err);
+      setError(err instanceof Error ? err.message : 'Failed to delete task');
+      // Refresh tasks in case of error to restore correct state
+      await fetchAllTasks();
+    } finally {
+      setDeleteDialog({ isOpen: false, taskId: null, taskTitle: '' });
+    }
+  };
+
+  const cancelTaskDelete = () => {
+    setDeleteDialog({ isOpen: false, taskId: null, taskTitle: '' });
   };
 
   const handleMoveTask = async (taskId: number, newStage: TaskStage) => {
@@ -349,7 +414,19 @@ const DraftTasks = () => {
           templateId={1}
           onSuccess={handleEditSuccess}
           onCancel={handleEditCancel}
+          onDelete={handleTaskDelete}
           isOpen={!!editingTaskId}
+        />
+        
+        <ConfirmationDialog
+          isOpen={deleteDialog.isOpen}
+          onClose={cancelTaskDelete}
+          onConfirm={confirmTaskDelete}
+          title="Delete Task"
+          description={`Are you sure you want to delete "${deleteDialog.taskTitle}"? This action cannot be undone.`}
+          confirmText="Delete"
+          cancelText="Cancel"
+          variant="destructive"
         />
       </div>
     </HeaderAndSidebarLayout>

@@ -66,11 +66,25 @@ export class TaskTools {
           required: ["task_id"],
         },
       } as Tool,
+      {
+        name: "delete_task",
+        description: "Delete a task by its numeric ID. This permanently removes the task and all its associated data.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            task_id: {
+              type: "number",
+              description: "The numeric ID of the task to delete"
+            }
+          },
+          required: ["task_id"],
+        },
+      } as Tool,
     ];
   }
 
   canHandle(toolName: string): boolean {
-    return ["create_task", "update_task", "list_tasks", "get_task"].includes(toolName);
+    return ["create_task", "update_task", "list_tasks", "get_task", "delete_task"].includes(toolName);
   }
 
   async handle(name: string, toolArgs?: Record<string, any>) {
@@ -83,6 +97,8 @@ export class TaskTools {
         return await this.handleListTasks(toolArgs);
       case "get_task":
         return await this.handleGetTask(toolArgs);
+      case "delete_task":
+        return await this.handleDeleteTask(toolArgs);
       default:
         throw new Error(`Unknown task tool: ${name}`);
     }
@@ -420,6 +436,69 @@ ${description}
         } as TextContent,
       ],
     };
+  }
+
+  private async handleDeleteTask(toolArgs?: Record<string, any>) {
+    const taskId = toolArgs?.task_id;
+    
+    // Validate task ID
+    if (!taskId || typeof taskId !== 'number' || taskId < 1) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: "Error: Valid numeric task_id is required for deletion.",
+          } as TextContent,
+        ],
+      };
+    }
+
+    // Check if task exists before attempting deletion
+    const existingTask = await this.sharedDbService.getTask(taskId);
+    if (!existingTask) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error: Task with ID ${taskId} not found.`,
+          } as TextContent,
+        ],
+      };
+    }
+
+    // Delete task from database
+    try {
+      const deleted = await this.sharedDbService.deleteTask(taskId);
+      if (deleted) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Task with ID ${taskId} has been successfully deleted.`,
+            } as TextContent,
+          ],
+        };
+      } else {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: Failed to delete task with ID ${taskId}.`,
+            } as TextContent,
+          ],
+        };
+      }
+    } catch (error) {
+      console.error('Error deleting task:', error);
+      return {
+        content: [
+          {
+            type: "text",
+            text: "Error: Failed to delete task from database.",
+          } as TextContent,
+        ],
+      };
+    }
   }
 }
 

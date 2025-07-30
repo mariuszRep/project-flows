@@ -8,7 +8,7 @@ interface TaskColumnProps {
   title: string;
   tasks: Task[];
   onTaskUpdate: (taskId?: number, newStage?: string) => void;
-  onTaskDelete: () => void;
+  onTaskDelete: (taskId: number, taskTitle: string) => void;
   isDraggingOver?: boolean;
   projects: Project[];
 }
@@ -42,7 +42,7 @@ export const TaskColumn: React.FC<TaskColumnProps> = ({
                 <TaskCard
                   task={task}
                   onUpdate={onTaskUpdate}
-                  onDelete={onTaskDelete}
+                  onDelete={() => onTaskDelete(task.id, task.title || task.Title || `Task #${task.id}`)}
                   isDragging={snapshot.isDragging}
                   projects={projects}
                 />

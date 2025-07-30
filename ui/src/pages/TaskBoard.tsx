@@ -7,6 +7,7 @@ import { TaskBoard } from '@/components/board/TaskBoard';
 import { Button } from '@/components/ui/button';
 import TaskForm from '@/components/forms/TaskForm';
 import { MCPDisconnectedState, NoTasksState } from '@/components/ui/empty-state';
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { Plus, X, Filter } from 'lucide-react';
 import { useMCP } from '@/contexts/MCPContext';
 
@@ -17,6 +18,15 @@ export default function Board() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showAddTaskForm, setShowAddTaskForm] = useState(false);
+  const [deleteDialog, setDeleteDialog] = useState<{
+    isOpen: boolean;
+    taskId: number | null;
+    taskTitle: string;
+  }>({
+    isOpen: false,
+    taskId: null,
+    taskTitle: '',
+  });
 
   const [projects] = useState<Project[]>([
     {
@@ -156,9 +166,52 @@ export default function Board() {
     }
   };
 
-  const handleTaskDelete = () => {
-    // In a real app, this would refetch tasks from the server
-    console.log('Task deleted');
+  const handleTaskDelete = (taskId: number, taskTitle: string) => {
+    setDeleteDialog({
+      isOpen: true,
+      taskId,
+      taskTitle,
+    });
+  };
+
+  const confirmTaskDelete = async () => {
+    if (!isConnected || !callTool || !deleteDialog.taskId) {
+      console.log('MCP not connected or no task ID, skipping delete');
+      setDeleteDialog({ isOpen: false, taskId: null, taskTitle: '' });
+      return;
+    }
+
+    try {
+      const deleteTool = tools.find(tool => tool.name === 'delete_task');
+      
+      if (deleteTool) {
+        const result = await callTool('delete_task', {
+          task_id: deleteDialog.taskId
+        });
+        
+        console.log('Delete result:', result);
+        
+        // Remove task from local state immediately for better UX
+        setTasks(prevTasks => prevTasks.filter(task => task.id !== deleteDialog.taskId));
+        
+        // Refresh tasks from server to ensure consistency
+        await fetchTasks();
+      } else {
+        console.log('Delete tool not available');
+        setError('Delete functionality is not available');
+      }
+    } catch (err) {
+      console.error('Error deleting task:', err);
+      setError(err instanceof Error ? err.message : 'Failed to delete task');
+      // Refresh tasks in case of error to restore correct state
+      await fetchTasks();
+    } finally {
+      setDeleteDialog({ isOpen: false, taskId: null, taskTitle: '' });
+    }
+  };
+
+  const cancelTaskDelete = () => {
+    setDeleteDialog({ isOpen: false, taskId: null, taskTitle: '' });
   };
 
   const handleSettingsClick = () => {
@@ -237,6 +290,17 @@ export default function Board() {
             projects={projects}
           />
         )}
+
+        <ConfirmationDialog
+          isOpen={deleteDialog.isOpen}
+          onClose={cancelTaskDelete}
+          onConfirm={confirmTaskDelete}
+          title="Delete Task"
+          description={`Are you sure you want to delete "${deleteDialog.taskTitle}"? This action cannot be undone.`}
+          confirmText="Delete"
+          cancelText="Cancel"
+          variant="destructive"
+        />
       </div>
     </HeaderAndSidebarLayout>
   );

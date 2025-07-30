@@ -472,6 +472,40 @@ class DatabaseService {
     }
   }
 
+  async deleteTask(taskId: number): Promise<boolean> {
+    const client = await this.pool.connect();
+    
+    try {
+      await client.query('BEGIN');
+
+      // Check if task exists
+      const taskQuery = 'SELECT id FROM tasks WHERE id = $1';
+      const taskResult = await client.query(taskQuery, [taskId]);
+      
+      if (taskResult.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return false;
+      }
+
+      // Delete blocks first (foreign key constraint)
+      const deleteBlocksQuery = 'DELETE FROM blocks WHERE task_id = $1';
+      await client.query(deleteBlocksQuery, [taskId]);
+
+      // Delete task
+      const deleteTaskQuery = 'DELETE FROM tasks WHERE id = $1';
+      const deleteResult = await client.query(deleteTaskQuery, [taskId]);
+
+      await client.query('COMMIT');
+      return (deleteResult.rowCount || 0) > 0;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('Error deleting task:', error);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async listProperties(templateId?: number): Promise<Array<SchemaProperty & { key: string }>> {
     try {
       let query = `
