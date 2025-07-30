@@ -4,7 +4,8 @@ import { Input } from '@/components/ui/input';
 import { AutoTextarea } from '@/components/ui/auto-textarea';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { X } from 'lucide-react';
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
+import { X, Trash2 } from 'lucide-react';
 import { useMCP } from '@/contexts/MCPContext';
 import { Task, TaskStage } from '@/types/task';
 
@@ -15,6 +16,7 @@ interface TaskFormProps {
   initialStage?: TaskStage;
   onSuccess?: (task: Task) => void;
   onCancel?: () => void;
+  onDelete?: (taskId: number, taskTitle: string) => void;
   isOpen?: boolean;
 }
 
@@ -45,6 +47,7 @@ const TaskForm: React.FC<TaskFormProps> = ({
   initialStage = 'draft',
   onSuccess,
   onCancel,
+  onDelete,
   isOpen = true
 }) => {
   const { callTool, isConnected, tools } = useMCP();
@@ -55,6 +58,15 @@ const TaskForm: React.FC<TaskFormProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [deleteDialog, setDeleteDialog] = useState<{
+    isOpen: boolean;
+    taskId: number | null;
+    taskTitle: string;
+  }>({
+    isOpen: false,
+    taskId: null,
+    taskTitle: '',
+  });
 
   // Infer the appropriate input type based on field name and property type
   const inferInputType = (fieldName: string, propertyType: string): 'input' | 'textarea' | 'select' => {
@@ -351,6 +363,30 @@ const TaskForm: React.FC<TaskFormProps> = ({
     onCancel?.();
   };
 
+  // Handle delete task request
+  const handleDeleteRequest = () => {
+    if (mode === 'edit' && taskId && formData.Title) {
+      setDeleteDialog({
+        isOpen: true,
+        taskId,
+        taskTitle: formData.Title || `Task #${taskId}`,
+      });
+    }
+  };
+
+  // Confirm delete
+  const confirmDelete = () => {
+    if (deleteDialog.taskId && onDelete) {
+      onDelete(deleteDialog.taskId, deleteDialog.taskTitle);
+      setDeleteDialog({ isOpen: false, taskId: null, taskTitle: '' });
+    }
+  };
+
+  // Cancel delete
+  const cancelDelete = () => {
+    setDeleteDialog({ isOpen: false, taskId: null, taskTitle: '' });
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -368,6 +404,18 @@ const TaskForm: React.FC<TaskFormProps> = ({
             )}
           </div>
           <div className="flex items-center gap-3">
+            {mode === 'edit' && onDelete && (
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                onClick={handleDeleteRequest}
+                disabled={isSubmitting}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete
+              </Button>
+            )}
             <button
               type="button"
               onClick={handleCancel}
@@ -487,6 +535,17 @@ const TaskForm: React.FC<TaskFormProps> = ({
         </form>
       )}
     </div>
+
+        <ConfirmationDialog
+          isOpen={deleteDialog.isOpen}
+          onClose={cancelDelete}
+          onConfirm={confirmDelete}
+          title="Delete Task"
+          description={`Are you sure you want to delete "${deleteDialog.taskTitle}"? This action cannot be undone.`}
+          confirmText="Delete"
+          cancelText="Cancel"
+          variant="destructive"
+        />
       </div>
     </div>
   );
