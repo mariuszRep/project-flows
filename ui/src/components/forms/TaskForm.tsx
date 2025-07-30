@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { X, Trash2 } from 'lucide-react';
 import { useMCP } from '@/contexts/MCPContext';
+import { useProject } from '@/contexts/ProjectContext';
 import { Task, TaskStage } from '@/types/task';
 
 interface TaskFormProps {
@@ -51,6 +52,7 @@ const TaskForm: React.FC<TaskFormProps> = ({
   isOpen = true
 }) => {
   const { callTool, isConnected, tools } = useMCP();
+  const { selectedProjectId } = useProject();
   const [formFields, setFormFields] = useState<FormField[]>([]);
   const [formData, setFormData] = useState<Record<string, any>>({
     stage: initialStage
@@ -314,6 +316,11 @@ const TaskForm: React.FC<TaskFormProps> = ({
           }
         });
         
+        // Add project_id if a project is selected
+        if (selectedProjectId) {
+          createData.project_id = selectedProjectId;
+        }
+        
         console.log('Creating task with data:', createData);
         result = await callTool('create_task', createData);
         
@@ -339,7 +346,7 @@ const TaskForm: React.FC<TaskFormProps> = ({
           title: formData.Title || formData.title || 'Untitled Task',
           body: formData.Description || formData.description || formData.Summary || '',
           stage: formData.stage as TaskStage,
-          project_id: 1,
+          project_id: selectedProjectId,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
           created_by: 'user@example.com',

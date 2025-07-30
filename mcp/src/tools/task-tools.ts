@@ -19,7 +19,13 @@ export class TaskTools {
         description: "Create a detailed task plan with markdown formatting, make sure you populate 'Title' and 'Summary' and later all the rest of the properties",
         inputSchema: {
           type: "object",
-          properties: allProperties,
+          properties: {
+            project_id: {
+              type: "number",
+              description: "Optional project ID to associate with the task"
+            },
+            ...allProperties
+          },
           required: ["Title", "Summary"],
         },
       } as Tool,
@@ -33,6 +39,10 @@ export class TaskTools {
               type: "number",
               description: "The numeric ID of the task to update"
             },
+            project_id: {
+              type: "number",
+              description: "Optional project ID to associate with the task"
+            },
             ...allProperties
           },
           required: ["task_id"],
@@ -40,7 +50,7 @@ export class TaskTools {
       } as Tool,
       {
         name: "list_tasks",
-        description: "List all tasks with their ID, Title, Summary, and Stage. Optionally filter by stage.",
+        description: "List all tasks with their ID, Title, Summary, Stage, and Project. Optionally filter by stage.",
         inputSchema: {
           type: "object",
           properties: {
@@ -125,6 +135,11 @@ export class TaskTools {
     // Prepare task data - all properties go into blocks now
     const taskData: Omit<TaskData, 'id'> = {};
 
+    // Handle project_id if provided
+    if (toolArgs?.project_id !== undefined) {
+      taskData.project_id = toolArgs.project_id;
+    }
+
     // Add all properties (including Title and Summary/Description) to task data
     for (const { prop_name } of executionChain) {
       const value = toolArgs?.[prop_name] || "";
@@ -133,9 +148,9 @@ export class TaskTools {
       }
     }
     
-    // Also add any properties not in the execution chain
+    // Also add any properties not in the execution chain (exclude project_id as it's already handled)
     for (const [key, value] of Object.entries(toolArgs || {})) {
-      if (value && !taskData[key]) {
+      if (value && key !== 'project_id' && !taskData[key]) {
         taskData[key] = value;
       }
     }
@@ -229,13 +244,17 @@ ${description}
     // Prepare update data - all non-stage properties go to blocks
     const updateData: Partial<TaskData> = {};
     
-    // Handle stage explicitly as it's a column in tasks table
+    // Handle stage and project_id explicitly as they're columns in tasks table
     if (toolArgs?.stage !== undefined) {
       // Validate stage value
       const validStages = ['draft', 'backlog', 'doing', 'review', 'completed'];
       if (validStages.includes(String(toolArgs.stage))) {
         updateData.stage = String(toolArgs.stage) as TaskStage;
       }
+    }
+    
+    if (toolArgs?.project_id !== undefined) {
+      updateData.project_id = toolArgs.project_id;
     }
 
     // Create execution chain to order fields when building markdown
@@ -249,9 +268,9 @@ ${description}
       }
     }
     
-    // Also add any properties not in the execution chain (except task_id and stage)
+    // Also add any properties not in the execution chain (except task_id, stage, and project_id)
     for (const [key, value] of Object.entries(toolArgs || {})) {
-      if (key !== 'task_id' && key !== 'stage' && value !== undefined && !updateData.hasOwnProperty(key)) {
+      if (key !== 'task_id' && key !== 'stage' && key !== 'project_id' && value !== undefined && !updateData.hasOwnProperty(key)) {
         updateData[key] = value;
       }
     }
@@ -341,14 +360,15 @@ ${description}
       };
     }
 
-    // Build markdown table with stage column
-    let markdownContent = `| ID | Title | Description | Stage |\n| --- | --- | --- | --- |`;
+    // Build markdown table with stage and project columns
+    let markdownContent = `| ID | Title | Description | Stage | Project ID |\n| --- | --- | --- | --- | --- |`;
     try {
       for (const task of tasks) {
         const cleanTitle = String(task.Title || '').replace(/\n|\r/g, ' ');
         const cleanDescription = String(task.Description || task.Summary || '').replace(/\n|\r/g, ' ');
         const stage = task.stage || 'draft';
-        markdownContent += `\n| ${task.id} | ${cleanTitle} | ${cleanDescription} | ${stage} |`;
+        const projectId = task.project_id || 'None';
+        markdownContent += `\n| ${task.id} | ${cleanTitle} | ${cleanDescription} | ${stage} | ${projectId} |`;
       }
     } catch (error) {
       console.error('Error formatting tasks table:', error);
@@ -414,6 +434,8 @@ ${description}
 **Title:** ${title}
 
 **Stage:** ${task.stage || 'draft'}
+
+**Project ID:** ${task.project_id || 'None'}
 
 ## Description
 

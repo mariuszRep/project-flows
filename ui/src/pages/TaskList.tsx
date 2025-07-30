@@ -6,18 +6,32 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useMCP } from '@/contexts/MCPContext';
+import { useProject } from '@/contexts/ProjectContext';
 import { Task, TaskStage } from '@/types/task';
+import { Project } from '@/types/project';
 import { MCPDisconnectedState } from '@/components/ui/empty-state';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
+import { ProjectSidebar } from '@/components/ui/project-sidebar';
+import ProjectForm from '@/components/forms/ProjectForm';
 import { FileText, Plus, Edit, ArrowRight, Filter } from 'lucide-react';
 import TaskForm from '@/components/forms/TaskForm';
 
 const DraftTasks = () => {
   const navigate = useNavigate();
   const { callTool, isConnected, tools } = useMCP();
+  const { 
+    projects, 
+    selectedProjectId, 
+    setSelectedProjectId, 
+    fetchProjects,
+    createProject,
+    getSelectedProject 
+  } = useProject();
+  
   const [allTasks, setAllTasks] = useState<Task[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showCreateProjectForm, setShowCreateProjectForm] = useState(false);
   
   // Filter state - default to draft only
   const [selectedStages, setSelectedStages] = useState<TaskStage[]>(['draft']);
@@ -44,8 +58,12 @@ const DraftTasks = () => {
     { key: 'completed', title: 'Completed', color: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' }
   ];
 
-  // Get filtered tasks based on selected stages
-  const filteredTasks = allTasks.filter(task => selectedStages.includes(task.stage));
+  // Get filtered tasks based on selected stages and project
+  const filteredTasks = allTasks.filter(task => {
+    const stageMatch = selectedStages.includes(task.stage);
+    const projectMatch = selectedProjectId === null || task.project_id === selectedProjectId;
+    return stageMatch && projectMatch;
+  });
 
   // Fetch all tasks from MCP
   const fetchAllTasks = async () => {
@@ -74,18 +92,20 @@ const DraftTasks = () => {
                 const columns = row.split('|').map(col => col.trim());
                 // Don't filter out empty columns - keep them to maintain column positions
                 
-                if (columns.length >= 5) { // Need at least 5 elements: ['', id, title, summary, stage, '']
+                if (columns.length >= 6) { // Need at least 6 elements: ['', id, title, summary, stage, project_id, '']
                   const id = parseInt(columns[1]) || index + 1; // Skip first empty element
                   const title = columns[2] || 'Untitled Task';
                   const summary = columns[3] || '';
                   const stage = columns[4] || 'draft';
+                  const projectIdColumn = columns[5];
+                  const projectId = projectIdColumn === 'None' ? undefined : parseInt(projectIdColumn);
                   
                   return {
                     id,
                     title,
                     body: summary,
                     stage: stage as TaskStage,
-                    project_id: 1,
+                    project_id: projectId,
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString(),
                     created_by: 'user@example.com',
@@ -110,7 +130,7 @@ const DraftTasks = () => {
 
   useEffect(() => {
     fetchAllTasks();
-  }, [isConnected, tools]);
+  }, [isConnected, tools, selectedProjectId]);
 
   const handleStageToggle = (stage: TaskStage) => {
     setSelectedStages(prev => {
@@ -254,14 +274,52 @@ const DraftTasks = () => {
     navigate('/settings');
   };
 
+  const handleCreateProject = () => {
+    setShowCreateProjectForm(true);
+  };
+
+  const handleProjectSuccess = async (project: Project) => {
+    console.log('Project created successfully:', project);
+    setShowCreateProjectForm(false);
+    setError(null);
+    await fetchProjects();
+  };
+
+  const handleProjectCancel = () => {
+    setShowCreateProjectForm(false);
+    setError(null);
+  };
+
+  const handleProjectSelect = (projectId: number | null) => {
+    setSelectedProjectId(projectId);
+  };
+
+  const selectedProject = getSelectedProject();
+
   return (
-    <HeaderAndSidebarLayout onSettingsClick={handleSettingsClick} fullWidth={true}>
+    <HeaderAndSidebarLayout 
+      onSettingsClick={handleSettingsClick} 
+      fullWidth={true}
+      sidebarContent={
+        <ProjectSidebar
+          selectedProjectId={selectedProjectId}
+          onProjectSelect={handleProjectSelect}
+          onCreateProject={handleCreateProject}
+          isCollapsed={false} // This will be injected by the layout
+        />
+      }
+    >
       <div className="w-full px-[10%] space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-foreground">Task Manager</h1>
+            <h1 className="text-2xl font-bold text-foreground">
+              {selectedProject ? `${selectedProject.name} - Task Manager` : 'Task Manager'}
+            </h1>
             <p className="text-sm text-muted-foreground">
-              Filter and manage your tasks by stage
+              {selectedProject 
+                ? `Filter and manage tasks for ${selectedProject.name} project` 
+                : 'Filter and manage your tasks by stage'
+              }
             </p>
           </div>
           <div className="flex gap-2">
@@ -427,6 +485,13 @@ const DraftTasks = () => {
           confirmText="Delete"
           cancelText="Cancel"
           variant="destructive"
+        />
+
+        <ProjectForm
+          mode="create"
+          onSuccess={handleProjectSuccess}
+          onClose={handleProjectCancel}
+          isOpen={showCreateProjectForm}
         />
       </div>
     </HeaderAndSidebarLayout>

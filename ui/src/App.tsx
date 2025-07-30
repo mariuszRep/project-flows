@@ -13,6 +13,7 @@ import TaskBoard from "./pages/TaskBoard";
 import TaskList from "./pages/TaskList";
 import { SessionProvider } from "./contexts/SessionContext";
 import { MCPProvider } from "./contexts/MCPContext";
+import { ProjectProvider } from "./contexts/ProjectContext";
 
 
 const queryClient = new QueryClient();
@@ -23,19 +24,21 @@ const App = () => (
       <TooltipProvider>
         <SessionProvider>
           <MCPProvider>
-            <Toaster />
-            <Sonner />
-            <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-              <Routes>
-                <Route path="/" element={<Dashboard />} />
-                <Route path="/template" element={<Template />} />
-                <Route path="/tools" element={<Tools />} />
-                <Route path="/layout" element={<Layout />} />
-                <Route path="/settings" element={<Settings />} />
-                <Route path="/task-board" element={<TaskBoard />} />
-                <Route path="/task-list" element={<TaskList />} />
-              </Routes>
-            </BrowserRouter>
+            <ProjectProvider>
+              <Toaster />
+              <Sonner />
+              <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+                <Routes>
+                  <Route path="/" element={<Dashboard />} />
+                  <Route path="/template" element={<Template />} />
+                  <Route path="/tools" element={<Tools />} />
+                  <Route path="/layout" element={<Layout />} />
+                  <Route path="/settings" element={<Settings />} />
+                  <Route path="/task-board" element={<TaskBoard />} />
+                  <Route path="/task-list" element={<TaskList />} />
+                </Routes>
+              </BrowserRouter>
+            </ProjectProvider>
           </MCPProvider>
         </SessionProvider>
       </TooltipProvider>

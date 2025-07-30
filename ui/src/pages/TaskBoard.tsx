@@ -6,18 +6,31 @@ import { Project } from '@/types/project';
 import { TaskBoard } from '@/components/board/TaskBoard';
 import { Button } from '@/components/ui/button';
 import TaskForm from '@/components/forms/TaskForm';
+import ProjectForm from '@/components/forms/ProjectForm';
+import { ProjectSidebar } from '@/components/ui/project-sidebar';
 import { MCPDisconnectedState, NoTasksState } from '@/components/ui/empty-state';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { Plus, X, Filter } from 'lucide-react';
 import { useMCP } from '@/contexts/MCPContext';
+import { useProject } from '@/contexts/ProjectContext';
 
 export default function Board() {
   const navigate = useNavigate();
   const { callTool, isConnected, tools } = useMCP();
+  const { 
+    projects, 
+    selectedProjectId, 
+    setSelectedProjectId, 
+    fetchProjects, 
+    createProject,
+    getSelectedProject 
+  } = useProject();
+  
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showAddTaskForm, setShowAddTaskForm] = useState(false);
+  const [showCreateProjectForm, setShowCreateProjectForm] = useState(false);
   const [deleteDialog, setDeleteDialog] = useState<{
     isOpen: boolean;
     taskId: number | null;
@@ -27,19 +40,6 @@ export default function Board() {
     taskId: null,
     taskTitle: '',
   });
-
-  const [projects] = useState<Project[]>([
-    {
-      id: 1,
-      name: 'Agentic Boards',
-      description: 'Task management application with kanban boards',
-      color: '#3b82f6',
-      created_at: '2024-01-14T08:00:00Z',
-      updated_at: '2024-01-14T08:00:00Z',
-      created_by: 'user@example.com',
-      updated_by: 'user@example.com'
-    }
-  ]);
 
   // Fetch tasks from MCP tools
   const fetchTasks = async () => {
@@ -77,18 +77,20 @@ export default function Board() {
             const parsedTasks = taskRows.map((row, index) => {
               const columns = row.split('|').map(col => col.trim()).filter(col => col);
               
-              if (columns.length >= 4) {
+              if (columns.length >= 5) { // Now expecting 5 columns: ID, Title, Description, Stage, Project ID
                 const id = parseInt(columns[0]) || index + 1;
                 const titleColumn = columns[1] || 'Untitled Task';
                 const descriptionColumn = columns[2] || '';
                 const stage = columns[3] || 'backlog';
+                const projectIdColumn = columns[4];
+                const projectId = projectIdColumn === 'None' ? undefined : parseInt(projectIdColumn);
                 
                 return {
                   id,
                   title: titleColumn, // For backward compatibility
                   body: descriptionColumn, // For backward compatibility
                   stage: stage as 'draft' | 'backlog' | 'doing' | 'review' | 'completed',
-                  project_id: 1,
+                  project_id: projectId,
                   created_at: new Date().toISOString(),
                   updated_at: new Date().toISOString(),
                   created_by: 'user@example.com',
@@ -113,8 +115,14 @@ export default function Board() {
         index === self.findIndex(t => t.id === task.id)
       );
       
-      console.log(`Found ${uniqueTasks.length} unique tasks from ${tools.length} tools`);
-      setTasks(uniqueTasks);
+      // Filter tasks by selected project if one is selected
+      let filteredTasks = uniqueTasks;
+      if (selectedProjectId !== null) {
+        filteredTasks = uniqueTasks.filter(task => task.project_id === selectedProjectId);
+      }
+      
+      console.log(`Found ${uniqueTasks.length} total tasks, ${filteredTasks.length} after project filtering`);
+      setTasks(filteredTasks);
       
     } catch (err) {
       console.error('Error fetching tasks:', err);
@@ -130,10 +138,10 @@ export default function Board() {
       setTasks([]);
       setIsLoading(false);
     } else {
-      // Fetch tasks when connected
+      // Fetch tasks when connected or when selected project changes
       fetchTasks();
     }
-  }, [isConnected, tools]);
+  }, [isConnected, tools, selectedProjectId]);
 
   const handleTaskUpdate = async (taskId?: number, newStage?: string) => {
     if (!isConnected || !callTool) {
@@ -231,16 +239,52 @@ export default function Board() {
     setError(null);
   };
 
+  const handleCreateProject = () => {
+    setShowCreateProjectForm(true);
+  };
+
+  const handleProjectSuccess = async (project: Project) => {
+    console.log('Project created successfully:', project);
+    setShowCreateProjectForm(false);
+    setError(null);
+    // Refresh projects
+    await fetchProjects();
+  };
+
+  const handleProjectCancel = () => {
+    setShowCreateProjectForm(false);
+    setError(null);
+  };
+
+  const handleProjectSelect = (projectId: number | null) => {
+    setSelectedProjectId(projectId);
+  };
+
+  const selectedProject = getSelectedProject();
+
   return (
     <HeaderAndSidebarLayout
       onSettingsClick={handleSettingsClick}
+      sidebarContent={
+        <ProjectSidebar
+          selectedProjectId={selectedProjectId}
+          onProjectSelect={handleProjectSelect}
+          onCreateProject={handleCreateProject}
+          isCollapsed={false} // This will be injected by the layout
+        />
+      }
     >
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-foreground">Task Board</h1>
+            <h1 className="text-2xl font-bold text-foreground">
+              {selectedProject ? `${selectedProject.name} - Tasks` : 'Task Board'}
+            </h1>
             <p className="text-sm text-muted-foreground">
-              Manage your tasks with drag-and-drop kanban boards
+              {selectedProject 
+                ? `Managing tasks for ${selectedProject.name} project` 
+                : 'Manage your tasks with drag-and-drop kanban boards'
+              }
             </p>
           </div>
           <div className="flex gap-2">
@@ -268,6 +312,13 @@ export default function Board() {
           onSuccess={handleTaskSuccess}
           onCancel={handleTaskCancel}
           isOpen={showAddTaskForm}
+        />
+
+        <ProjectForm
+          mode="create"
+          onSuccess={handleProjectSuccess}
+          onClose={handleProjectCancel}
+          isOpen={showCreateProjectForm}
         />
 
         {isLoading ? (

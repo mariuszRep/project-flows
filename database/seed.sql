@@ -33,4 +33,9 @@ CROSS JOIN (
 ) as data
 ON CONFLICT (template_id, key) DO NOTHING;
 
-SELECT 'Database seeded successfully with Task template and properties' as status;
+-- Insert sample projects
+INSERT INTO projects (name, description, color, created_by, updated_by) VALUES
+    ('Default', 'Default project', '#3b82f6', 'system', 'system')
+ON CONFLICT DO NOTHING;
+
+SELECT 'Database seeded successfully with Task template, properties, and sample projects' as status;
