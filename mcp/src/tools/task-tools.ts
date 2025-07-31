@@ -9,24 +9,25 @@ export class TaskTools {
     private clientId: string,
     private loadDynamicSchemaProperties: () => Promise<SchemaProperties>,
     private createExecutionChain: (properties: SchemaProperties) => ExecutionChainItem[],
-    private validateDependencies: (properties: SchemaProperties, args: Record<string, any>, isUpdateContext?: boolean) => boolean
+    private validateDependencies: (properties: SchemaProperties, args: Record<string, any>, isUpdateContext?: boolean) => boolean,
+    private projectTools?: any
   ) {}
 
   getToolDefinitions(allProperties: Record<string, any>): Tool[] {
     return [
       {
         name: "create_task",
-        description: "Create a detailed task plan with markdown formatting, make sure you populate 'Title' and 'Summary' and later all the rest of the properties",
+        description: "Create a detailed task plan with markdown formatting, make sure you populate 'Title' and 'Description' and later all the rest of the properties. Always run get_selected_project tool before creating new task to get the current project_id if you need to associate the task with a project.",
         inputSchema: {
           type: "object",
           properties: {
             project_id: {
               type: "number",
-              description: "Optional project ID to associate with the task"
+              description: "Optional project ID to associate with the task, run get_selected_project tool to get current project_id"
             },
             ...allProperties
           },
-          required: ["Title", "Summary"],
+          required: ["Title", "Description"],
         },
       } as Tool,
       {
@@ -135,16 +136,35 @@ export class TaskTools {
     // Prepare task data - all properties go into blocks now
     const taskData: Omit<TaskData, 'id'> = {};
 
-    // Handle project_id - use provided value or fall back to global selection
+    // Always get selected project before creating task
+    let selectedProjectId: number | null = null;
+    
     if (toolArgs?.project_id !== undefined) {
+      // Use explicitly provided project_id
       taskData.project_id = toolArgs.project_id;
+      selectedProjectId = toolArgs.project_id;
     } else {
-      // Try to use the globally selected project if no project_id provided
+      // Always call get_selected_project to get the current selection
       try {
-        const selectedProjectId = await this.sharedDbService.getGlobalState('selected_project_id');
-        if (selectedProjectId !== null) {
-          taskData.project_id = selectedProjectId;
-          console.log(`Using globally selected project ID ${selectedProjectId} for new task`);
+        if (this.projectTools) {
+          const result = await this.projectTools.handle('get_selected_project');
+          // Parse the selected project ID from the result text
+          const text = result.content[0]?.text || '';
+          const match = text.match(/Currently selected project ID: (\d+)/);
+          if (match) {
+            selectedProjectId = parseInt(match[1]);
+            taskData.project_id = selectedProjectId;
+            console.log(`Using globally selected project ID ${selectedProjectId} for new task`);
+          } else {
+            console.log('No project is currently selected');
+          }
+        } else {
+          // Fallback to direct database call if projectTools not available
+          selectedProjectId = await this.sharedDbService.getGlobalState('selected_project_id');
+          if (selectedProjectId !== null) {
+            taskData.project_id = selectedProjectId;
+            console.log(`Using globally selected project ID ${selectedProjectId} for new task`);
+          }
         }
       } catch (error) {
         console.warn('Could not retrieve global project selection:', error);
@@ -557,13 +577,15 @@ export function createTaskTools(
   clientId: string,
   loadDynamicSchemaProperties: () => Promise<SchemaProperties>,
   createExecutionChain: (properties: SchemaProperties) => ExecutionChainItem[],
-  validateDependencies: (properties: SchemaProperties, args: Record<string, any>, isUpdateContext?: boolean) => boolean
+  validateDependencies: (properties: SchemaProperties, args: Record<string, any>, isUpdateContext?: boolean) => boolean,
+  projectTools?: any
 ): TaskTools {
   return new TaskTools(
     sharedDbService,
     clientId,
     loadDynamicSchemaProperties,
     createExecutionChain,
-    validateDependencies
+    validateDependencies,
+    projectTools
   );
 }

@@ -85,17 +85,18 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
   }
 
   // Create tool handlers
+  const propertyTools = createPropertyTools(sharedDbService, clientId);
+  
+  const projectTools = createProjectTools(sharedDbService, clientId);
+  
   const taskTools = createTaskTools(
     sharedDbService,
     clientId,
     loadDynamicSchemaProperties,
     createExecutionChain,
-    validateDependencies
+    validateDependencies,
+    projectTools
   );
-
-  const propertyTools = createPropertyTools(sharedDbService, clientId);
-  
-  const projectTools = createProjectTools(sharedDbService, clientId);
 
   // Set up tool list handler
   server.setRequestHandler(ListToolsRequestSchema, async () => {

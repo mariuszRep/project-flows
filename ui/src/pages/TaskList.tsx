@@ -34,8 +34,8 @@ const DraftTasks = () => {
   const [error, setError] = useState<string | null>(null);
   const [showCreateProjectForm, setShowCreateProjectForm] = useState(false);
   
-  // Filter state - default to draft only
-  const [selectedStages, setSelectedStages] = useState<TaskStage[]>(['draft']);
+  // Filter state - default to all stages selected
+  const [selectedStages, setSelectedStages] = useState<TaskStage[]>(['draft', 'backlog', 'doing', 'review', 'completed']);
   
   // Edit task state
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
@@ -134,14 +134,20 @@ const DraftTasks = () => {
     fetchAllTasks();
   }, [isConnected, tools, selectedProjectId]);
 
-  const handleStageToggle = (stage: TaskStage) => {
+  const handleStageToggle = (stage: TaskStage, ctrlKey: boolean = false) => {
     setSelectedStages(prev => {
-      if (prev.includes(stage)) {
-        // Remove stage if already selected (but keep at least one selected)
-        return prev.length > 1 ? prev.filter(s => s !== stage) : prev;
+      if (ctrlKey) {
+        // Multi-select mode with Ctrl key
+        if (prev.includes(stage)) {
+          // Remove stage if already selected (but keep at least one selected)
+          return prev.length > 1 ? prev.filter(s => s !== stage) : prev;
+        } else {
+          // Add stage if not selected
+          return [...prev, stage];
+        }
       } else {
-        // Add stage if not selected
-        return [...prev, stage];
+        // Single select mode - replace selection with clicked stage
+        return [stage];
       }
     });
   };
@@ -151,7 +157,7 @@ const DraftTasks = () => {
   };
 
   const handleClearAll = () => {
-    setSelectedStages(['draft']); // Reset to draft only
+    setSelectedStages(['draft', 'backlog', 'doing', 'review', 'completed']); // Reset to all stages
   };
 
   const handleEditTask = (taskId: number) => {
@@ -366,7 +372,7 @@ const DraftTasks = () => {
                   return (
                     <button
                       key={stage.key}
-                      onClick={() => handleStageToggle(stage.key)}
+                      onClick={(e) => handleStageToggle(stage.key, e.ctrlKey || e.metaKey)}
                       className="transition-all duration-200 cursor-pointer"
                     >
                       <Badge 
