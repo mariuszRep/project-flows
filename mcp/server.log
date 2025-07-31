@@ -1,0 +1,9 @@
+
+> mcp-typescript-server@1.0.0 start
+> node dist/index.js
+
+Database connection established
+🚀 Project Flows MCP Server running on port 3001
+📊 Multiple clients can now connect simultaneously
+🗄️ Shared database ensures all clients see the same data
+🔗 Connect to: http://localhost:3001/sse

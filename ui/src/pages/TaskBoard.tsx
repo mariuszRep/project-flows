@@ -21,6 +21,7 @@ export default function Board() {
     projects, 
     selectedProjectId, 
     setSelectedProjectId, 
+    selectProject,
     fetchProjects, 
     createProject,
     getSelectedProject 
@@ -77,12 +78,13 @@ export default function Board() {
             const parsedTasks = taskRows.map((row, index) => {
               const columns = row.split('|').map(col => col.trim()).filter(col => col);
               
-              if (columns.length >= 5) { // Now expecting 5 columns: ID, Title, Description, Stage, Project ID
+              if (columns.length >= 6) { // Now expecting 6 columns: ID, Title, Description, Stage, Project, Project ID
                 const id = parseInt(columns[0]) || index + 1;
                 const titleColumn = columns[1] || 'Untitled Task';
                 const descriptionColumn = columns[2] || '';
                 const stage = columns[3] || 'backlog';
-                const projectIdColumn = columns[4];
+                const projectName = columns[4]; // Project name for display (not used in filtering)
+                const projectIdColumn = columns[5]; // Project ID for filtering
                 const projectId = projectIdColumn === 'None' ? undefined : parseInt(projectIdColumn);
                 
                 return {
@@ -118,10 +120,13 @@ export default function Board() {
       // Filter tasks by selected project if one is selected
       let filteredTasks = uniqueTasks;
       if (selectedProjectId !== null) {
+        console.log(`Filtering tasks by project ID: ${selectedProjectId}`);
+        console.log('Task project IDs:', uniqueTasks.map(t => `${t.id}:${t.project_id}`));
         filteredTasks = uniqueTasks.filter(task => task.project_id === selectedProjectId);
+        console.log('Filtered task IDs:', filteredTasks.map(t => t.id));
       }
       
-      console.log(`Found ${uniqueTasks.length} total tasks, ${filteredTasks.length} after project filtering`);
+      console.log(`Found ${uniqueTasks.length} total tasks, ${filteredTasks.length} after project filtering, selected project: ${selectedProjectId}`);
       setTasks(filteredTasks);
       
     } catch (err) {
@@ -256,8 +261,15 @@ export default function Board() {
     setError(null);
   };
 
-  const handleProjectSelect = (projectId: number | null) => {
-    setSelectedProjectId(projectId);
+  const handleProjectSelect = async (projectId: number | null) => {
+    try {
+      // Use the MCP selectProject method to sync globally
+      await selectProject(projectId);
+    } catch (err) {
+      console.error('Error selecting project:', err);
+      // Fallback to local state if MCP fails
+      setSelectedProjectId(projectId);
+    }
   };
 
   const selectedProject = getSelectedProject();

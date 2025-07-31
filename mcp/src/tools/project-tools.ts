@@ -1,5 +1,6 @@
 import { Tool, TextContent } from "@modelcontextprotocol/sdk/types.js";
 import DatabaseService from "../database.js";
+import { stateEvents, StateChangeEvent } from "../events/state-events.js";
 
 interface ProjectData {
   id: number;
@@ -105,11 +106,34 @@ export class ProjectTools {
           required: ["project_id"],
         },
       } as Tool,
+      {
+        name: "select_project",
+        description: "Select a project to set as the global default context for all MCP tools and UI sessions. Use null to deselect.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_id: {
+              type: ["number", "null"],
+              description: "The numeric ID of the project to select, or null to deselect"
+            }
+          },
+          required: ["project_id"],
+        },
+      } as Tool,
+      {
+        name: "get_selected_project",
+        description: "Get the currently selected global project ID. Returns null if no project is selected.",
+        inputSchema: {
+          type: "object",
+          properties: {},
+          required: [],
+        },
+      } as Tool,
     ];
   }
 
   canHandle(toolName: string): boolean {
-    return ["create_project", "update_project", "list_projects", "get_project", "delete_project"].includes(toolName);
+    return ["create_project", "update_project", "list_projects", "get_project", "delete_project", "select_project", "get_selected_project"].includes(toolName);
   }
 
   async handle(name: string, toolArgs?: Record<string, any>) {
@@ -124,6 +148,10 @@ export class ProjectTools {
         return await this.handleGetProject(toolArgs);
       case "delete_project":
         return await this.handleDeleteProject(toolArgs);
+      case "select_project":
+        return await this.handleSelectProject(toolArgs);
+      case "get_selected_project":
+        return await this.handleGetSelectedProject();
       default:
         throw new Error(`Unknown project tool: ${name}`);
     }
@@ -446,6 +474,114 @@ export class ProjectTools {
           {
             type: "text",
             text: `Error: ${errorMessage}`,
+          } as TextContent,
+        ],
+      };
+    }
+  }
+
+  private async handleSelectProject(toolArgs?: Record<string, any>) {
+    const projectId = toolArgs?.project_id;
+    
+    // Validate input: must be null or a positive number
+    if (projectId !== null && (typeof projectId !== 'number' || projectId < 1)) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: "Error: project_id must be null or a positive number.",
+          } as TextContent,
+        ],
+      };
+    }
+
+    // If project_id is provided (not null), verify the project exists
+    if (projectId !== null) {
+      const existingProject = await this.sharedDbService.getProject(projectId);
+      if (!existingProject) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: Project with ID ${projectId} not found.`,
+            } as TextContent,
+          ],
+        };
+      }
+    }
+
+    try {
+      // Set the global selected project state
+      const success = await this.sharedDbService.setGlobalState('selected_project_id', projectId, this.clientId);
+      
+      if (success) {
+        // Broadcast state change to all connected clients
+        const stateChangeEvent: StateChangeEvent = {
+          type: 'state_change',
+          key: 'selected_project_id',
+          value: projectId,
+          timestamp: new Date().toISOString(),
+          source_client: this.clientId
+        };
+        stateEvents.broadcastStateChange(stateChangeEvent);
+
+        const message = projectId === null 
+          ? "Project selection cleared. No project is currently selected."
+          : `Project with ID ${projectId} has been selected as the global default project.`;
+        
+        return {
+          content: [
+            {
+              type: "text",
+              text: message,
+            } as TextContent,
+          ],
+        };
+      } else {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "Error: Failed to update project selection in database.",
+            } as TextContent,
+          ],
+        };
+      }
+    } catch (error) {
+      console.error('Error selecting project:', error);
+      return {
+        content: [
+          {
+            type: "text",
+            text: "Error: Failed to select project.",
+          } as TextContent,
+        ],
+      };
+    }
+  }
+
+  private async handleGetSelectedProject() {
+    try {
+      // Get the global selected project state
+      const selectedProjectId = await this.sharedDbService.getGlobalState('selected_project_id');
+      
+      return {
+        content: [
+          {
+            type: "text",
+            text: selectedProjectId === null 
+              ? "No project is currently selected."
+              : `Currently selected project ID: ${selectedProjectId}`,
+          } as TextContent,
+        ],
+      };
+    } catch (error) {
+      console.error('Error getting selected project:', error);
+      return {
+        content: [
+          {
+            type: "text",
+            text: "Error: Failed to retrieve selected project state.",
           } as TextContent,
         ],
       };

@@ -135,9 +135,21 @@ export class TaskTools {
     // Prepare task data - all properties go into blocks now
     const taskData: Omit<TaskData, 'id'> = {};
 
-    // Handle project_id if provided
+    // Handle project_id - use provided value or fall back to global selection
     if (toolArgs?.project_id !== undefined) {
       taskData.project_id = toolArgs.project_id;
+    } else {
+      // Try to use the globally selected project if no project_id provided
+      try {
+        const selectedProjectId = await this.sharedDbService.getGlobalState('selected_project_id');
+        if (selectedProjectId !== null) {
+          taskData.project_id = selectedProjectId;
+          console.log(`Using globally selected project ID ${selectedProjectId} for new task`);
+        }
+      } catch (error) {
+        console.warn('Could not retrieve global project selection:', error);
+        // Continue without project assignment
+      }
     }
 
     // Add all properties (including Title and Summary/Description) to task data
@@ -361,14 +373,19 @@ ${description}
     }
 
     // Build markdown table with stage and project columns
-    let markdownContent = `| ID | Title | Description | Stage | Project ID |\n| --- | --- | --- | --- | --- |`;
+    let markdownContent = `| ID | Title | Description | Stage | Project | Project ID |\n| --- | --- | --- | --- | --- | --- |`;
     try {
+      // Fetch all projects to map IDs to names
+      const projects = await this.sharedDbService.listProjects();
+      const projectMap = new Map(projects.map(p => [p.id, p.name]));
+
       for (const task of tasks) {
         const cleanTitle = String(task.Title || '').replace(/\n|\r/g, ' ');
         const cleanDescription = String(task.Description || task.Summary || '').replace(/\n|\r/g, ' ');
         const stage = task.stage || 'draft';
+        const projectName = task.project_id ? (projectMap.get(task.project_id) || `Unknown (${task.project_id})`) : 'None';
         const projectId = task.project_id || 'None';
-        markdownContent += `\n| ${task.id} | ${cleanTitle} | ${cleanDescription} | ${stage} | ${projectId} |`;
+        markdownContent += `\n| ${task.id} | ${cleanTitle} | ${cleanDescription} | ${stage} | ${projectName} | ${projectId} |`;
       }
     } catch (error) {
       console.error('Error formatting tasks table:', error);
@@ -428,6 +445,17 @@ ${description}
     const title = task.Title || '';
     const description = task.Description || task.Summary || '';
     
+    // Get project name if task has project_id
+    let projectInfo = 'None';
+    if (task.project_id) {
+      try {
+        const project = await this.sharedDbService.getProject(task.project_id);
+        projectInfo = project ? `${project.name} (ID: ${project.id})` : `Unknown (ID: ${task.project_id})`;
+      } catch (error) {
+        projectInfo = `Error loading project (ID: ${task.project_id})`;
+      }
+    }
+    
     let markdownContent = `# Task
 **Task ID:** ${task.id}
 
@@ -435,7 +463,7 @@ ${description}
 
 **Stage:** ${task.stage || 'draft'}
 
-**Project ID:** ${task.project_id || 'None'}
+**Project:** ${projectInfo}
 
 ## Description
 

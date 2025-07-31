@@ -708,6 +708,52 @@ class DatabaseService {
     }
   }
 
+  // Global state CRUD operations
+  async getGlobalState(key: string): Promise<any> {
+    try {
+      const query = 'SELECT value FROM global_state WHERE key = $1';
+      const result = await this.pool.query(query, [key]);
+      
+      if (result.rows.length === 0) {
+        return null;
+      }
+
+      return JSON.parse(result.rows[0].value);
+    } catch (error) {
+      console.error('Error fetching global state:', error);
+      return null;
+    }
+  }
+
+  async setGlobalState(key: string, value: any, userId: string = 'system'): Promise<boolean> {
+    try {
+      const query = `
+        INSERT INTO global_state (key, value, created_by, updated_by) 
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (key) 
+        DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP, updated_by = $4
+      `;
+      const values = [key, JSON.stringify(value), userId, userId];
+
+      await this.pool.query(query, values);
+      return true;
+    } catch (error) {
+      console.error('Error setting global state:', error);
+      return false;
+    }
+  }
+
+  async deleteGlobalState(key: string): Promise<boolean> {
+    try {
+      const query = 'DELETE FROM global_state WHERE key = $1';
+      const result = await this.pool.query(query, [key]);
+      return (result.rowCount || 0) > 0;
+    } catch (error) {
+      console.error('Error deleting global state:', error);
+      return false;
+    }
+  }
+
   async close() {
     await this.pool.end();
   }

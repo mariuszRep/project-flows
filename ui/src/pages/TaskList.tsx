@@ -23,6 +23,7 @@ const DraftTasks = () => {
     projects, 
     selectedProjectId, 
     setSelectedProjectId, 
+    selectProject,
     fetchProjects,
     createProject,
     getSelectedProject 
@@ -92,12 +93,13 @@ const DraftTasks = () => {
                 const columns = row.split('|').map(col => col.trim());
                 // Don't filter out empty columns - keep them to maintain column positions
                 
-                if (columns.length >= 6) { // Need at least 6 elements: ['', id, title, summary, stage, project_id, '']
+                if (columns.length >= 7) { // Need at least 7 elements: ['', id, title, summary, stage, project_name, project_id, '']
                   const id = parseInt(columns[1]) || index + 1; // Skip first empty element
                   const title = columns[2] || 'Untitled Task';
                   const summary = columns[3] || '';
                   const stage = columns[4] || 'draft';
-                  const projectIdColumn = columns[5];
+                  const projectName = columns[5]; // Project name for display
+                  const projectIdColumn = columns[6]; // Project ID for filtering
                   const projectId = projectIdColumn === 'None' ? undefined : parseInt(projectIdColumn);
                   
                   return {
@@ -290,8 +292,15 @@ const DraftTasks = () => {
     setError(null);
   };
 
-  const handleProjectSelect = (projectId: number | null) => {
-    setSelectedProjectId(projectId);
+  const handleProjectSelect = async (projectId: number | null) => {
+    try {
+      // Use the MCP selectProject method to sync globally
+      await selectProject(projectId);
+    } catch (err) {
+      console.error('Error selecting project:', err);
+      // Fallback to local state if MCP fails
+      setSelectedProjectId(projectId);
+    }
   };
 
   const selectedProject = getSelectedProject();

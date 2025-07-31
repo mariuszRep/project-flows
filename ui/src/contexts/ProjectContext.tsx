@@ -1,14 +1,18 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { Project } from '@/types/project';
 import { useMCP } from './MCPContext';
+import { projectStorageService } from '@/services/projectStorageService';
 
 interface ProjectContextType {
   projects: Project[];
   selectedProjectId: number | null;
   isLoadingProjects: boolean;
   projectError: string | null;
+  isOfflineMode: boolean;
   
   setSelectedProjectId: (projectId: number | null) => void;
+  selectProject: (projectId: number | null) => Promise<boolean>;
+  syncProjectSelectionFromMCP: () => Promise<void>;
   fetchProjects: () => Promise<void>;
   createProject: (projectData: { name: string; description?: string; color?: string }) => Promise<Project | null>;
   updateProject: (projectId: number, updates: { name?: string; description?: string; color?: string }) => Promise<boolean>;
@@ -31,6 +35,7 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [isLoadingProjects, setIsLoadingProjects] = useState(false);
   const [projectError, setProjectError] = useState<string | null>(null);
+  const [isOfflineMode, setIsOfflineMode] = useState(false);
 
   // Fetch projects from MCP tools
   const fetchProjects = async () => {
@@ -182,6 +187,86 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
     return false;
   };
 
+  // Select a project using MCP tool (bidirectional sync)
+  const selectProject = async (projectId: number | null): Promise<boolean> => {
+    // Always update local state first for immediate UI feedback
+    setSelectedProjectId(projectId);
+    
+    if (!isConnected || !callTool) {
+      // In offline mode, just update local state
+      setProjectError(null); // Clear any previous errors
+      return false; // Return false to indicate MCP sync failed but local update succeeded
+    }
+
+    try {
+      const result = await callTool('select_project', {
+        project_id: projectId
+      });
+
+      if (result && result.content && result.content[0]) {
+        // Clear any previous errors on success
+        setProjectError(null);
+        return true;
+      } else {
+        setProjectError('MCP tool returned invalid response');
+        return false;
+      }
+    } catch (err) {
+      console.error('Error selecting project via MCP:', err);
+      
+      // Set error but keep local state - don't revert
+      const errorMessage = err instanceof Error ? err.message : 'Failed to select project';
+      setProjectError(`MCP sync failed: ${errorMessage}. Selection saved locally.`);
+      
+      // Don't revert local state - keep the selection for offline use
+      return false;
+    }
+  };
+
+  // Sync project selection from MCP server
+  const syncProjectSelectionFromMCP = async (): Promise<void> => {
+    if (!isConnected || !callTool) {
+      return;
+    }
+
+    try {
+      const result = await callTool('get_selected_project', {});
+      
+      if (result && result.content && result.content[0]) {
+        const contentText = result.content[0].text;
+        
+        // Parse the response to extract project ID
+        if (contentText.includes('No project is currently selected')) {
+          // Only update if different from current local state
+          if (selectedProjectId !== null) {
+            setSelectedProjectId(null);
+          }
+        } else {
+          const match = contentText.match(/Currently selected project ID: (\d+)/);
+          if (match) {
+            const projectId = parseInt(match[1]);
+            // Only update if different from current local state
+            if (selectedProjectId !== projectId) {
+              setSelectedProjectId(projectId);
+            }
+          }
+        }
+        
+        // Clear any sync errors on successful sync
+        if (projectError && projectError.includes('MCP sync failed')) {
+          setProjectError(null);
+        }
+      }
+    } catch (err) {
+      console.error('Error syncing project selection from MCP:', err);
+      
+      // Only set error if this is a new error (not a repeated sync failure)
+      if (!projectError || !projectError.includes('MCP sync failed')) {
+        setProjectError('Failed to sync project selection from server. Using local state.');
+      }
+    }
+  };
+
   // Helper functions
   const getProjectById = (projectId: number): Project | undefined => {
     return projects.find(p => p.id === projectId);
@@ -191,31 +276,49 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
     return selectedProjectId ? getProjectById(selectedProjectId) : undefined;
   };
 
-  // Auto-fetch projects when MCP connection changes
+  // Auto-fetch projects and sync selection when MCP connection changes
   useEffect(() => {
     if (isConnected && tools.length > 0) {
+      setIsOfflineMode(false);
       fetchProjects();
+      syncProjectSelectionFromMCP();
     } else {
+      setIsOfflineMode(true);
       setProjects([]);
-      setSelectedProjectId(null);
+      // Don't clear selection when going offline - preserve local state
     }
   }, [isConnected, tools]);
 
-  // Persist selected project in localStorage
+  // Persist selected project with cross-tab synchronization
   useEffect(() => {
-    if (selectedProjectId !== null) {
-      localStorage.setItem('selectedProjectId', selectedProjectId.toString());
-    } else {
-      localStorage.removeItem('selectedProjectId');
-    }
+    projectStorageService.setSelectedProjectId(selectedProjectId);
   }, [selectedProjectId]);
 
-  // Load selected project from localStorage on mount
+  // Load selected project from storage on mount and subscribe to changes
   useEffect(() => {
-    const savedProjectId = localStorage.getItem('selectedProjectId');
+    // Load initial value
+    const savedProjectId = projectStorageService.getSelectedProjectId();
     if (savedProjectId) {
-      setSelectedProjectId(parseInt(savedProjectId));
+      setSelectedProjectId(savedProjectId);
     }
+
+    // Subscribe to cross-tab changes
+    const unsubscribe = projectStorageService.subscribe('selectedProjectId', (newProjectId: number | null) => {
+      // Only update if different from current state (avoid loops)
+      if (newProjectId !== selectedProjectId) {
+        setSelectedProjectId(newProjectId);
+      }
+    });
+
+    // Cleanup subscription on unmount
+    return unsubscribe;
+  }, []);
+
+  // Cleanup storage service on unmount
+  useEffect(() => {
+    return () => {
+      projectStorageService.cleanup();
+    };
   }, []);
 
   const value: ProjectContextType = {
@@ -223,8 +326,11 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
     selectedProjectId,
     isLoadingProjects,
     projectError,
+    isOfflineMode,
     
     setSelectedProjectId,
+    selectProject,
+    syncProjectSelectionFromMCP,
     fetchProjects,
     createProject,
     updateProject,
