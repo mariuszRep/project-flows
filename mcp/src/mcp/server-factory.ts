@@ -7,6 +7,7 @@ import { fileURLToPath } from "url";
 import DatabaseService from "../database.js";
 import { createTaskTools } from "../tools/task-tools.js";
 import { createPropertyTools } from "../tools/property-tools.js";
+import { createProjectTools } from "../tools/project-tools.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -84,15 +85,18 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
   }
 
   // Create tool handlers
+  const propertyTools = createPropertyTools(sharedDbService, clientId);
+  
+  const projectTools = createProjectTools(sharedDbService, clientId);
+  
   const taskTools = createTaskTools(
     sharedDbService,
     clientId,
     loadDynamicSchemaProperties,
     createExecutionChain,
-    validateDependencies
+    validateDependencies,
+    projectTools
   );
-
-  const propertyTools = createPropertyTools(sharedDbService, clientId);
 
   // Set up tool list handler
   server.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -152,6 +156,7 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
       tools: [
         ...taskTools.getToolDefinitions(allProperties),
         ...propertyTools.getToolDefinitions(),
+        ...projectTools.getToolDefinitions(),
       ],
     };
   });
@@ -168,6 +173,11 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
     // Handle property tools
     if (propertyTools.canHandle(name)) {
       return await propertyTools.handle(name, toolArgs);
+    }
+
+    // Handle project tools
+    if (projectTools.canHandle(name)) {
+      return await projectTools.handle(name, toolArgs);
     }
 
     throw new Error(`Unknown tool: ${name}`);

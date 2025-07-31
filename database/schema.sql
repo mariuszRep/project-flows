@@ -21,6 +21,18 @@ CREATE UNIQUE INDEX users_email_key ON public.users USING btree (email);
 CREATE INDEX idx_users_email ON public.users USING btree (email);
 CREATE INDEX idx_users_active ON public.users USING btree (is_active);
 
+-- Projects table for organizing tasks
+CREATE TABLE IF NOT EXISTS projects (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    color TEXT NOT NULL DEFAULT '#3b82f6',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    created_by TEXT NOT NULL DEFAULT 'system',
+    updated_by TEXT NOT NULL DEFAULT 'system'
+);
+
 CREATE TABLE IF NOT EXISTS templates (
     id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
@@ -51,6 +63,7 @@ CREATE TABLE IF NOT EXISTS properties (
 -- Table to store tasks
 CREATE TABLE IF NOT EXISTS tasks (
     id SERIAL PRIMARY KEY,
+    project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
     stage task_stage NOT NULL DEFAULT 'draft',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -76,6 +89,9 @@ CREATE TABLE IF NOT EXISTS blocks (
 CREATE INDEX IF NOT EXISTS idx_blocks_task_id ON blocks(task_id);
 CREATE INDEX IF NOT EXISTS idx_blocks_property_name ON blocks(property_name);
 CREATE INDEX IF NOT EXISTS idx_blocks_position ON blocks(task_id, position);
+CREATE INDEX IF NOT EXISTS idx_tasks_project_id ON tasks(project_id);
+CREATE INDEX IF NOT EXISTS idx_projects_name ON projects(name);
+CREATE INDEX IF NOT EXISTS idx_projects_created_by ON projects(created_by);
 
 -- Function to update updated_at timestamp
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -87,6 +103,9 @@ END;
 $$ language 'plpgsql';
 
 -- Triggers to automatically update updated_at column
+CREATE TRIGGER update_projects_updated_at BEFORE UPDATE ON projects
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
 CREATE TRIGGER update_properties_updated_at BEFORE UPDATE ON properties
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 

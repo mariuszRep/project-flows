@@ -22,8 +22,20 @@ interface SchemaProperty {
 
 type TaskStage = 'draft' | 'backlog' | 'doing' | 'review' | 'completed';
 
+interface ProjectData {
+  id: number;
+  name: string;
+  description?: string;
+  color: string;
+  created_at: Date;
+  updated_at: Date;
+  created_by: string;
+  updated_by: string;
+}
+
 interface TaskData {
   id: number;
+  project_id?: number;
   stage?: TaskStage;
   [key: string]: any;
 }
@@ -87,19 +99,19 @@ class DatabaseService {
     try {
       await client.query('BEGIN');
 
-      // Insert task with only stage
+      // Insert task with stage and project_id
       const taskQuery = `
-        INSERT INTO tasks (stage, created_by, updated_by) 
-        VALUES ($1, $2, $3) 
+        INSERT INTO tasks (project_id, stage, created_by, updated_by) 
+        VALUES ($1, $2, $3, $4) 
         RETURNING id
       `;
-      const taskResult = await client.query(taskQuery, [taskData.stage || 'draft', userId, userId]);
+      const taskResult = await client.query(taskQuery, [taskData.project_id || null, taskData.stage || 'draft', userId, userId]);
       const taskId = taskResult.rows[0].id;
 
       // Insert blocks for all properties including Title and Description (previously title/summary)
       let position = 0;
       for (const [key, value] of Object.entries(taskData)) {
-        if (key !== 'stage' && value) {
+        if (key !== 'stage' && key !== 'project_id' && value) {
           const blockQuery = `
             INSERT INTO blocks (task_id, property_name, content, position, created_by, updated_by) 
             VALUES ($1, $2, $3, $4, $5, $6)
@@ -124,19 +136,34 @@ class DatabaseService {
     try {
       await client.query('BEGIN');
 
-      // Update task stage if provided
+      // Update task stage and/or project_id if provided
+      const taskUpdates = [];
+      const taskValues = [];
+      let paramIndex = 1;
+      
       if (updates.stage !== undefined) {
-        const taskQuery = `
-          UPDATE tasks 
-          SET stage = $1, updated_at = CURRENT_TIMESTAMP, updated_by = $2 
-          WHERE id = $3
-        `;
-        await client.query(taskQuery, [updates.stage, userId, taskId]);
+        taskUpdates.push(`stage = $${paramIndex++}`);
+        taskValues.push(updates.stage);
+      }
+      
+      if (updates.project_id !== undefined) {
+        taskUpdates.push(`project_id = $${paramIndex++}`);
+        taskValues.push(updates.project_id);
+      }
+      
+      if (taskUpdates.length > 0) {
+        taskUpdates.push(`updated_at = CURRENT_TIMESTAMP`);
+        taskUpdates.push(`updated_by = $${paramIndex++}`);
+        taskValues.push(userId);
+        taskValues.push(taskId);
+        
+        const taskQuery = `UPDATE tasks SET ${taskUpdates.join(', ')} WHERE id = $${paramIndex}`;
+        await client.query(taskQuery, taskValues);
       }
 
       // Update blocks for all other properties (including Title and Description)
       for (const [key, value] of Object.entries(updates)) {
-        if (key !== 'id' && key !== 'stage' && value !== undefined) {
+        if (key !== 'id' && key !== 'stage' && key !== 'project_id' && value !== undefined) {
           const blockQuery = `
             INSERT INTO blocks (task_id, property_name, content, position, created_by, updated_by) 
             VALUES ($1, $2, $3, 0, $4, $5)
@@ -159,8 +186,8 @@ class DatabaseService {
 
   async getTask(taskId: number): Promise<TaskData | null> {
     try {
-      // Get task core data (only id and stage now)
-      const taskQuery = 'SELECT id, stage FROM tasks WHERE id = $1';
+      // Get task core data (id, project_id, and stage)
+      const taskQuery = 'SELECT id, project_id, stage FROM tasks WHERE id = $1';
       const taskResult = await this.pool.query(taskQuery, [taskId]);
       
       if (taskResult.rows.length === 0) {
@@ -181,6 +208,7 @@ class DatabaseService {
       // Build complete task data
       const taskData: TaskData = {
         id: task.id,
+        project_id: task.project_id,
         stage: task.stage,
       };
 
@@ -215,7 +243,7 @@ class DatabaseService {
   async listTasks(stageFilter?: string): Promise<TaskData[]> {
     try {
       // Get basic task data
-      let query = 'SELECT id, stage FROM tasks';
+      let query = 'SELECT id, project_id, stage FROM tasks';
       let params: any[] = [];
       
       if (stageFilter) {
@@ -257,6 +285,7 @@ class DatabaseService {
       return tasksResult.rows.map((row: any) => {
         const taskData: TaskData = {
           id: row.id,
+          project_id: row.project_id,
           stage: row.stage,
         };
         
@@ -540,6 +569,188 @@ class DatabaseService {
     } catch (error) {
       console.error('Error listing properties:', error);
       return [];
+    }
+  }
+
+  // Project CRUD operations
+  async createProject(projectData: {
+    name: string;
+    description?: string;
+    color?: string;
+  }, userId: string = 'system'): Promise<number> {
+    try {
+      const query = `
+        INSERT INTO projects (name, description, color, created_by, updated_by) 
+        VALUES ($1, $2, $3, $4, $5) 
+        RETURNING id
+      `;
+      const values = [
+        projectData.name,
+        projectData.description || null,
+        projectData.color || '#3b82f6',
+        userId,
+        userId
+      ];
+
+      const result = await this.pool.query(query, values);
+      return result.rows[0].id;
+    } catch (error) {
+      console.error('Error creating project:', error);
+      throw error;
+    }
+  }
+
+  async updateProject(projectId: number, updates: {
+    name?: string;
+    description?: string;
+    color?: string;
+  }, userId: string = 'system'): Promise<boolean> {
+    try {
+      const updateFields = [];
+      const values = [];
+      let paramIndex = 1;
+
+      if (updates.name !== undefined) {
+        updateFields.push(`name = $${paramIndex++}`);
+        values.push(updates.name);
+      }
+      if (updates.description !== undefined) {
+        updateFields.push(`description = $${paramIndex++}`);
+        values.push(updates.description);
+      }
+      if (updates.color !== undefined) {
+        updateFields.push(`color = $${paramIndex++}`);
+        values.push(updates.color);
+      }
+
+      if (updateFields.length === 0) {
+        return false; // No fields to update
+      }
+
+      updateFields.push(`updated_at = CURRENT_TIMESTAMP`);
+      updateFields.push(`updated_by = $${paramIndex++}`);
+      values.push(userId);
+      values.push(projectId);
+
+      const query = `UPDATE projects SET ${updateFields.join(', ')} WHERE id = $${paramIndex}`;
+      const result = await this.pool.query(query, values);
+      return (result.rowCount || 0) > 0;
+    } catch (error) {
+      console.error('Error updating project:', error);
+      throw error;
+    }
+  }
+
+  async getProject(projectId: number): Promise<ProjectData | null> {
+    try {
+      const query = 'SELECT id, name, description, color, created_at, updated_at, created_by, updated_by FROM projects WHERE id = $1';
+      const result = await this.pool.query(query, [projectId]);
+      
+      if (result.rows.length === 0) {
+        return null;
+      }
+
+      return result.rows[0];
+    } catch (error) {
+      console.error('Error fetching project:', error);
+      return null;
+    }
+  }
+
+  async listProjects(): Promise<ProjectData[]> {
+    try {
+      const query = 'SELECT id, name, description, color, created_at, updated_at, created_by, updated_by FROM projects ORDER BY name';
+      const result = await this.pool.query(query);
+      return result.rows;
+    } catch (error) {
+      console.error('Error fetching projects list:', error);
+      return [];
+    }
+  }
+
+  async deleteProject(projectId: number): Promise<boolean> {
+    const client = await this.pool.connect();
+    
+    try {
+      await client.query('BEGIN');
+
+      // Check if project exists
+      const projectQuery = 'SELECT id FROM projects WHERE id = $1';
+      const projectResult = await client.query(projectQuery, [projectId]);
+      
+      if (projectResult.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return false;
+      }
+
+      // Check for tasks using this project
+      const tasksQuery = 'SELECT COUNT(*) as count FROM tasks WHERE project_id = $1';
+      const tasksResult = await client.query(tasksQuery, [projectId]);
+      const taskCount = parseInt(tasksResult.rows[0].count);
+
+      if (taskCount > 0) {
+        await client.query('ROLLBACK');
+        throw new Error(`Project cannot be deleted because it is used by ${taskCount} existing task(s). Remove tasks from this project first.`);
+      }
+
+      // Safe to delete - no references exist
+      const deleteQuery = 'DELETE FROM projects WHERE id = $1';
+      const deleteResult = await client.query(deleteQuery, [projectId]);
+      
+      await client.query('COMMIT');
+      return (deleteResult.rowCount || 0) > 0;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('Error deleting project:', error);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  // Global state CRUD operations
+  async getGlobalState(key: string): Promise<any> {
+    try {
+      const query = 'SELECT value FROM global_state WHERE key = $1';
+      const result = await this.pool.query(query, [key]);
+      
+      if (result.rows.length === 0) {
+        return null;
+      }
+
+      return JSON.parse(result.rows[0].value);
+    } catch (error) {
+      console.error('Error fetching global state:', error);
+      return null;
+    }
+  }
+
+  async setGlobalState(key: string, value: any, userId: string = 'system'): Promise<boolean> {
+    try {
+      const query = `
+        INSERT INTO global_state (key, value, created_by, updated_by) 
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (key) 
+        DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP, updated_by = $4
+      `;
+      const values = [key, JSON.stringify(value), userId, userId];
+
+      await this.pool.query(query, values);
+      return true;
+    } catch (error) {
+      console.error('Error setting global state:', error);
+      return false;
+    }
+  }
+
+  async deleteGlobalState(key: string): Promise<boolean> {
+    try {
+      const query = 'DELETE FROM global_state WHERE key = $1';
+      const result = await this.pool.query(query, [key]);
+      return (result.rowCount || 0) > 0;
+    } catch (error) {
+      console.error('Error deleting global state:', error);
+      return false;
     }
   }
 

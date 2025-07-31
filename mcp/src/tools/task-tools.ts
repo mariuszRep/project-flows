@@ -9,18 +9,25 @@ export class TaskTools {
     private clientId: string,
     private loadDynamicSchemaProperties: () => Promise<SchemaProperties>,
     private createExecutionChain: (properties: SchemaProperties) => ExecutionChainItem[],
-    private validateDependencies: (properties: SchemaProperties, args: Record<string, any>, isUpdateContext?: boolean) => boolean
+    private validateDependencies: (properties: SchemaProperties, args: Record<string, any>, isUpdateContext?: boolean) => boolean,
+    private projectTools?: any
   ) {}
 
   getToolDefinitions(allProperties: Record<string, any>): Tool[] {
     return [
       {
         name: "create_task",
-        description: "Create a detailed task plan with markdown formatting, make sure you populate 'Title' and 'Summary' and later all the rest of the properties",
+        description: "Create a detailed task plan with markdown formatting, make sure you populate 'Title' and 'Description' and later all the rest of the properties. Always run get_selected_project tool before creating new task to get the current project_id if you need to associate the task with a project.",
         inputSchema: {
           type: "object",
-          properties: allProperties,
-          required: ["Title", "Summary"],
+          properties: {
+            project_id: {
+              type: "number",
+              description: "Optional project ID to associate with the task, run get_selected_project tool to get current project_id"
+            },
+            ...allProperties
+          },
+          required: ["Title", "Description"],
         },
       } as Tool,
       {
@@ -33,6 +40,10 @@ export class TaskTools {
               type: "number",
               description: "The numeric ID of the task to update"
             },
+            project_id: {
+              type: "number",
+              description: "Optional project ID to associate with the task"
+            },
             ...allProperties
           },
           required: ["task_id"],
@@ -40,7 +51,7 @@ export class TaskTools {
       } as Tool,
       {
         name: "list_tasks",
-        description: "List all tasks with their ID, Title, Summary, and Stage. Optionally filter by stage.",
+        description: "List all tasks with their ID, Title, Summary, Stage, and Project. Optionally filter by stage.",
         inputSchema: {
           type: "object",
           properties: {
@@ -125,6 +136,42 @@ export class TaskTools {
     // Prepare task data - all properties go into blocks now
     const taskData: Omit<TaskData, 'id'> = {};
 
+    // Always get selected project before creating task
+    let selectedProjectId: number | null = null;
+    
+    if (toolArgs?.project_id !== undefined) {
+      // Use explicitly provided project_id
+      taskData.project_id = toolArgs.project_id;
+      selectedProjectId = toolArgs.project_id;
+    } else {
+      // Always call get_selected_project to get the current selection
+      try {
+        if (this.projectTools) {
+          const result = await this.projectTools.handle('get_selected_project');
+          // Parse the selected project ID from the result text
+          const text = result.content[0]?.text || '';
+          const match = text.match(/Currently selected project ID: (\d+)/);
+          if (match) {
+            selectedProjectId = parseInt(match[1]);
+            taskData.project_id = selectedProjectId;
+            console.log(`Using globally selected project ID ${selectedProjectId} for new task`);
+          } else {
+            console.log('No project is currently selected');
+          }
+        } else {
+          // Fallback to direct database call if projectTools not available
+          selectedProjectId = await this.sharedDbService.getGlobalState('selected_project_id');
+          if (selectedProjectId !== null) {
+            taskData.project_id = selectedProjectId;
+            console.log(`Using globally selected project ID ${selectedProjectId} for new task`);
+          }
+        }
+      } catch (error) {
+        console.warn('Could not retrieve global project selection:', error);
+        // Continue without project assignment
+      }
+    }
+
     // Add all properties (including Title and Summary/Description) to task data
     for (const { prop_name } of executionChain) {
       const value = toolArgs?.[prop_name] || "";
@@ -133,9 +180,9 @@ export class TaskTools {
       }
     }
     
-    // Also add any properties not in the execution chain
+    // Also add any properties not in the execution chain (exclude project_id as it's already handled)
     for (const [key, value] of Object.entries(toolArgs || {})) {
-      if (value && !taskData[key]) {
+      if (value && key !== 'project_id' && !taskData[key]) {
         taskData[key] = value;
       }
     }
@@ -229,13 +276,17 @@ ${description}
     // Prepare update data - all non-stage properties go to blocks
     const updateData: Partial<TaskData> = {};
     
-    // Handle stage explicitly as it's a column in tasks table
+    // Handle stage and project_id explicitly as they're columns in tasks table
     if (toolArgs?.stage !== undefined) {
       // Validate stage value
       const validStages = ['draft', 'backlog', 'doing', 'review', 'completed'];
       if (validStages.includes(String(toolArgs.stage))) {
         updateData.stage = String(toolArgs.stage) as TaskStage;
       }
+    }
+    
+    if (toolArgs?.project_id !== undefined) {
+      updateData.project_id = toolArgs.project_id;
     }
 
     // Create execution chain to order fields when building markdown
@@ -249,9 +300,9 @@ ${description}
       }
     }
     
-    // Also add any properties not in the execution chain (except task_id and stage)
+    // Also add any properties not in the execution chain (except task_id, stage, and project_id)
     for (const [key, value] of Object.entries(toolArgs || {})) {
-      if (key !== 'task_id' && key !== 'stage' && value !== undefined && !updateData.hasOwnProperty(key)) {
+      if (key !== 'task_id' && key !== 'stage' && key !== 'project_id' && value !== undefined && !updateData.hasOwnProperty(key)) {
         updateData[key] = value;
       }
     }
@@ -341,14 +392,20 @@ ${description}
       };
     }
 
-    // Build markdown table with stage column
-    let markdownContent = `| ID | Title | Description | Stage |\n| --- | --- | --- | --- |`;
+    // Build markdown table with stage and project columns
+    let markdownContent = `| ID | Title | Description | Stage | Project | Project ID |\n| --- | --- | --- | --- | --- | --- |`;
     try {
+      // Fetch all projects to map IDs to names
+      const projects = await this.sharedDbService.listProjects();
+      const projectMap = new Map(projects.map(p => [p.id, p.name]));
+
       for (const task of tasks) {
         const cleanTitle = String(task.Title || '').replace(/\n|\r/g, ' ');
         const cleanDescription = String(task.Description || task.Summary || '').replace(/\n|\r/g, ' ');
         const stage = task.stage || 'draft';
-        markdownContent += `\n| ${task.id} | ${cleanTitle} | ${cleanDescription} | ${stage} |`;
+        const projectName = task.project_id ? (projectMap.get(task.project_id) || `Unknown (${task.project_id})`) : 'None';
+        const projectId = task.project_id || 'None';
+        markdownContent += `\n| ${task.id} | ${cleanTitle} | ${cleanDescription} | ${stage} | ${projectName} | ${projectId} |`;
       }
     } catch (error) {
       console.error('Error formatting tasks table:', error);
@@ -408,12 +465,25 @@ ${description}
     const title = task.Title || '';
     const description = task.Description || task.Summary || '';
     
+    // Get project name if task has project_id
+    let projectInfo = 'None';
+    if (task.project_id) {
+      try {
+        const project = await this.sharedDbService.getProject(task.project_id);
+        projectInfo = project ? `${project.name} (ID: ${project.id})` : `Unknown (ID: ${task.project_id})`;
+      } catch (error) {
+        projectInfo = `Error loading project (ID: ${task.project_id})`;
+      }
+    }
+    
     let markdownContent = `# Task
 **Task ID:** ${task.id}
 
 **Title:** ${title}
 
 **Stage:** ${task.stage || 'draft'}
+
+**Project:** ${projectInfo}
 
 ## Description
 
@@ -507,13 +577,15 @@ export function createTaskTools(
   clientId: string,
   loadDynamicSchemaProperties: () => Promise<SchemaProperties>,
   createExecutionChain: (properties: SchemaProperties) => ExecutionChainItem[],
-  validateDependencies: (properties: SchemaProperties, args: Record<string, any>, isUpdateContext?: boolean) => boolean
+  validateDependencies: (properties: SchemaProperties, args: Record<string, any>, isUpdateContext?: boolean) => boolean,
+  projectTools?: any
 ): TaskTools {
   return new TaskTools(
     sharedDbService,
     clientId,
     loadDynamicSchemaProperties,
     createExecutionChain,
-    validateDependencies
+    validateDependencies,
+    projectTools
   );
 }

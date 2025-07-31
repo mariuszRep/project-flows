@@ -1,6 +1,7 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { extractClientFromUserAgent } from "./express-server.js";
+import { stateEvents, StateChangeEvent } from "../events/state-events.js";
 
 export interface Connection {
   transport: SSEServerTransport;
@@ -10,6 +11,13 @@ export interface Connection {
 
 export class ConnectionManager {
   private connections: { [sessionId: string]: Connection } = {};
+
+  constructor() {
+    // Listen for global state change events
+    stateEvents.on('state_change', (event: StateChangeEvent) => {
+      this.broadcastStateChange(event);
+    });
+  }
 
   async handleSSEConnection(req: any, res: any, createMcpServer: (clientId: string) => Server): Promise<void> {
     try {
@@ -73,5 +81,24 @@ export class ConnectionManager {
 
   getActiveConnectionCount(): number {
     return Object.keys(this.connections).length;
+  }
+
+  broadcastStateChange(event: StateChangeEvent): void {
+    console.log(`Broadcasting state change to ${Object.keys(this.connections).length} connections:`, event);
+
+    // Send to all connected clients except the source
+    Object.entries(this.connections).forEach(([sessionId, connection]) => {
+      if (connection.clientId !== event.source_client) {
+        try {
+          // Send MCP notification to client  
+          connection.server.notification({
+            method: 'state_change',
+            params: event
+          });
+        } catch (error) {
+          console.error(`Failed to send state change to session ${sessionId}:`, error);
+        }
+      }
+    });
   }
 }
