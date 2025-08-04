@@ -84,13 +84,19 @@ export class TaskTools {
       } as Tool,
       {
         name: "get_task",
-        description: "Retrieve a task by its numeric ID. Returns the complete task data in markdown format.",
+        description: "Retrieve a task by its numeric ID. Returns the complete task data in the specified format.",
         inputSchema: {
           type: "object",
           properties: {
             task_id: {
               type: "number",
               description: "The numeric ID of the task to retrieve"
+            },
+            output_format: {
+              type: "string",
+              description: "Output format: 'markdown' (default) for human-readable format, 'json' for structured data",
+              enum: ["markdown", "json"],
+              default: "markdown"
             }
           },
           required: ["task_id"],
@@ -449,6 +455,10 @@ ${description}
   private async handleGetTask(toolArgs?: Record<string, any>) {
     // Handle retrieving a task by ID
     const taskId = toolArgs?.task_id;
+    const outputFormat = toolArgs?.output_format || 'markdown'; // Default to markdown for backward compatibility
+    
+    console.log('handleGetTask called with args:', toolArgs);
+    console.log('Output format requested:', outputFormat);
     
     // Validate task ID
     if (!taskId || typeof taskId !== 'number' || taskId < 1) {
@@ -520,6 +530,40 @@ ${description}
       }
     }
 
+    // Return based on requested output format
+    if (outputFormat === 'json') {
+      // Return structured JSON data for UI consumption
+      const jsonData = {
+        id: task.id,
+        title: title,
+        description: description,
+        stage: task.stage || 'draft',
+        type: taskType,
+        parent_id: task.parent_id,
+        parent_name: parentInfo,
+        // Include all dynamic properties
+        ...Object.fromEntries(
+          Object.entries(task).filter(([key, value]) => 
+            key !== 'id' && 
+            key !== 'stage' && 
+            key !== 'type' && 
+            key !== 'parent_id' && 
+            value
+          )
+        )
+      };
+      
+      return {
+        content: [
+          {
+            type: "text", 
+            text: JSON.stringify(jsonData, null, 2),
+          } as TextContent,
+        ],
+      };
+    }
+    
+    // Default markdown format
     return {
       content: [
         {

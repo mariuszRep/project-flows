@@ -96,6 +96,29 @@ class DatabaseService {
     }
   }
 
+  // Helper function to flatten complex data to text
+  private flattenToText(value: any): string {
+    if (value === null || value === undefined) {
+      return '';
+    }
+    
+    if (typeof value === 'string') {
+      return value;
+    }
+    
+    if (Array.isArray(value)) {
+      return value.join(', ');
+    }
+    
+    if (typeof value === 'object') {
+      return Object.entries(value)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join(', ');
+    }
+    
+    return String(value);
+  }
+
   async createTask(taskData: Omit<TaskData, 'id'>, userId: string = 'system'): Promise<number> {
     const client = await this.pool.connect();
     
@@ -119,7 +142,7 @@ class DatabaseService {
             INSERT INTO blocks (task_id, property_name, content, position, created_by, updated_by) 
             VALUES ($1, $2, $3, $4, $5, $6)
           `;
-          await client.query(blockQuery, [taskId, key, JSON.stringify(value), position++, userId, userId]);
+          await client.query(blockQuery, [taskId, key, this.flattenToText(value), position++, userId, userId]);
         }
       }
 
@@ -178,7 +201,7 @@ class DatabaseService {
             ON CONFLICT (task_id, property_name) 
             DO UPDATE SET content = $3, updated_at = CURRENT_TIMESTAMP, updated_by = $5
           `;
-          await client.query(blockQuery, [taskId, key, JSON.stringify(value), userId, userId]);
+          await client.query(blockQuery, [taskId, key, this.flattenToText(value), userId, userId]);
         }
       }
 
@@ -223,7 +246,7 @@ class DatabaseService {
       };
 
       for (const block of blocksResult.rows) {
-        // JSONB content is already parsed by pg driver, no need to JSON.parse
+        // Content is now stored as TEXT, use directly
         taskData[block.property_name] = block.content;
       }
 
@@ -305,7 +328,7 @@ class DatabaseService {
         // Add blocks for this task
         const taskBlocks = blocksByTask[row.id] || [];
         for (const block of taskBlocks) {
-          // JSONB content is already parsed by pg driver, no need to JSON.parse
+          // Content is now stored as TEXT, use directly
           taskData[block.property_name] = block.content;
         }
         
@@ -606,7 +629,7 @@ class DatabaseService {
         INSERT INTO blocks (task_id, property_name, content, position, created_by, updated_by) 
         VALUES ($1, 'Title', $2, 1, $3, $4)
       `;
-      await client.query(titleQuery, [taskId, JSON.stringify(projectData.name), userId, userId]);
+      await client.query(titleQuery, [taskId, projectData.name, userId, userId]);
 
       // Insert Description block if provided
       if (projectData.description) {
@@ -614,7 +637,7 @@ class DatabaseService {
           INSERT INTO blocks (task_id, property_name, content, position, created_by, updated_by) 
           VALUES ($1, 'Description', $2, 2, $3, $4)
         `;
-        await client.query(descQuery, [taskId, JSON.stringify(projectData.description), userId, userId]);
+        await client.query(descQuery, [taskId, projectData.description, userId, userId]);
       }
 
       // Insert color as Notes block for backward compatibility
@@ -623,7 +646,7 @@ class DatabaseService {
           INSERT INTO blocks (task_id, property_name, content, position, created_by, updated_by) 
           VALUES ($1, 'Notes', $2, 3, $3, $4)
         `;
-        await client.query(colorQuery, [taskId, JSON.stringify(`Color: ${projectData.color}`), userId, userId]);
+        await client.query(colorQuery, [taskId, `Color: ${projectData.color}`, userId, userId]);
       }
 
       await client.query('COMMIT');
@@ -665,7 +688,7 @@ class DatabaseService {
           ON CONFLICT (task_id, property_name) 
           DO UPDATE SET content = EXCLUDED.content, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP
         `;
-        await client.query(titleQuery, [projectId, JSON.stringify(updates.name), userId, userId]);
+        await client.query(titleQuery, [projectId, updates.name, userId, userId]);
       }
 
       // Update Description block if provided
@@ -676,7 +699,7 @@ class DatabaseService {
           ON CONFLICT (task_id, property_name) 
           DO UPDATE SET content = EXCLUDED.content, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP
         `;
-        await client.query(descQuery, [projectId, JSON.stringify(updates.description), userId, userId]);
+        await client.query(descQuery, [projectId, updates.description, userId, userId]);
       }
 
       // Update color in Notes block if provided
@@ -687,7 +710,7 @@ class DatabaseService {
           ON CONFLICT (task_id, property_name) 
           DO UPDATE SET content = EXCLUDED.content, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP
         `;
-        await client.query(colorQuery, [projectId, JSON.stringify(`Color: ${updates.color}`), userId, userId]);
+        await client.query(colorQuery, [projectId, `Color: ${updates.color}`, userId, userId]);
       }
 
       await client.query('COMMIT');
@@ -723,8 +746,8 @@ class DatabaseService {
       let color = '#3b82f6';
 
       for (const block of blocksResult.rows) {
-        // JSONB content is already parsed by pg driver, just extract the value
-        const content = typeof block.content === 'string' ? block.content : String(block.content);
+        // Content is now stored as TEXT
+        const content = block.content;
         
         if (block.property_name === 'Title') {
           name = content;
@@ -774,8 +797,8 @@ class DatabaseService {
         let color = '#3b82f6';
 
         for (const block of blocksResult.rows) {
-          // JSONB content is already parsed by pg driver, just extract the value
-          const content = typeof block.content === 'string' ? block.content : String(block.content);
+          // Content is now stored as TEXT
+          const content = block.content;
           
           if (block.property_name === 'Title') {
             name = content;
