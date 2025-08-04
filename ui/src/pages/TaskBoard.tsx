@@ -65,7 +65,16 @@ export default function Board() {
       
       if (listTasksTool) {
         try {
-          const result = await callTool('list_tasks', {});
+          // Build arguments for list_tasks, including project_id if a project is selected
+          const listTasksArgs: any = {};
+          if (selectedProjectId !== null) {
+            listTasksArgs.project_id = selectedProjectId;
+            console.log(`Calling list_tasks with project_id: ${selectedProjectId}`);
+          } else {
+            console.log('Calling list_tasks for all projects');
+          }
+          
+          const result = await callTool('list_tasks', listTasksArgs);
           if (result && result.content && result.content[0]) {
             console.log('List tasks result:', result.content);
             
@@ -117,17 +126,9 @@ export default function Board() {
         index === self.findIndex(t => t.id === task.id)
       );
       
-      // Filter tasks by selected project if one is selected
-      let filteredTasks = uniqueTasks;
-      if (selectedProjectId !== null) {
-        console.log(`Filtering tasks by project ID: ${selectedProjectId}`);
-        console.log('Task project IDs:', uniqueTasks.map(t => `${t.id}:${t.project_id}`));
-        filteredTasks = uniqueTasks.filter(task => task.project_id === selectedProjectId);
-        console.log('Filtered task IDs:', filteredTasks.map(t => t.id));
-      }
-      
-      console.log(`Found ${uniqueTasks.length} total tasks, ${filteredTasks.length} after project filtering, selected project: ${selectedProjectId}`);
-      setTasks(filteredTasks);
+      // No need for client-side project filtering since we pass project_id to list_tasks
+      console.log(`Found ${uniqueTasks.length} tasks for selected project: ${selectedProjectId}`);
+      setTasks(uniqueTasks);
       
     } catch (err) {
       console.error('Error fetching tasks:', err);

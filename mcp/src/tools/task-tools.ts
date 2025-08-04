@@ -17,13 +17,18 @@ export class TaskTools {
     return [
       {
         name: "create_task",
-        description: "Create a detailed task plan with markdown formatting, make sure you populate 'Title' and 'Description' and later all the rest of the properties. Always run get_selected_project tool before creating new task to get the current project_id if you need to associate the task with a project.",
+        description: "Create a detailed task plan with markdown formatting, make sure you populate 'Title' and 'Description' and later all the rest of the properties. Use parent_id to create hierarchical tasks (e.g., subtasks under a project).",
         inputSchema: {
           type: "object",
           properties: {
-            project_id: {
+            parent_id: {
               type: "number",
-              description: "Optional project ID to associate with the task, run get_selected_project tool to get current project_id"
+              description: "Optional parent task ID to create hierarchical relationships (subtasks under parent tasks)"
+            },
+            type: {
+              type: "string",
+              enum: ["project", "task"],
+              description: "Task type: 'project' for top-level organizational tasks, 'task' for regular tasks (defaults to 'task')"
             },
             ...allProperties
           },
@@ -40,9 +45,14 @@ export class TaskTools {
               type: "number",
               description: "The numeric ID of the task to update"
             },
-            project_id: {
+            parent_id: {
               type: "number",
-              description: "Optional project ID to associate with the task"
+              description: "Optional parent task ID for hierarchical relationships"
+            },
+            type: {
+              type: "string",
+              enum: ["project", "task"],
+              description: "Task type: 'project' for top-level organizational tasks, 'task' for regular tasks"
             },
             ...allProperties
           },
@@ -51,13 +61,22 @@ export class TaskTools {
       } as Tool,
       {
         name: "list_tasks",
-        description: "List all tasks with their ID, Title, Summary, Stage, and Project. Optionally filter by stage.",
+        description: "List all tasks with their ID, Title, Summary, Stage, Type, and Parent. Shows hierarchical relationships. Optionally filter by stage, type, or project.",
         inputSchema: {
           type: "object",
           properties: {
             stage: {
               type: "string",
               description: "Optional stage filter: 'draft', 'backlog', 'doing', 'review', or 'completed'"
+            },
+            type: {
+              type: "string",
+              enum: ["project", "task"],
+              description: "Optional type filter: 'project' or 'task'"
+            },
+            project_id: {
+              type: "number",
+              description: "Optional project ID filter: only return tasks that belong to this project (parent_id)"
             }
           },
           required: [],
@@ -136,39 +155,18 @@ export class TaskTools {
     // Prepare task data - all properties go into blocks now
     const taskData: Omit<TaskData, 'id'> = {};
 
-    // Always get selected project before creating task
-    let selectedProjectId: number | null = null;
-    
-    if (toolArgs?.project_id !== undefined) {
-      // Use explicitly provided project_id
-      taskData.project_id = toolArgs.project_id;
-      selectedProjectId = toolArgs.project_id;
-    } else {
-      // Always call get_selected_project to get the current selection
-      try {
-        if (this.projectTools) {
-          const result = await this.projectTools.handle('get_selected_project');
-          // Parse the selected project ID from the result text
-          const text = result.content[0]?.text || '';
-          const match = text.match(/Currently selected project ID: (\d+)/);
-          if (match) {
-            selectedProjectId = parseInt(match[1]);
-            taskData.project_id = selectedProjectId;
-            console.log(`Using globally selected project ID ${selectedProjectId} for new task`);
-          } else {
-            console.log('No project is currently selected');
-          }
-        } else {
-          // Fallback to direct database call if projectTools not available
-          selectedProjectId = await this.sharedDbService.getGlobalState('selected_project_id');
-          if (selectedProjectId !== null) {
-            taskData.project_id = selectedProjectId;
-            console.log(`Using globally selected project ID ${selectedProjectId} for new task`);
-          }
-        }
-      } catch (error) {
-        console.warn('Could not retrieve global project selection:', error);
-        // Continue without project assignment
+    // Handle parent_id for hierarchical tasks
+    if (toolArgs?.parent_id !== undefined) {
+      taskData.parent_id = toolArgs.parent_id;
+      console.log(`Creating task with parent_id ${toolArgs.parent_id}`);
+    }
+
+    // Handle type for project/task distinction
+    if (toolArgs?.type !== undefined) {
+      const validTypes = ['project', 'task'];
+      if (validTypes.includes(toolArgs.type)) {
+        taskData.type = toolArgs.type;
+        console.log(`Creating ${toolArgs.type} with ID`);
       }
     }
 
@@ -180,9 +178,9 @@ export class TaskTools {
       }
     }
     
-    // Also add any properties not in the execution chain (exclude project_id as it's already handled)
+    // Also add any properties not in the execution chain (exclude parent_id and type as they're already handled)
     for (const [key, value] of Object.entries(toolArgs || {})) {
-      if (value && key !== 'project_id' && !taskData[key]) {
+      if (value && key !== 'parent_id' && key !== 'type' && !taskData[key]) {
         taskData[key] = value;
       }
     }
@@ -276,7 +274,7 @@ ${description}
     // Prepare update data - all non-stage properties go to blocks
     const updateData: Partial<TaskData> = {};
     
-    // Handle stage and project_id explicitly as they're columns in tasks table
+    // Handle stage, parent_id, and type explicitly as they're columns in tasks table
     if (toolArgs?.stage !== undefined) {
       // Validate stage value
       const validStages = ['draft', 'backlog', 'doing', 'review', 'completed'];
@@ -285,8 +283,16 @@ ${description}
       }
     }
     
-    if (toolArgs?.project_id !== undefined) {
-      updateData.project_id = toolArgs.project_id;
+    if (toolArgs?.parent_id !== undefined) {
+      updateData.parent_id = toolArgs.parent_id;
+    }
+    
+    if (toolArgs?.type !== undefined) {
+      // Validate type value
+      const validTypes = ['project', 'task'];
+      if (validTypes.includes(String(toolArgs.type))) {
+        updateData.type = String(toolArgs.type) as 'project' | 'task';
+      }
     }
 
     // Create execution chain to order fields when building markdown
@@ -300,9 +306,9 @@ ${description}
       }
     }
     
-    // Also add any properties not in the execution chain (except task_id, stage, and project_id)
+    // Also add any properties not in the execution chain (except task_id, stage, parent_id, and type)
     for (const [key, value] of Object.entries(toolArgs || {})) {
-      if (key !== 'task_id' && key !== 'stage' && key !== 'project_id' && value !== undefined && !updateData.hasOwnProperty(key)) {
+      if (key !== 'task_id' && key !== 'stage' && key !== 'parent_id' && key !== 'type' && value !== undefined && !updateData.hasOwnProperty(key)) {
         updateData[key] = value;
       }
     }
@@ -363,11 +369,18 @@ ${description}
   }
 
   private async handleListTasks(toolArgs?: Record<string, any>) {
-    // List all tasks with optional stage filter
+    // List all tasks with optional stage, type, and project_id filters
     const stageFilter = toolArgs?.stage as string | undefined;
+    const typeFilter = toolArgs?.type as string | undefined;
+    const projectIdFilter = toolArgs?.project_id as number | undefined;
     let tasks: TaskData[];
     try {
-      tasks = await this.sharedDbService.listTasks(stageFilter);
+      tasks = await this.sharedDbService.listTasks(stageFilter, projectIdFilter);
+      
+      // Apply type filter if provided (client-side filtering for now)
+      if (typeFilter) {
+        tasks = tasks.filter(task => task.type === typeFilter);
+      }
     } catch (error) {
       console.error('Error listing tasks:', error);
       return {
@@ -381,7 +394,11 @@ ${description}
     }
 
     if (tasks.length === 0) {
-      const filterMsg = stageFilter ? ` with stage '${stageFilter}'` : '';
+      const filters = [];
+      if (stageFilter) filters.push(`stage '${stageFilter}'`);
+      if (typeFilter) filters.push(`type '${typeFilter}'`);
+      if (projectIdFilter) filters.push(`project_id '${projectIdFilter}'`);
+      const filterMsg = filters.length > 0 ? ` with ${filters.join(' and ')}` : '';
       return {
         content: [
           {
@@ -392,20 +409,20 @@ ${description}
       };
     }
 
-    // Build markdown table with stage and project columns
-    let markdownContent = `| ID | Title | Description | Stage | Project | Project ID |\n| --- | --- | --- | --- | --- | --- |`;
+    // Build markdown table with stage, type, and parent task columns
+    let markdownContent = `| ID | Title | Description | Stage | Type | Parent | Parent ID |\n| --- | --- | --- | --- | --- | --- | --- |`;
     try {
-      // Fetch all projects to map IDs to names
-      const projects = await this.sharedDbService.listProjects();
-      const projectMap = new Map(projects.map(p => [p.id, p.name]));
+      // Create a map of task IDs to titles for parent references
+      const taskMap = new Map(tasks.map(t => [t.id, t.Title || 'Untitled']));
 
       for (const task of tasks) {
         const cleanTitle = String(task.Title || '').replace(/\n|\r/g, ' ');
         const cleanDescription = String(task.Description || task.Summary || '').replace(/\n|\r/g, ' ');
         const stage = task.stage || 'draft';
-        const projectName = task.project_id ? (projectMap.get(task.project_id) || `Unknown (${task.project_id})`) : 'None';
-        const projectId = task.project_id || 'None';
-        markdownContent += `\n| ${task.id} | ${cleanTitle} | ${cleanDescription} | ${stage} | ${projectName} | ${projectId} |`;
+        const type = task.type || 'task';
+        const parentName = task.parent_id ? (taskMap.get(task.parent_id) || `Unknown (${task.parent_id})`) : 'None';
+        const parentId = task.parent_id || 'None';
+        markdownContent += `\n| ${task.id} | ${cleanTitle} | ${cleanDescription} | ${stage} | ${type} | ${parentName} | ${parentId} |`;
       }
     } catch (error) {
       console.error('Error formatting tasks table:', error);
@@ -465,25 +482,30 @@ ${description}
     const title = task.Title || '';
     const description = task.Description || task.Summary || '';
     
-    // Get project name if task has project_id
-    let projectInfo = 'None';
-    if (task.project_id) {
+    // Get parent task name if task has parent_id
+    let parentInfo = 'None';
+    if (task.parent_id) {
       try {
-        const project = await this.sharedDbService.getProject(task.project_id);
-        projectInfo = project ? `${project.name} (ID: ${project.id})` : `Unknown (ID: ${task.project_id})`;
+        const parentTask = await this.sharedDbService.getTask(task.parent_id);
+        parentInfo = parentTask ? `${parentTask.Title || 'Untitled'} (ID: ${parentTask.id})` : `Unknown (ID: ${task.parent_id})`;
       } catch (error) {
-        projectInfo = `Error loading project (ID: ${task.project_id})`;
+        parentInfo = `Error loading parent task (ID: ${task.parent_id})`;
       }
     }
     
-    let markdownContent = `# Task
-**Task ID:** ${task.id}
+    const taskType = task.type || 'task';
+    const typeDisplay = taskType === 'project' ? 'Project' : 'Task';
+    
+    let markdownContent = `# ${typeDisplay}
+**${typeDisplay} ID:** ${task.id}
 
 **Title:** ${title}
 
 **Stage:** ${task.stage || 'draft'}
 
-**Project:** ${projectInfo}
+**Type:** ${taskType}
+
+**Parent Task:** ${parentInfo}
 
 ## Description
 

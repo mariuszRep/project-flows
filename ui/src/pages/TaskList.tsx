@@ -59,11 +59,10 @@ const DraftTasks = () => {
     { key: 'completed', title: 'Completed', color: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' }
   ];
 
-  // Get filtered tasks based on selected stages and project
+  // Get filtered tasks based on selected stages (project filtering handled by server)
   const filteredTasks = allTasks.filter(task => {
     const stageMatch = selectedStages.includes(task.stage);
-    const projectMatch = selectedProjectId === null || task.project_id === selectedProjectId;
-    return stageMatch && projectMatch;
+    return stageMatch;
   });
 
   // Fetch all tasks from MCP
@@ -76,7 +75,16 @@ const DraftTasks = () => {
         const listTasksTool = tools.find(tool => tool.name === 'list_tasks');
         
         if (listTasksTool) {
-          const result = await callTool('list_tasks', {});
+          // Build arguments for list_tasks, including project_id if a project is selected
+          const listTasksArgs: any = {};
+          if (selectedProjectId !== null) {
+            listTasksArgs.project_id = selectedProjectId;
+            console.log(`Calling list_tasks with project_id: ${selectedProjectId}`);
+          } else {
+            console.log('Calling list_tasks for all projects');
+          }
+          
+          const result = await callTool('list_tasks', listTasksArgs);
           
           if (result && result.content && result.content[0]) {
             const contentText = result.content[0].text;

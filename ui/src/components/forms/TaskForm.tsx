@@ -165,6 +165,15 @@ const TaskForm: React.FC<TaskFormProps> = ({
             initialData[field.name] = '';
           }
         });
+        
+        // Ensure project_id is set for create mode
+        if (mode === 'create' && selectedProjectId !== null) {
+          initialData.project_id = selectedProjectId;
+          console.log(`Setting initial project_id to ${selectedProjectId} for create mode`);
+        } else {
+          console.log(`Create mode: ${mode === 'create'}, selectedProjectId: ${selectedProjectId}`);
+        }
+        
         setFormData(initialData);
         
       } else {
@@ -176,7 +185,7 @@ const TaskForm: React.FC<TaskFormProps> = ({
     } finally {
       setIsLoading(false);
     }
-  }, [isConnected, callTool, templateId, initialStage, selectedProjectId]);
+  }, [isConnected, callTool, templateId, initialStage, selectedProjectId, mode]);
 
   // Fetch existing task data for edit mode
   const fetchTaskData = useCallback(async () => {
@@ -192,7 +201,7 @@ const TaskForm: React.FC<TaskFormProps> = ({
       if (result?.content?.[0]?.text) {
         // Parse the markdown response to extract task data
         const taskContent = result.content[0].text;
-        console.log('Task content:', taskContent);
+        console.log('Raw task content for parsing:', taskContent);
         
         // Extract task data from markdown format
         const taskData: Record<string, any> = { 
@@ -252,11 +261,21 @@ const TaskForm: React.FC<TaskFormProps> = ({
         }
         
         // Extract project_id from the content if present
-        // Handle both formats: "**Project:** name (ID: 6)" and "**Project ID:** 6"
+        // Handle multiple formats: "**Project:** name (ID: 6)", "**Project ID:** 6", and "**Parent Task:** name (ID: 6)"
         const projectMatch = taskContent.match(/\*\*Project:\*\* [^(]*\(ID: (\d+)\)/) || 
-                             taskContent.match(/\*\*Project ID:\*\* (\d+)/);
+                             taskContent.match(/\*\*Project ID:\*\* (\d+)/) ||
+                             taskContent.match(/\*\*Parent Task:\*\* [^(]*\(ID: (\d+)\)/);
         if (projectMatch) {
           taskData.project_id = parseInt(projectMatch[1]);
+          console.log(`Extracted project_id: ${taskData.project_id} from Parent Task match`);
+        } else {
+          console.log('No project_id match found in task content');
+          // Check if Parent Task shows "None"
+          const noneMatch = taskContent.match(/\*\*Parent Task:\*\* None/);
+          if (noneMatch) {
+            taskData.project_id = null;
+            console.log('Parent Task is None, setting project_id to null');
+          }
         }
         
         // Ensure Title is properly set if not found in markdown parsing
@@ -294,13 +313,25 @@ const TaskForm: React.FC<TaskFormProps> = ({
 
   // Update project_id when selectedProjectId changes for create mode
   useEffect(() => {
-    if (mode === 'create' && formData.project_id !== selectedProjectId) {
+    if (mode === 'create' && selectedProjectId !== null && formData.project_id !== selectedProjectId) {
+      console.log(`Setting project_id to ${selectedProjectId} for create mode`);
       setFormData(prev => ({
         ...prev,
         project_id: selectedProjectId
       }));
     }
-  }, [selectedProjectId, mode, formData.project_id]);
+  }, [selectedProjectId, mode]);
+
+  // Ensure project is set when projects finish loading (for create mode)
+  useEffect(() => {
+    if (mode === 'create' && !isLoadingProjects && selectedProjectId !== null && formData.project_id !== selectedProjectId) {
+      console.log(`Projects loaded, ensuring project_id is set to ${selectedProjectId}`);
+      setFormData(prev => ({
+        ...prev,
+        project_id: selectedProjectId
+      }));
+    }
+  }, [isLoadingProjects, selectedProjectId, mode, formData.project_id]);
 
   // Handle form field changes
   const handleFieldChange = (fieldName: string, value: string | number | null) => {
@@ -341,9 +372,9 @@ const TaskForm: React.FC<TaskFormProps> = ({
           }
         });
         
-        // Add project_id from form data (may be different from selectedProjectId)
+        // Add parent_id from form data (project_id becomes parent_id in the database)
         if (formData.project_id !== undefined && formData.project_id !== null) {
-          createData.project_id = formData.project_id;
+          createData.parent_id = formData.project_id;
         }
         
         console.log('Creating task with data:', createData);
@@ -358,9 +389,9 @@ const TaskForm: React.FC<TaskFormProps> = ({
           }
         });
         
-        // Add project_id from form data (may be different from original)
+        // Add parent_id from form data (project_id becomes parent_id in the database)
         if (formData.project_id !== undefined) {
-          updateData.project_id = formData.project_id;
+          updateData.parent_id = formData.project_id;
         }
         
         console.log('Updating task with data:', updateData);
@@ -521,7 +552,7 @@ const TaskForm: React.FC<TaskFormProps> = ({
                   Project
                 </Label>
                 <Select
-                  value={formData.project_id?.toString() || 'none'}
+                  value={formData.project_id !== null && formData.project_id !== undefined ? formData.project_id.toString() : 'none'}
                   onValueChange={(value) => handleFieldChange('project_id', value === 'none' ? null : parseInt(value))}
                   disabled={isSubmitting || isLoadingProjects}
                 >
