@@ -33,6 +33,7 @@ const DraftTasks = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showCreateProjectForm, setShowCreateProjectForm] = useState(false);
+  const [showAddTaskForm, setShowAddTaskForm] = useState(false);
   
   // Filter state - default to all stages selected
   const [selectedStages, setSelectedStages] = useState<TaskStage[]>(['draft', 'backlog', 'doing', 'review', 'completed']);
@@ -306,6 +307,19 @@ const DraftTasks = () => {
     setError(null);
   };
 
+  const handleTaskSuccess = async (task: Task) => {
+    console.log('Task created successfully:', task);
+    setShowAddTaskForm(false);
+    setError(null);
+    // Refresh tasks
+    await fetchAllTasks();
+  };
+
+  const handleTaskCancel = () => {
+    setShowAddTaskForm(false);
+    setError(null);
+  };
+
   const handleProjectSelect = async (projectId: number | null) => {
     try {
       // Use the MCP selectProject method to sync globally
@@ -350,7 +364,7 @@ const DraftTasks = () => {
               <ArrowRight className="h-4 w-4 mr-2" />
               View Board
             </Button>
-            <Button onClick={() => navigate('/task-board')}>
+            <Button onClick={() => setShowAddTaskForm(true)} disabled={!isConnected}>
               <Plus className="h-4 w-4 mr-2" />
               Create Task
             </Button>
@@ -515,6 +529,15 @@ const DraftTasks = () => {
           onSuccess={handleProjectSuccess}
           onClose={handleProjectCancel}
           isOpen={showCreateProjectForm}
+        />
+
+        <TaskForm
+          mode="create"
+          templateId={1}
+          initialStage="draft"
+          onSuccess={handleTaskSuccess}
+          onCancel={handleTaskCancel}
+          isOpen={showAddTaskForm}
         />
       </div>
     </HeaderAndSidebarLayout>

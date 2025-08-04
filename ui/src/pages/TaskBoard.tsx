@@ -32,6 +32,7 @@ export default function Board() {
   const [error, setError] = useState<string | null>(null);
   const [showAddTaskForm, setShowAddTaskForm] = useState(false);
   const [showCreateProjectForm, setShowCreateProjectForm] = useState(false);
+  const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
   const [deleteDialog, setDeleteDialog] = useState<{
     isOpen: boolean;
     taskId: number | null;
@@ -233,15 +234,17 @@ export default function Board() {
   };
 
   const handleTaskSuccess = async (task: Task) => {
-    console.log('Task created successfully:', task);
+    console.log('Task created/updated successfully:', task);
     setShowAddTaskForm(false);
+    setEditingTaskId(null);
     setError(null);
-    // Refresh tasks after successful creation
+    // Refresh tasks after successful creation/update
     await fetchTasks();
   };
 
   const handleTaskCancel = () => {
     setShowAddTaskForm(false);
+    setEditingTaskId(null);
     setError(null);
   };
 
@@ -307,7 +310,7 @@ export default function Board() {
             </Button>
             <Button onClick={() => setShowAddTaskForm(true)} disabled={!isConnected}>
               <Plus className="h-4 w-4 mr-2" />
-              Add Task
+              Create Task
             </Button>
           </div>
         </div>
@@ -319,12 +322,14 @@ export default function Board() {
         )}
 
         <TaskForm
-          mode="create"
+          mode={editingTaskId ? 'edit' : 'create'}
+          taskId={editingTaskId || undefined}
           templateId={1}
           initialStage="draft"
           onSuccess={handleTaskSuccess}
           onCancel={handleTaskCancel}
-          isOpen={showAddTaskForm}
+          onDelete={handleTaskDelete}
+          isOpen={showAddTaskForm || !!editingTaskId}
         />
 
         <ProjectForm
@@ -351,6 +356,7 @@ export default function Board() {
             setTasks={setTasks}
             onTaskUpdate={handleTaskUpdate}
             onTaskDelete={handleTaskDelete}
+            onTaskEdit={(taskId) => setEditingTaskId(taskId)}
             projects={projects}
           />
         )}

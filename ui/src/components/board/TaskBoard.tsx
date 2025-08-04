@@ -9,6 +9,7 @@ interface TaskBoardProps {
   setTasks: React.Dispatch<React.SetStateAction<Task[]>>;
   onTaskUpdate: (taskId?: number, newStage?: string) => void;
   onTaskDelete: (taskId: number, taskTitle: string) => void;
+  onTaskEdit: (taskId: number) => void;
   projects: Project[];
 }
 
@@ -17,6 +18,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({
   setTasks,
   onTaskUpdate,
   onTaskDelete,
+  onTaskEdit,
   projects
 }) => {
   const stages: { key: TaskStage; title: string; color: string }[] = [
@@ -96,6 +98,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({
                   tasks={getTasksByStage(stage.key)}
                   onTaskUpdate={onTaskUpdate}
                   onTaskDelete={onTaskDelete}
+                  onTaskEdit={onTaskEdit}
                   isDraggingOver={snapshot.isDraggingOver}
                   projects={projects}
                 />

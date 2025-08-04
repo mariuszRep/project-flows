@@ -16,6 +16,7 @@ interface TaskCardProps {
   task: Task;
   onUpdate: (taskId?: number, newStage?: string) => void;
   onDelete: () => void;
+  onEdit: () => void;
   isDragging?: boolean;
   projects: Project[];
 }
@@ -24,6 +25,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   task, 
   onUpdate, 
   onDelete, 
+  onEdit,
   isDragging = false,
   projects
 }) => {
@@ -41,8 +43,8 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   };
 
   const handleEdit = () => {
-    // In a real app, this would open an edit modal
     console.log('Edit task:', task.id);
+    onEdit();
   };
 
   const handleDelete = () => {
