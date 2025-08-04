@@ -52,10 +52,11 @@ const TaskForm: React.FC<TaskFormProps> = ({
   isOpen = true
 }) => {
   const { callTool, isConnected, tools } = useMCP();
-  const { selectedProjectId } = useProject();
+  const { selectedProjectId, projects, isLoadingProjects } = useProject();
   const [formFields, setFormFields] = useState<FormField[]>([]);
   const [formData, setFormData] = useState<Record<string, any>>({
-    stage: initialStage
+    stage: initialStage,
+    project_id: selectedProjectId
   });
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -155,7 +156,10 @@ const TaskForm: React.FC<TaskFormProps> = ({
         console.log('Generated form fields:', fields);
         
         // Initialize form data with empty values
-        const initialData: Record<string, any> = { stage: initialStage };
+        const initialData: Record<string, any> = { 
+          stage: initialStage, 
+          project_id: selectedProjectId 
+        };
         fields.forEach(field => {
           if (field.name !== 'stage') {
             initialData[field.name] = '';
@@ -172,7 +176,7 @@ const TaskForm: React.FC<TaskFormProps> = ({
     } finally {
       setIsLoading(false);
     }
-  }, [isConnected, callTool, templateId, initialStage]);
+  }, [isConnected, callTool, templateId, initialStage, selectedProjectId]);
 
   // Fetch existing task data for edit mode
   const fetchTaskData = useCallback(async () => {
@@ -191,7 +195,10 @@ const TaskForm: React.FC<TaskFormProps> = ({
         console.log('Task content:', taskContent);
         
         // Extract task data from markdown format
-        const taskData: Record<string, any> = { stage: 'draft' };
+        const taskData: Record<string, any> = { 
+          stage: 'draft',
+          project_id: null
+        };
         
         // Extract title from the first line or task ID line
         const titleMatch = taskContent.match(/\*\*Title:\*\* (.+)/i) || 
@@ -244,6 +251,14 @@ const TaskForm: React.FC<TaskFormProps> = ({
           taskData.stage = stageMatch[1];
         }
         
+        // Extract project_id from the content if present
+        // Handle both formats: "**Project:** name (ID: 6)" and "**Project ID:** 6"
+        const projectMatch = taskContent.match(/\*\*Project:\*\* [^(]*\(ID: (\d+)\)/) || 
+                             taskContent.match(/\*\*Project ID:\*\* (\d+)/);
+        if (projectMatch) {
+          taskData.project_id = parseInt(projectMatch[1]);
+        }
+        
         // Ensure Title is properly set if not found in markdown parsing
         if (!taskData.Title && taskData.title) {
           taskData.Title = taskData.title;
@@ -277,8 +292,18 @@ const TaskForm: React.FC<TaskFormProps> = ({
     }
   }, [formFields, mode, fetchTaskData]);
 
+  // Update project_id when selectedProjectId changes for create mode
+  useEffect(() => {
+    if (mode === 'create' && formData.project_id !== selectedProjectId) {
+      setFormData(prev => ({
+        ...prev,
+        project_id: selectedProjectId
+      }));
+    }
+  }, [selectedProjectId, mode, formData.project_id]);
+
   // Handle form field changes
-  const handleFieldChange = (fieldName: string, value: string) => {
+  const handleFieldChange = (fieldName: string, value: string | number | null) => {
     setFormData(prev => ({
       ...prev,
       [fieldName]: value
@@ -316,9 +341,9 @@ const TaskForm: React.FC<TaskFormProps> = ({
           }
         });
         
-        // Add project_id if a project is selected
-        if (selectedProjectId) {
-          createData.project_id = selectedProjectId;
+        // Add project_id from form data (may be different from selectedProjectId)
+        if (formData.project_id !== undefined && formData.project_id !== null) {
+          createData.project_id = formData.project_id;
         }
         
         console.log('Creating task with data:', createData);
@@ -333,6 +358,11 @@ const TaskForm: React.FC<TaskFormProps> = ({
           }
         });
         
+        // Add project_id from form data (may be different from original)
+        if (formData.project_id !== undefined) {
+          updateData.project_id = formData.project_id;
+        }
+        
         console.log('Updating task with data:', updateData);
         result = await callTool('update_task', updateData);
       }
@@ -346,7 +376,7 @@ const TaskForm: React.FC<TaskFormProps> = ({
           title: formData.Title || formData.title || 'Untitled Task',
           body: formData.Description || formData.description || formData.Summary || '',
           stage: formData.stage as TaskStage,
-          project_id: selectedProjectId,
+          project_id: formData.project_id || null,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
           created_by: 'user@example.com',
@@ -484,6 +514,39 @@ const TaskForm: React.FC<TaskFormProps> = ({
                   </Select>
                 </div>
               )}
+
+              {/* Project selector */}
+              <div>
+                <Label htmlFor="project_id">
+                  Project
+                </Label>
+                <Select
+                  value={formData.project_id?.toString() || 'none'}
+                  onValueChange={(value) => handleFieldChange('project_id', value === 'none' ? null : parseInt(value))}
+                  disabled={isSubmitting || isLoadingProjects}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select project (optional)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No Project</SelectItem>
+                    {projects.map((project) => (
+                      <SelectItem key={project.id} value={project.id.toString()}>
+                        <div className="flex items-center gap-2">
+                          <div 
+                            className="w-3 h-3 rounded-sm" 
+                            style={{ backgroundColor: project.color }}
+                          />
+                          <span>{project.name}</span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Assign this task to a specific project
+                </p>
+              </div>
               
               {/* All other fields except stage */}
               {formFields.filter(field => field.name.toLowerCase() !== 'stage').map((field) => (
