@@ -1,4 +1,4 @@
-# Welcome to your Lovable project
+# Welcome to Project Flows UI
 
 ## Project info
 
@@ -6,13 +6,13 @@
 
 ## How can I edit this code?
 
-There are several ways of editing your application.
+There are several ways of editing Project Flows.
 
-**Use Lovable**
+**Development**
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/45497c4b-702e-466a-9174-29ff5a50bbc5) and start prompting.
+Follow the setup instructions in the main repository README to get started with development.
 
-Changes made via Lovable will be committed automatically to this repo.
+See CONTRIBUTING.md for guidelines on making changes to Project Flows.
 
 **Use your preferred IDE**
 

@@ -12,9 +12,10 @@ import { Project } from '@/types/project';
 import { MCPDisconnectedState } from '@/components/ui/empty-state';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { ProjectSidebar } from '@/components/ui/project-sidebar';
-import ProjectForm from '@/components/forms/ProjectForm';
+import ProjectEditForm from '@/components/forms/ProjectEditForm';
 import { FileText, Plus, Edit, ArrowRight, Filter } from 'lucide-react';
 import TaskForm from '@/components/forms/TaskForm';
+import TaskView from '@/components/task/TaskView';
 
 const DraftTasks = () => {
   const navigate = useNavigate();
@@ -33,12 +34,16 @@ const DraftTasks = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showCreateProjectForm, setShowCreateProjectForm] = useState(false);
+  const [editingProjectId, setEditingProjectId] = useState<number | null>(null);
+  const [showAddTaskForm, setShowAddTaskForm] = useState(false);
+  const [sidebarRefreshTrigger, setSidebarRefreshTrigger] = useState(0);
   
   // Filter state - default to all stages selected
   const [selectedStages, setSelectedStages] = useState<TaskStage[]>(['draft', 'backlog', 'doing', 'review', 'completed']);
   
   // Edit task state
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
+  const [viewingTaskId, setViewingTaskId] = useState<number | null>(null);
   
   // Delete task state
   const [deleteDialog, setDeleteDialog] = useState<{
@@ -59,11 +64,10 @@ const DraftTasks = () => {
     { key: 'completed', title: 'Completed', color: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' }
   ];
 
-  // Get filtered tasks based on selected stages and project
+  // Get filtered tasks based on selected stages (project filtering handled by server)
   const filteredTasks = allTasks.filter(task => {
     const stageMatch = selectedStages.includes(task.stage);
-    const projectMatch = selectedProjectId === null || task.project_id === selectedProjectId;
-    return stageMatch && projectMatch;
+    return stageMatch;
   });
 
   // Fetch all tasks from MCP
@@ -76,7 +80,16 @@ const DraftTasks = () => {
         const listTasksTool = tools.find(tool => tool.name === 'list_tasks');
         
         if (listTasksTool) {
-          const result = await callTool('list_tasks', {});
+          // Build arguments for list_tasks, including project_id if a project is selected
+          const listTasksArgs: any = {};
+          if (selectedProjectId !== null) {
+            listTasksArgs.project_id = selectedProjectId;
+            console.log(`Calling list_tasks with project_id: ${selectedProjectId}`);
+          } else {
+            console.log('Calling list_tasks for all projects');
+          }
+          
+          const result = await callTool('list_tasks', listTasksArgs);
           
           if (result && result.content && result.content[0]) {
             const contentText = result.content[0].text;
@@ -162,6 +175,18 @@ const DraftTasks = () => {
 
   const handleEditTask = (taskId: number) => {
     setEditingTaskId(taskId);
+  };
+  
+  const handleTaskView = (taskId: number) => {
+    console.log('View task:', taskId);
+    setViewingTaskId(taskId);
+  };
+  
+  const handleSwitchToEdit = () => {
+    if (viewingTaskId) {
+      setEditingTaskId(viewingTaskId);
+      setViewingTaskId(null);
+    }
   };
   
   const handleEditSuccess = async (task: Task) => {
@@ -287,14 +312,77 @@ const DraftTasks = () => {
   };
 
   const handleProjectSuccess = async (project: Project) => {
-    console.log('Project created successfully:', project);
+    console.log('Project created/updated successfully:', project);
     setShowCreateProjectForm(false);
+    setEditingProjectId(null);
     setError(null);
     await fetchProjects();
+    // Trigger sidebar refresh
+    setSidebarRefreshTrigger(prev => prev + 1);
   };
 
   const handleProjectCancel = () => {
     setShowCreateProjectForm(false);
+    setEditingProjectId(null);
+    setError(null);
+  };
+
+  const handleEditProject = (project: Project) => {
+    setEditingProjectId(project.id);
+  };
+
+  const handleProjectDelete = async (projectId: number, projectTitle: string) => {
+    if (!isConnected || !callTool) {
+      console.log('MCP not connected, skipping project delete');
+      return;
+    }
+
+    try {
+      const deleteTool = tools.find(tool => tool.name === 'delete_task');
+      
+      if (deleteTool) {
+        const result = await callTool('delete_task', {
+          task_id: projectId
+        });
+        
+        console.log('Project delete result:', result);
+        
+        // Close the edit form
+        setEditingProjectId(null);
+        setShowCreateProjectForm(false);
+        
+        // If the deleted project was selected, deselect it
+        if (selectedProjectId === projectId) {
+          await handleProjectSelect(null);
+        }
+        
+        // Refresh projects
+        await fetchProjects();
+        // Trigger sidebar refresh
+        setSidebarRefreshTrigger(prev => prev + 1);
+        
+        // Refresh tasks since project deletion might affect task display
+        await fetchAllTasks();
+      } else {
+        console.log('Delete tool not available');
+        setError('Delete functionality is not available');
+      }
+    } catch (err) {
+      console.error('Error deleting project:', err);
+      setError(err instanceof Error ? err.message : 'Failed to delete project');
+    }
+  };
+
+  const handleTaskSuccess = async (task: Task) => {
+    console.log('Task created successfully:', task);
+    setShowAddTaskForm(false);
+    setError(null);
+    // Refresh tasks
+    await fetchAllTasks();
+  };
+
+  const handleTaskCancel = () => {
+    setShowAddTaskForm(false);
     setError(null);
   };
 
@@ -320,6 +408,8 @@ const DraftTasks = () => {
           selectedProjectId={selectedProjectId}
           onProjectSelect={handleProjectSelect}
           onCreateProject={handleCreateProject}
+          onEditProject={handleEditProject}
+          refreshTrigger={sidebarRefreshTrigger}
           isCollapsed={false} // This will be injected by the layout
         />
       }
@@ -342,7 +432,7 @@ const DraftTasks = () => {
               <ArrowRight className="h-4 w-4 mr-2" />
               View Board
             </Button>
-            <Button onClick={() => navigate('/task-board')}>
+            <Button onClick={() => setShowAddTaskForm(true)} disabled={!isConnected}>
               <Plus className="h-4 w-4 mr-2" />
               Create Task
             </Button>
@@ -434,7 +524,11 @@ const DraftTasks = () => {
                 const canMoveForward = nextStage !== task.stage;
                 
                 return (
-                  <Card key={task.id} className="card-hover w-full">
+                  <Card 
+                    key={task.id} 
+                    className="card-hover w-full cursor-pointer" 
+                    onDoubleClick={() => handleTaskView(task.id)}
+                  >
                     <CardContent className="p-4 w-full">
                       <div className="flex items-center justify-between w-full">
                         <div className="flex-1 min-w-0 pr-4">
@@ -452,25 +546,25 @@ const DraftTasks = () => {
                             </CardDescription>
                           )}
                         </div>
-                        <div className="flex gap-2 flex-shrink-0">
+                      </div>
+                      <div className="flex gap-2 flex-shrink-0">
+                        <Button 
+                          size="sm" 
+                          variant="outline"
+                          onClick={() => handleEditTask(task.id)}
+                        >
+                          <Edit className="h-3 w-3 mr-1" />
+                          Edit
+                        </Button>
+                        {canMoveForward && (
                           <Button 
-                            size="sm" 
-                            variant="outline"
-                            onClick={() => handleEditTask(task.id)}
+                            size="sm"
+                            onClick={() => handleMoveTask(task.id, nextStage)}
                           >
-                            <Edit className="h-3 w-3 mr-1" />
-                            Edit
+                            <ArrowRight className="h-3 w-3 mr-1" />
+                            To {stages.find(s => s.key === nextStage)?.title}
                           </Button>
-                          {canMoveForward && (
-                            <Button 
-                              size="sm"
-                              onClick={() => handleMoveTask(task.id, nextStage)}
-                            >
-                              <ArrowRight className="h-3 w-3 mr-1" />
-                              To {stages.find(s => s.key === nextStage)?.title}
-                            </Button>
-                          )}
-                        </div>
+                        )}
                       </div>
                     </CardContent>
                   </Card>
@@ -502,11 +596,29 @@ const DraftTasks = () => {
           variant="destructive"
         />
 
-        <ProjectForm
-          mode="create"
+        <ProjectEditForm
+          mode={editingProjectId ? 'edit' : 'create'}
+          projectId={editingProjectId || undefined}
           onSuccess={handleProjectSuccess}
-          onClose={handleProjectCancel}
-          isOpen={showCreateProjectForm}
+          onCancel={handleProjectCancel}
+          onDelete={handleProjectDelete}
+          isOpen={showCreateProjectForm || !!editingProjectId}
+        />
+
+        <TaskForm
+          mode="create"
+          templateId={1}
+          initialStage="draft"
+          onSuccess={handleTaskSuccess}
+          onCancel={handleTaskCancel}
+          isOpen={showAddTaskForm}
+        />
+        
+        <TaskView
+          taskId={viewingTaskId || 0}
+          isOpen={!!viewingTaskId}
+          onClose={() => setViewingTaskId(null)}
+          onEdit={handleSwitchToEdit}
         />
       </div>
     </HeaderAndSidebarLayout>

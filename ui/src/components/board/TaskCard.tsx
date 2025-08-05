@@ -16,6 +16,7 @@ interface TaskCardProps {
   task: Task;
   onUpdate: (taskId?: number, newStage?: string) => void;
   onDelete: () => void;
+  onEdit: () => void;
   isDragging?: boolean;
   projects: Project[];
 }
@@ -24,6 +25,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   task, 
   onUpdate, 
   onDelete, 
+  onEdit,
   isDragging = false,
   projects
 }) => {
@@ -41,8 +43,8 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   };
 
   const handleEdit = () => {
-    // In a real app, this would open an edit modal
     console.log('Edit task:', task.id);
+    onEdit();
   };
 
   const handleDelete = () => {
@@ -79,9 +81,12 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   const project = getProject(task.project_id);
 
   return (
-    <Card className={`group hover:shadow-md transition-all duration-200 cursor-grab active:cursor-grabbing bg-card border border-border ${
-      isDragging ? 'shadow-xl ring-2 ring-primary ring-opacity-50' : ''
-    }`}>
+    <Card 
+      className={`group hover:shadow-md transition-all duration-200 cursor-grab active:cursor-grabbing bg-card border border-border ${
+        isDragging ? 'shadow-xl ring-2 ring-primary ring-opacity-50' : ''
+      }`}
+      onDoubleClick={handleEdit}
+    >
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between">
           <div className="flex-1">

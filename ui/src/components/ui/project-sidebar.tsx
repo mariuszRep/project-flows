@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Plus, Folder, FolderOpen } from 'lucide-react';
+import { Plus, Folder, FolderOpen, Edit2 } from 'lucide-react';
 import { Project } from '@/types/project';
 import { useMCP } from '@/contexts/MCPContext';
 
@@ -10,13 +9,17 @@ interface ProjectSidebarProps {
   selectedProjectId?: number | null;
   onProjectSelect: (projectId: number | null) => void;
   onCreateProject: () => void;
+  onEditProject: (project: Project) => void;
+  refreshTrigger?: number;
 }
 
 export function ProjectSidebar({ 
   isCollapsed, 
   selectedProjectId, 
   onProjectSelect, 
-  onCreateProject 
+  onCreateProject,
+  onEditProject,
+  refreshTrigger 
 }: ProjectSidebarProps) {
   const { callTool, isConnected, tools } = useMCP();
   const [projects, setProjects] = useState<Project[]>([]);
@@ -83,8 +86,15 @@ export function ProjectSidebar({
     }
   }, [isConnected, tools]);
 
+  // Refresh projects when refreshTrigger changes
+  useEffect(() => {
+    if (refreshTrigger && isConnected && tools.length > 0) {
+      fetchProjects();
+    }
+  }, [refreshTrigger, isConnected, tools]);
+
   const getProjectColor = (color: string) => {
-    return `border-l-4` + ` border-[${color}]`;
+    return `border-l border-l-[${color}]`;
   };
 
   const handleProjectClick = (projectId: number) => {
@@ -127,17 +137,30 @@ export function ProjectSidebar({
 
         {/* Project Icons */}
         {projects.map((project) => (
-          <Button
-            key={project.id}
-            variant={selectedProjectId === project.id ? 'secondary' : 'ghost'}
-            size="icon"
-            onClick={() => handleProjectClick(project.id)}
-            className="w-9 h-9 rounded-full"
-            title={project.name}
-            style={{ borderLeftColor: project.color }}
-          >
-            <Folder className="h-4 w-4" />
-          </Button>
+          <div key={project.id} className="relative group">
+            <Button
+              variant={selectedProjectId === project.id ? 'secondary' : 'ghost'}
+              size="icon"
+              onClick={() => handleProjectClick(project.id)}
+              className="w-9 h-9 rounded-full"
+              title={project.name}
+              style={{ borderLeftColor: project.color }}
+            >
+              <Folder className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={(e) => {
+                e.stopPropagation();
+                onEditProject(project);
+              }}
+              className="absolute right-0 top-0 w-4 h-4 rounded-full opacity-0 group-hover:opacity-100 transition-opacity bg-background/90 border shadow-sm"
+              title="Edit Project"
+            >
+              <Edit2 className="h-2 w-2" />
+            </Button>
+          </div>
         ))}
       </div>
     );
@@ -170,7 +193,7 @@ export function ProjectSidebar({
           variant={selectedProjectId === null ? 'secondary' : 'ghost'}
           size="sm"
           onClick={handleAllTasksClick}
-          className="w-full justify-start"
+          className="w-full justify-start hover:bg-secondary hover:text-secondary-foreground"
         >
           <FolderOpen className="h-4 w-4 mr-2" />
           All Tasks
@@ -190,23 +213,29 @@ export function ProjectSidebar({
       ) : (
         <div className="space-y-1">
           {projects.map((project) => (
-            <Button
-              key={project.id}
-              variant={selectedProjectId === project.id ? 'secondary' : 'ghost'}
-              size="sm"
-              onClick={() => handleProjectClick(project.id)}
-              className={`w-full justify-start ${getProjectColor(project.color)} hover:bg-muted`}
-            >
-              <Folder className="h-4 w-4 mr-2" />
-              <span className="truncate flex-1 text-left">{project.name}</span>
-              <Badge 
-                variant="secondary" 
-                className="ml-2 text-xs"
-                style={{ backgroundColor: project.color + '20', color: project.color }}
+            <div key={project.id} className="relative group">
+              <Button
+                variant={selectedProjectId === project.id ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => handleProjectClick(project.id)}
+                className="w-full justify-start pr-8 hover:bg-secondary hover:text-secondary-foreground"
               >
-                {project.id}
-              </Badge>
-            </Button>
+                <Folder className="h-4 w-4 mr-2 flex-shrink-0" />
+                <span className="truncate flex-1 text-left">{project.name}</span>
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEditProject(project);
+                }}
+                className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 rounded-md opacity-0 group-hover:opacity-100 transition-opacity hover:bg-background/80"
+                title="Edit Project"
+              >
+                <Edit2 className="h-3 w-3" />
+              </Button>
+            </div>
           ))}
         </div>
       )}

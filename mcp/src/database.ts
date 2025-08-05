@@ -21,6 +21,7 @@ interface SchemaProperty {
 }
 
 type TaskStage = 'draft' | 'backlog' | 'doing' | 'review' | 'completed';
+type TaskType = 'project' | 'task';
 
 interface ProjectData {
   id: number;
@@ -35,8 +36,10 @@ interface ProjectData {
 
 interface TaskData {
   id: number;
-  project_id?: number;
+  parent_id?: number;
+  project_id?: number; // For backward compatibility with UI
   stage?: TaskStage;
+  type?: TaskType;
   [key: string]: any;
 }
 
@@ -93,30 +96,53 @@ class DatabaseService {
     }
   }
 
+  // Helper function to flatten complex data to text
+  private flattenToText(value: any): string {
+    if (value === null || value === undefined) {
+      return '';
+    }
+    
+    if (typeof value === 'string') {
+      return value;
+    }
+    
+    if (Array.isArray(value)) {
+      return value.join(', ');
+    }
+    
+    if (typeof value === 'object') {
+      return Object.entries(value)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join(', ');
+    }
+    
+    return String(value);
+  }
+
   async createTask(taskData: Omit<TaskData, 'id'>, userId: string = 'system'): Promise<number> {
     const client = await this.pool.connect();
     
     try {
       await client.query('BEGIN');
 
-      // Insert task with stage and project_id
+      // Insert task with parent_id, stage, and type
       const taskQuery = `
-        INSERT INTO tasks (project_id, stage, created_by, updated_by) 
-        VALUES ($1, $2, $3, $4) 
+        INSERT INTO tasks (parent_id, stage, type, created_by, updated_by) 
+        VALUES ($1, $2, $3, $4, $5) 
         RETURNING id
       `;
-      const taskResult = await client.query(taskQuery, [taskData.project_id || null, taskData.stage || 'draft', userId, userId]);
+      const taskResult = await client.query(taskQuery, [taskData.parent_id || null, taskData.stage || 'draft', taskData.type || 'task', userId, userId]);
       const taskId = taskResult.rows[0].id;
 
       // Insert blocks for all properties including Title and Description (previously title/summary)
       let position = 0;
       for (const [key, value] of Object.entries(taskData)) {
-        if (key !== 'stage' && key !== 'project_id' && value) {
+        if (key !== 'stage' && key !== 'parent_id' && key !== 'type' && value) {
           const blockQuery = `
             INSERT INTO blocks (task_id, property_name, content, position, created_by, updated_by) 
             VALUES ($1, $2, $3, $4, $5, $6)
           `;
-          await client.query(blockQuery, [taskId, key, JSON.stringify(value), position++, userId, userId]);
+          await client.query(blockQuery, [taskId, key, this.flattenToText(value), position++, userId, userId]);
         }
       }
 
@@ -136,7 +162,7 @@ class DatabaseService {
     try {
       await client.query('BEGIN');
 
-      // Update task stage and/or project_id if provided
+      // Update task stage, parent_id, and/or type if provided
       const taskUpdates = [];
       const taskValues = [];
       let paramIndex = 1;
@@ -146,9 +172,14 @@ class DatabaseService {
         taskValues.push(updates.stage);
       }
       
-      if (updates.project_id !== undefined) {
-        taskUpdates.push(`project_id = $${paramIndex++}`);
-        taskValues.push(updates.project_id);
+      if (updates.parent_id !== undefined) {
+        taskUpdates.push(`parent_id = $${paramIndex++}`);
+        taskValues.push(updates.parent_id);
+      }
+      
+      if (updates.type !== undefined) {
+        taskUpdates.push(`type = $${paramIndex++}`);
+        taskValues.push(updates.type);
       }
       
       if (taskUpdates.length > 0) {
@@ -163,14 +194,14 @@ class DatabaseService {
 
       // Update blocks for all other properties (including Title and Description)
       for (const [key, value] of Object.entries(updates)) {
-        if (key !== 'id' && key !== 'stage' && key !== 'project_id' && value !== undefined) {
+        if (key !== 'id' && key !== 'stage' && key !== 'parent_id' && key !== 'type' && value !== undefined) {
           const blockQuery = `
             INSERT INTO blocks (task_id, property_name, content, position, created_by, updated_by) 
             VALUES ($1, $2, $3, 0, $4, $5)
             ON CONFLICT (task_id, property_name) 
             DO UPDATE SET content = $3, updated_at = CURRENT_TIMESTAMP, updated_by = $5
           `;
-          await client.query(blockQuery, [taskId, key, JSON.stringify(value), userId, userId]);
+          await client.query(blockQuery, [taskId, key, this.flattenToText(value), userId, userId]);
         }
       }
 
@@ -186,8 +217,8 @@ class DatabaseService {
 
   async getTask(taskId: number): Promise<TaskData | null> {
     try {
-      // Get task core data (id, project_id, and stage)
-      const taskQuery = 'SELECT id, project_id, stage FROM tasks WHERE id = $1';
+      // Get task core data (id, parent_id, stage, and type)
+      const taskQuery = 'SELECT id, parent_id, stage, type FROM tasks WHERE id = $1';
       const taskResult = await this.pool.query(taskQuery, [taskId]);
       
       if (taskResult.rows.length === 0) {
@@ -208,18 +239,15 @@ class DatabaseService {
       // Build complete task data
       const taskData: TaskData = {
         id: task.id,
-        project_id: task.project_id,
+        parent_id: task.parent_id,
+        project_id: task.parent_id, // For backward compatibility with UI
         stage: task.stage,
+        type: task.type,
       };
 
       for (const block of blocksResult.rows) {
-        // Parse JSON content back to original value
-        try {
-          taskData[block.property_name] = JSON.parse(block.content);
-        } catch (parseError) {
-          // If JSON parsing fails, store as string
-          taskData[block.property_name] = block.content;
-        }
+        // Content is now stored as TEXT, use directly
+        taskData[block.property_name] = block.content;
       }
 
       return taskData;
@@ -240,15 +268,21 @@ class DatabaseService {
     }
   }
 
-  async listTasks(stageFilter?: string): Promise<TaskData[]> {
+  async listTasks(stageFilter?: string, projectIdFilter?: number): Promise<TaskData[]> {
     try {
-      // Get basic task data
-      let query = 'SELECT id, project_id, stage FROM tasks';
-      let params: any[] = [];
+      // Get basic task data, excluding project-type tasks
+      let query = 'SELECT id, parent_id, stage, type FROM tasks WHERE type != $1';
+      let params: any[] = ['project'];
+      let paramIndex = 2;
       
       if (stageFilter) {
-        query += ' WHERE stage = $1';
+        query += ` AND stage = $${paramIndex++}`;
         params.push(stageFilter);
+      }
+      
+      if (projectIdFilter !== undefined) {
+        query += ` AND parent_id = $${paramIndex++}`;
+        params.push(projectIdFilter);
       }
       
       query += ' ORDER BY id';
@@ -285,18 +319,17 @@ class DatabaseService {
       return tasksResult.rows.map((row: any) => {
         const taskData: TaskData = {
           id: row.id,
-          project_id: row.project_id,
+          parent_id: row.parent_id,
+          project_id: row.parent_id, // For backward compatibility with UI
           stage: row.stage,
+          type: row.type,
         };
         
         // Add blocks for this task
         const taskBlocks = blocksByTask[row.id] || [];
         for (const block of taskBlocks) {
-          try {
-            taskData[block.property_name] = JSON.parse(block.content);
-          } catch (parseError) {
-            taskData[block.property_name] = block.content;
-          }
+          // Content is now stored as TEXT, use directly
+          taskData[block.property_name] = block.content;
         }
         
         return taskData;
@@ -572,31 +605,58 @@ class DatabaseService {
     }
   }
 
-  // Project CRUD operations
+  // Project CRUD operations (using tasks table with type='project')
   async createProject(projectData: {
     name: string;
     description?: string;
     color?: string;
   }, userId: string = 'system'): Promise<number> {
+    const client = await this.pool.connect();
     try {
-      const query = `
-        INSERT INTO projects (name, description, color, created_by, updated_by) 
-        VALUES ($1, $2, $3, $4, $5) 
+      await client.query('BEGIN');
+
+      // Create task with type='project'
+      const taskQuery = `
+        INSERT INTO tasks (parent_id, stage, type, created_by, updated_by) 
+        VALUES (NULL, 'backlog', 'project', $1, $2) 
         RETURNING id
       `;
-      const values = [
-        projectData.name,
-        projectData.description || null,
-        projectData.color || '#3b82f6',
-        userId,
-        userId
-      ];
+      const taskResult = await client.query(taskQuery, [userId, userId]);
+      const taskId = taskResult.rows[0].id;
 
-      const result = await this.pool.query(query, values);
-      return result.rows[0].id;
+      // Insert Title block
+      const titleQuery = `
+        INSERT INTO blocks (task_id, property_name, content, position, created_by, updated_by) 
+        VALUES ($1, 'Title', $2, 1, $3, $4)
+      `;
+      await client.query(titleQuery, [taskId, projectData.name, userId, userId]);
+
+      // Insert Description block if provided
+      if (projectData.description) {
+        const descQuery = `
+          INSERT INTO blocks (task_id, property_name, content, position, created_by, updated_by) 
+          VALUES ($1, 'Description', $2, 2, $3, $4)
+        `;
+        await client.query(descQuery, [taskId, projectData.description, userId, userId]);
+      }
+
+      // Insert color as Notes block for backward compatibility
+      if (projectData.color) {
+        const colorQuery = `
+          INSERT INTO blocks (task_id, property_name, content, position, created_by, updated_by) 
+          VALUES ($1, 'Notes', $2, 3, $3, $4)
+        `;
+        await client.query(colorQuery, [taskId, `Color: ${projectData.color}`, userId, userId]);
+      }
+
+      await client.query('COMMIT');
+      return taskId;
     } catch (error) {
+      await client.query('ROLLBACK');
       console.error('Error creating project:', error);
       throw error;
+    } finally {
+      client.release();
     }
   }
 
@@ -605,52 +665,109 @@ class DatabaseService {
     description?: string;
     color?: string;
   }, userId: string = 'system'): Promise<boolean> {
+    const client = await this.pool.connect();
     try {
-      const updateFields = [];
-      const values = [];
-      let paramIndex = 1;
+      await client.query('BEGIN');
 
+      // Verify this is a project task
+      const checkQuery = 'SELECT id FROM tasks WHERE id = $1 AND type = $2';
+      const checkResult = await client.query(checkQuery, [projectId, 'project']);
+      if (checkResult.rows.length === 0) {
+        return false; // Project not found
+      }
+
+      // Update task timestamp
+      const taskUpdateQuery = 'UPDATE tasks SET updated_at = CURRENT_TIMESTAMP, updated_by = $1 WHERE id = $2';
+      await client.query(taskUpdateQuery, [userId, projectId]);
+
+      // Update Title block if name is provided
       if (updates.name !== undefined) {
-        updateFields.push(`name = $${paramIndex++}`);
-        values.push(updates.name);
+        const titleQuery = `
+          INSERT INTO blocks (task_id, property_name, content, position, created_by, updated_by) 
+          VALUES ($1, 'Title', $2, 1, $3, $4)
+          ON CONFLICT (task_id, property_name) 
+          DO UPDATE SET content = EXCLUDED.content, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP
+        `;
+        await client.query(titleQuery, [projectId, updates.name, userId, userId]);
       }
+
+      // Update Description block if provided
       if (updates.description !== undefined) {
-        updateFields.push(`description = $${paramIndex++}`);
-        values.push(updates.description);
+        const descQuery = `
+          INSERT INTO blocks (task_id, property_name, content, position, created_by, updated_by) 
+          VALUES ($1, 'Description', $2, 2, $3, $4)
+          ON CONFLICT (task_id, property_name) 
+          DO UPDATE SET content = EXCLUDED.content, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP
+        `;
+        await client.query(descQuery, [projectId, updates.description, userId, userId]);
       }
+
+      // Update color in Notes block if provided
       if (updates.color !== undefined) {
-        updateFields.push(`color = $${paramIndex++}`);
-        values.push(updates.color);
+        const colorQuery = `
+          INSERT INTO blocks (task_id, property_name, content, position, created_by, updated_by) 
+          VALUES ($1, 'Notes', $2, 3, $3, $4)
+          ON CONFLICT (task_id, property_name) 
+          DO UPDATE SET content = EXCLUDED.content, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP
+        `;
+        await client.query(colorQuery, [projectId, `Color: ${updates.color}`, userId, userId]);
       }
 
-      if (updateFields.length === 0) {
-        return false; // No fields to update
-      }
-
-      updateFields.push(`updated_at = CURRENT_TIMESTAMP`);
-      updateFields.push(`updated_by = $${paramIndex++}`);
-      values.push(userId);
-      values.push(projectId);
-
-      const query = `UPDATE projects SET ${updateFields.join(', ')} WHERE id = $${paramIndex}`;
-      const result = await this.pool.query(query, values);
-      return (result.rowCount || 0) > 0;
+      await client.query('COMMIT');
+      return true;
     } catch (error) {
+      await client.query('ROLLBACK');
       console.error('Error updating project:', error);
       throw error;
+    } finally {
+      client.release();
     }
   }
 
   async getProject(projectId: number): Promise<ProjectData | null> {
     try {
-      const query = 'SELECT id, name, description, color, created_at, updated_at, created_by, updated_by FROM projects WHERE id = $1';
-      const result = await this.pool.query(query, [projectId]);
+      // Get task data for project type
+      const taskQuery = 'SELECT id, created_at, updated_at, created_by, updated_by FROM tasks WHERE id = $1 AND type = $2';
+      const taskResult = await this.pool.query(taskQuery, [projectId, 'project']);
       
-      if (result.rows.length === 0) {
+      if (taskResult.rows.length === 0) {
         return null;
       }
 
-      return result.rows[0];
+      const task = taskResult.rows[0];
+
+      // Get blocks for this project
+      const blocksQuery = 'SELECT property_name, content FROM blocks WHERE task_id = $1 ORDER BY position';
+      const blocksResult = await this.pool.query(blocksQuery, [projectId]);
+
+      // Build project data from blocks
+      let name = 'Untitled Project';
+      let description = '';
+      let color = '#3b82f6';
+
+      for (const block of blocksResult.rows) {
+        // Content is now stored as TEXT
+        const content = block.content;
+        
+        if (block.property_name === 'Title') {
+          name = content;
+        } else if (block.property_name === 'Description') {
+          description = content;
+        } else if (block.property_name === 'Notes' && content.startsWith('Color: ')) {
+          color = content.replace('Color: ', '');
+        }
+      }
+
+      return {
+        id: task.id,
+        name,
+        description,
+        color,
+        created_at: task.created_at,
+        updated_at: task.updated_at,
+        created_by: task.created_by,
+        updated_by: task.updated_by
+      };
     } catch (error) {
       console.error('Error fetching project:', error);
       return null;
@@ -659,9 +776,54 @@ class DatabaseService {
 
   async listProjects(): Promise<ProjectData[]> {
     try {
-      const query = 'SELECT id, name, description, color, created_at, updated_at, created_by, updated_by FROM projects ORDER BY name';
-      const result = await this.pool.query(query);
-      return result.rows;
+      // Get all project tasks
+      const tasksQuery = 'SELECT id, created_at, updated_at, created_by, updated_by FROM tasks WHERE type = $1 ORDER BY created_at';
+      const tasksResult = await this.pool.query(tasksQuery, ['project']);
+      
+      if (tasksResult.rows.length === 0) {
+        return [];
+      }
+
+      const projects: ProjectData[] = [];
+
+      // Get blocks for all project tasks
+      for (const task of tasksResult.rows) {
+        const blocksQuery = 'SELECT property_name, content FROM blocks WHERE task_id = $1 ORDER BY position';
+        const blocksResult = await this.pool.query(blocksQuery, [task.id]);
+
+        // Build project data from blocks
+        let name = 'Untitled Project';
+        let description = '';
+        let color = '#3b82f6';
+
+        for (const block of blocksResult.rows) {
+          // Content is now stored as TEXT
+          const content = block.content;
+          
+          if (block.property_name === 'Title') {
+            name = content;
+          } else if (block.property_name === 'Description') {
+            description = content;
+          } else if (block.property_name === 'Notes' && content.startsWith('Color: ')) {
+            color = content.replace('Color: ', '');
+          }
+        }
+
+        projects.push({
+          id: task.id,
+          name,
+          description,
+          color,
+          created_at: task.created_at,
+          updated_at: task.updated_at,
+          created_by: task.created_by,
+          updated_by: task.updated_by
+        });
+      }
+
+      // Sort by name
+      projects.sort((a, b) => a.name.localeCompare(b.name));
+      return projects;
     } catch (error) {
       console.error('Error fetching projects list:', error);
       return [];
@@ -674,28 +836,32 @@ class DatabaseService {
     try {
       await client.query('BEGIN');
 
-      // Check if project exists
-      const projectQuery = 'SELECT id FROM projects WHERE id = $1';
-      const projectResult = await client.query(projectQuery, [projectId]);
+      // Check if project exists (using tasks table with type='project')
+      const projectQuery = 'SELECT id FROM tasks WHERE id = $1 AND type = $2';
+      const projectResult = await client.query(projectQuery, [projectId, 'project']);
       
       if (projectResult.rows.length === 0) {
         await client.query('ROLLBACK');
         return false;
       }
 
-      // Check for tasks using this project
-      const tasksQuery = 'SELECT COUNT(*) as count FROM tasks WHERE project_id = $1';
+      // Check for child tasks using this project as parent
+      const tasksQuery = 'SELECT COUNT(*) as count FROM tasks WHERE parent_id = $1';
       const tasksResult = await client.query(tasksQuery, [projectId]);
       const taskCount = parseInt(tasksResult.rows[0].count);
 
       if (taskCount > 0) {
         await client.query('ROLLBACK');
-        throw new Error(`Project cannot be deleted because it is used by ${taskCount} existing task(s). Remove tasks from this project first.`);
+        throw new Error(`Project cannot be deleted because it is used by ${taskCount} existing child task(s). Remove child tasks from this project first.`);
       }
 
-      // Safe to delete - no references exist
-      const deleteQuery = 'DELETE FROM projects WHERE id = $1';
-      const deleteResult = await client.query(deleteQuery, [projectId]);
+      // Delete blocks associated with this project
+      const deleteBlocksQuery = 'DELETE FROM blocks WHERE task_id = $1';
+      await client.query(deleteBlocksQuery, [projectId]);
+
+      // Delete the project task itself
+      const deleteQuery = 'DELETE FROM tasks WHERE id = $1 AND type = $2';
+      const deleteResult = await client.query(deleteQuery, [projectId, 'project']);
       
       await client.query('COMMIT');
       return (deleteResult.rowCount || 0) > 0;

@@ -6,7 +6,8 @@ import { Project } from '@/types/project';
 import { TaskBoard } from '@/components/board/TaskBoard';
 import { Button } from '@/components/ui/button';
 import TaskForm from '@/components/forms/TaskForm';
-import ProjectForm from '@/components/forms/ProjectForm';
+import TaskView from '@/components/task/TaskView';
+import ProjectEditForm from '@/components/forms/ProjectEditForm';
 import { ProjectSidebar } from '@/components/ui/project-sidebar';
 import { MCPDisconnectedState, NoTasksState } from '@/components/ui/empty-state';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
@@ -32,6 +33,10 @@ export default function Board() {
   const [error, setError] = useState<string | null>(null);
   const [showAddTaskForm, setShowAddTaskForm] = useState(false);
   const [showCreateProjectForm, setShowCreateProjectForm] = useState(false);
+  const [editingProjectId, setEditingProjectId] = useState<number | null>(null);
+  const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
+  const [sidebarRefreshTrigger, setSidebarRefreshTrigger] = useState(0);
+  const [viewingTaskId, setViewingTaskId] = useState<number | null>(null);
   const [deleteDialog, setDeleteDialog] = useState<{
     isOpen: boolean;
     taskId: number | null;
@@ -65,7 +70,16 @@ export default function Board() {
       
       if (listTasksTool) {
         try {
-          const result = await callTool('list_tasks', {});
+          // Build arguments for list_tasks, including project_id if a project is selected
+          const listTasksArgs: any = {};
+          if (selectedProjectId !== null) {
+            listTasksArgs.project_id = selectedProjectId;
+            console.log(`Calling list_tasks with project_id: ${selectedProjectId}`);
+          } else {
+            console.log('Calling list_tasks for all projects');
+          }
+          
+          const result = await callTool('list_tasks', listTasksArgs);
           if (result && result.content && result.content[0]) {
             console.log('List tasks result:', result.content);
             
@@ -117,17 +131,9 @@ export default function Board() {
         index === self.findIndex(t => t.id === task.id)
       );
       
-      // Filter tasks by selected project if one is selected
-      let filteredTasks = uniqueTasks;
-      if (selectedProjectId !== null) {
-        console.log(`Filtering tasks by project ID: ${selectedProjectId}`);
-        console.log('Task project IDs:', uniqueTasks.map(t => `${t.id}:${t.project_id}`));
-        filteredTasks = uniqueTasks.filter(task => task.project_id === selectedProjectId);
-        console.log('Filtered task IDs:', filteredTasks.map(t => t.id));
-      }
-      
-      console.log(`Found ${uniqueTasks.length} total tasks, ${filteredTasks.length} after project filtering, selected project: ${selectedProjectId}`);
-      setTasks(filteredTasks);
+      // No need for client-side project filtering since we pass project_id to list_tasks
+      console.log(`Found ${uniqueTasks.length} tasks for selected project: ${selectedProjectId}`);
+      setTasks(uniqueTasks);
       
     } catch (err) {
       console.error('Error fetching tasks:', err);
@@ -231,34 +237,87 @@ export default function Board() {
     navigate('/settings');
   };
 
+  const handleTaskEdit = (taskId: number) => {
+    console.log('Edit task:', taskId);
+    setEditingTaskId(taskId);
+  };
+  
+  const handleTaskView = (taskId: number) => {
+    console.log('View task:', taskId);
+    setViewingTaskId(taskId);
+  };
+  
+  const handleSwitchToEdit = () => {
+    if (viewingTaskId) {
+      setEditingTaskId(viewingTaskId);
+      setViewingTaskId(null);
+    }
+  };
+
   const handleTaskSuccess = async (task: Task) => {
-    console.log('Task created successfully:', task);
+    console.log('Task created/updated successfully:', task);
     setShowAddTaskForm(false);
-    setError(null);
-    // Refresh tasks after successful creation
-    await fetchTasks();
-  };
-
-  const handleTaskCancel = () => {
-    setShowAddTaskForm(false);
-    setError(null);
-  };
-
-  const handleCreateProject = () => {
-    setShowCreateProjectForm(true);
+    setEditingTaskId(null);
   };
 
   const handleProjectSuccess = async (project: Project) => {
-    console.log('Project created successfully:', project);
+    console.log('Project created/updated successfully:', project);
     setShowCreateProjectForm(false);
+    setEditingProjectId(null);
     setError(null);
     // Refresh projects
     await fetchProjects();
+    // Trigger sidebar refresh
+    setSidebarRefreshTrigger(prev => prev + 1);
   };
 
   const handleProjectCancel = () => {
     setShowCreateProjectForm(false);
+    setEditingProjectId(null);
     setError(null);
+  };
+
+  const handleEditProject = (project: Project) => {
+    setEditingProjectId(project.id);
+  };
+
+  const handleProjectDelete = async (projectId: number, projectTitle: string) => {
+    if (!isConnected || !callTool) {
+      console.log('MCP not connected, skipping project delete');
+      return;
+    }
+
+    try {
+      const deleteTool = tools.find(tool => tool.name === 'delete_task');
+      
+      if (deleteTool) {
+        const result = await callTool('delete_task', {
+          task_id: projectId
+        });
+        
+        console.log('Project delete result:', result);
+        
+        // Close the edit form
+        setEditingProjectId(null);
+        setShowCreateProjectForm(false);
+        
+        // If the deleted project was selected, deselect it
+        if (selectedProjectId === projectId) {
+          await handleProjectSelect(null);
+        }
+        
+        // Refresh projects
+        await fetchProjects();
+        // Trigger sidebar refresh
+        setSidebarRefreshTrigger(prev => prev + 1);
+      } else {
+        console.log('Delete tool not available');
+        setError('Delete functionality is not available');
+      }
+    } catch (err) {
+      console.error('Error deleting project:', err);
+      setError(err instanceof Error ? err.message : 'Failed to delete project');
+    }
   };
 
   const handleProjectSelect = async (projectId: number | null) => {
@@ -281,7 +340,9 @@ export default function Board() {
         <ProjectSidebar
           selectedProjectId={selectedProjectId}
           onProjectSelect={handleProjectSelect}
-          onCreateProject={handleCreateProject}
+          onCreateProject={() => setShowCreateProjectForm(true)}
+          onEditProject={handleEditProject}
+          refreshTrigger={sidebarRefreshTrigger}
           isCollapsed={false} // This will be injected by the layout
         />
       }
@@ -306,7 +367,7 @@ export default function Board() {
             </Button>
             <Button onClick={() => setShowAddTaskForm(true)} disabled={!isConnected}>
               <Plus className="h-4 w-4 mr-2" />
-              Add Task
+              Create Task
             </Button>
           </div>
         </div>
@@ -318,19 +379,34 @@ export default function Board() {
         )}
 
         <TaskForm
-          mode="create"
+          mode={editingTaskId ? 'edit' : 'create'}
+          taskId={editingTaskId || undefined}
           templateId={1}
           initialStage="draft"
           onSuccess={handleTaskSuccess}
-          onCancel={handleTaskCancel}
-          isOpen={showAddTaskForm}
+          onCancel={() => {
+            setShowAddTaskForm(false);
+            setEditingTaskId(null);
+            setError(null);
+          }}
+          onDelete={handleTaskDelete}
+          isOpen={showAddTaskForm || !!editingTaskId}
+        />
+        
+        <TaskView
+          taskId={viewingTaskId || 0}
+          isOpen={!!viewingTaskId}
+          onClose={() => setViewingTaskId(null)}
+          onEdit={handleSwitchToEdit}
         />
 
-        <ProjectForm
-          mode="create"
+        <ProjectEditForm
+          mode={editingProjectId ? 'edit' : 'create'}
+          projectId={editingProjectId || undefined}
           onSuccess={handleProjectSuccess}
-          onClose={handleProjectCancel}
-          isOpen={showCreateProjectForm}
+          onCancel={handleProjectCancel}
+          onDelete={handleProjectDelete}
+          isOpen={showCreateProjectForm || !!editingProjectId}
         />
 
         {isLoading ? (
@@ -350,6 +426,7 @@ export default function Board() {
             setTasks={setTasks}
             onTaskUpdate={handleTaskUpdate}
             onTaskDelete={handleTaskDelete}
+            onTaskEdit={handleTaskView}
             projects={projects}
           />
         )}
