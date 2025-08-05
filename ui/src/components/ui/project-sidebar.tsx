@@ -146,10 +146,10 @@ export function ProjectSidebar({
                 e.stopPropagation();
                 onEditProject(project);
               }}
-              className="absolute -right-1 -top-1 w-6 h-6 rounded-full opacity-0 group-hover:opacity-100 transition-opacity bg-background border shadow-sm"
+              className="absolute right-0 top-0 w-4 h-4 rounded-full opacity-0 group-hover:opacity-100 transition-opacity bg-background/90 border shadow-sm"
               title="Edit Project"
             >
-              <Edit2 className="h-3 w-3" />
+              <Edit2 className="h-2 w-2" />
             </Button>
           </div>
         ))}
@@ -181,7 +181,7 @@ export function ProjectSidebar({
       {/* All Tasks Option */}
       <div className="mb-2">
         <Button
-          variant={selectedProjectId === null ? 'secondary' : 'ghost'}
+          variant={selectedProjectId === null ? 'secondary' : 'outline'}
           size="sm"
           onClick={handleAllTasksClick}
           className="w-full justify-start"
@@ -204,14 +204,14 @@ export function ProjectSidebar({
       ) : (
         <div className="space-y-1">
           {projects.map((project) => (
-            <div key={project.id} className="flex items-center gap-1">
+            <div key={project.id} className="relative group">
               <Button
-                variant={selectedProjectId === project.id ? 'secondary' : 'ghost'}
+                variant={selectedProjectId === project.id ? 'secondary' : 'outline'}
                 size="sm"
                 onClick={() => handleProjectClick(project.id)}
-                className={`flex-1 justify-start ${getProjectColor(project.color)} hover:bg-muted`}
+                className={`w-full justify-start ${getProjectColor(project.color)} pr-8`}
               >
-                <Folder className="h-4 w-4 mr-2" />
+                <Folder className="h-4 w-4 mr-2 flex-shrink-0" />
                 <span className="truncate flex-1 text-left">{project.name}</span>
               </Button>
               <Button
@@ -221,7 +221,7 @@ export function ProjectSidebar({
                   e.stopPropagation();
                   onEditProject(project);
                 }}
-                className="h-8 w-8 rounded-md opacity-60 hover:opacity-100 transition-opacity"
+                className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 rounded-md opacity-0 group-hover:opacity-100 transition-opacity hover:bg-background/80"
                 title="Edit Project"
               >
                 <Edit2 className="h-3 w-3" />
