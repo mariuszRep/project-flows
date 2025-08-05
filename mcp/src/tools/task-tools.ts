@@ -165,6 +165,20 @@ export class TaskTools {
     if (toolArgs?.parent_id !== undefined) {
       taskData.parent_id = toolArgs.parent_id;
       console.log(`Creating task with parent_id ${toolArgs.parent_id}`);
+    } else {
+      // If no parent_id is provided, use the selected project from global state
+      if (this.projectTools) {
+        try {
+          // Get the selected project ID from global state
+          const selectedProjectId = await this.sharedDbService.getGlobalState('selected_project_id');
+          if (selectedProjectId !== null) {
+            taskData.parent_id = selectedProjectId;
+            console.log(`Using selected project ID ${selectedProjectId} as parent_id`);
+          }
+        } catch (error) {
+          console.error('Error getting selected project:', error);
+        }
+      }
     }
 
     // Handle type for project/task distinction
@@ -210,11 +224,32 @@ export class TaskTools {
     // Create the markdown formatted task plan
     const title = toolArgs?.Title || "";
     const description = toolArgs?.Description || toolArgs?.Summary || "";
-    
-    let markdownContent = `# Task
-**Task ID:** ${taskId}
+  
+    // Get project/parent information if task has parent_id
+    let projectInfo = 'None';
+    let projectId = taskData.parent_id;
+  
+    if (projectId) {
+      try {
+        const parentTask = await this.sharedDbService.getTask(projectId);
+        projectInfo = parentTask ? `${parentTask.Title || 'Untitled'}` : 'Unknown';
+      } catch (error) {
+        console.error('Error loading parent/project task:', error);
+        projectInfo = 'Unknown';
+      }
+    }
+  
+    const taskType = taskData.type || 'task';
+    const typeDisplay = taskType === 'project' ? 'Project' : 'Task';
+  
+    let markdownContent = `# ${typeDisplay}
+**${typeDisplay} ID:** ${taskId}
 
 **Title:** ${title}
+
+**Project ID:** ${projectId || 'None'}
+
+**Project Name:** ${projectInfo}
 
 ## Description
 
