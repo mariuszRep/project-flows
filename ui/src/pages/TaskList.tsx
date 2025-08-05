@@ -470,7 +470,11 @@ const DraftTasks = () => {
                 const canMoveForward = nextStage !== task.stage;
                 
                 return (
-                  <Card key={task.id} className="card-hover w-full">
+                  <Card 
+                    key={task.id} 
+                    className="card-hover w-full cursor-pointer" 
+                    onDoubleClick={() => handleTaskView(task.id)}
+                  >
                     <CardContent className="p-4 w-full">
                       <div className="flex items-center justify-between w-full">
                         <div className="flex-1 min-w-0 pr-4">
@@ -490,14 +494,6 @@ const DraftTasks = () => {
                         </div>
                       </div>
                       <div className="flex gap-2 flex-shrink-0">
-                        <Button 
-                          size="sm" 
-                          variant="outline"
-                          onClick={() => handleTaskView(task.id)}
-                        >
-                          <Edit className="h-3 w-3 mr-1" />
-                          View
-                        </Button>
                         <Button 
                           size="sm" 
                           variant="outline"

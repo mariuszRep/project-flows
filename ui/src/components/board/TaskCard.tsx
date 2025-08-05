@@ -81,9 +81,12 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   const project = getProject(task.project_id);
 
   return (
-    <Card className={`group hover:shadow-md transition-all duration-200 cursor-grab active:cursor-grabbing bg-card border border-border ${
-      isDragging ? 'shadow-xl ring-2 ring-primary ring-opacity-50' : ''
-    }`}>
+    <Card 
+      className={`group hover:shadow-md transition-all duration-200 cursor-grab active:cursor-grabbing bg-card border border-border ${
+        isDragging ? 'shadow-xl ring-2 ring-primary ring-opacity-50' : ''
+      }`}
+      onDoubleClick={handleEdit}
+    >
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between">
           <div className="flex-1">

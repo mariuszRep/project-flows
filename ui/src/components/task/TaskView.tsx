@@ -41,15 +41,12 @@ const TaskView: React.FC<TaskViewProps> = ({
         throw new Error('MCP not connected');
       }
 
-      const result = await callTool('get_task', {
-        task_id: taskId,
-        output_format: 'markdown'
-      });
+      if (!taskId) {
+        throw new Error('No task ID provided');
+      }
 
-      if (result && result.content && result.content[0]) {
-        setMarkdownContent(result.content[0].text);
-        
-        // Also try to get JSON format for task data
+      // First try to get JSON format for task data
+      try {
         const jsonResult = await callTool('get_task', {
           task_id: taskId,
           output_format: 'json'
@@ -61,14 +58,30 @@ const TaskView: React.FC<TaskViewProps> = ({
             setTask(taskData);
           } catch (e) {
             console.error('Error parsing task JSON:', e);
+            setError('Error parsing task data');
           }
+        } else {
+          console.warn('No JSON data returned for task');
         }
+      } catch (jsonErr) {
+        console.error('Error fetching task JSON:', jsonErr);
+        // Continue to markdown fetch even if JSON fails
+      }
+
+      // Then get markdown format
+      const result = await callTool('get_task', {
+        task_id: taskId,
+        output_format: 'markdown'
+      });
+
+      if (result && result.content && result.content[0]) {
+        setMarkdownContent(result.content[0].text);
       } else {
-        setError('Failed to fetch task details');
+        throw new Error('Failed to fetch task details');
       }
     } catch (err) {
       console.error('Error fetching task:', err);
-      setError('Error fetching task details');
+      setError(`Error: ${err instanceof Error ? err.message : 'Failed to fetch task details'}`);
     } finally {
       setIsLoading(false);
     }
