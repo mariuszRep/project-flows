@@ -85,7 +85,7 @@ export function ProjectSidebar({
   }, [isConnected, tools]);
 
   const getProjectColor = (color: string) => {
-    return `border-l-4` + ` border-[${color}]`;
+    return `border-l border-l-[${color}]`;
   };
 
   const handleProjectClick = (projectId: number) => {
@@ -181,7 +181,7 @@ export function ProjectSidebar({
       {/* All Tasks Option */}
       <div className="mb-2">
         <Button
-          variant={selectedProjectId === null ? 'secondary' : 'outline'}
+          variant={selectedProjectId === null ? 'secondary' : 'ghost'}
           size="sm"
           onClick={handleAllTasksClick}
           className="w-full justify-start"
@@ -206,10 +206,10 @@ export function ProjectSidebar({
           {projects.map((project) => (
             <div key={project.id} className="relative group">
               <Button
-                variant={selectedProjectId === project.id ? 'secondary' : 'outline'}
+                variant={selectedProjectId === project.id ? 'secondary' : 'ghost'}
                 size="sm"
                 onClick={() => handleProjectClick(project.id)}
-                className={`w-full justify-start ${getProjectColor(project.color)} pr-8`}
+                className="w-full justify-start pr-8"
               >
                 <Folder className="h-4 w-4 mr-2 flex-shrink-0" />
                 <span className="truncate flex-1 text-left">{project.name}</span>
