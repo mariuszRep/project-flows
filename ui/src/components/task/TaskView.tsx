@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { X, Edit } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { X, Edit, Calendar, CheckCircle2 } from 'lucide-react';
 import { useMCP } from '@/contexts/MCPContext';
-import { Task } from '@/types/task';
+import { Task, TaskStage } from '@/types/task';
 
 interface TaskViewProps {
   taskId: number;
@@ -104,8 +105,38 @@ const TaskView: React.FC<TaskViewProps> = ({
               <p className="text-red-800 text-sm">{error}</p>
             </div>
           ) : (
-            <div className="prose dark:prose-invert max-w-none">
-              <ReactMarkdown>{markdownContent}</ReactMarkdown>
+            <div>
+              {task && (
+                <div className="mb-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Badge variant="outline" className="text-xs">
+                      #{taskId}
+                    </Badge>
+                    {task.stage && (
+                      <Badge 
+                        className={`
+                          ${task.stage === 'draft' ? 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200' : ''}
+                          ${task.stage === 'backlog' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' : ''}
+                          ${task.stage === 'doing' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' : ''}
+                          ${task.stage === 'review' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200' : ''}
+                          ${task.stage === 'completed' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' : ''}
+                        `}
+                      >
+                        {task.stage.charAt(0).toUpperCase() + task.stage.slice(1)}
+                      </Badge>
+                    )}
+                    {task.created_at && (
+                      <div className="text-xs text-muted-foreground flex items-center gap-1">
+                        <Calendar className="h-3 w-3" />
+                        {new Date(task.created_at).toLocaleDateString()}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+              <div className="prose dark:prose-invert max-w-none prose-headings:font-semibold prose-headings:text-foreground prose-p:text-muted-foreground prose-strong:text-foreground prose-code:text-foreground prose-code:bg-muted prose-code:rounded prose-code:px-1 prose-code:py-0.5 prose-pre:bg-muted prose-pre:text-foreground prose-pre:rounded-md prose-a:text-primary prose-li:text-muted-foreground">
+                <ReactMarkdown>{markdownContent}</ReactMarkdown>
+              </div>
             </div>
           )}
         </CardContent>

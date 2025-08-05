@@ -6,6 +6,7 @@ import { Project } from '@/types/project';
 import { TaskBoard } from '@/components/board/TaskBoard';
 import { Button } from '@/components/ui/button';
 import TaskForm from '@/components/forms/TaskForm';
+import TaskView from '@/components/task/TaskView';
 import ProjectForm from '@/components/forms/ProjectForm';
 import { ProjectSidebar } from '@/components/ui/project-sidebar';
 import { MCPDisconnectedState, NoTasksState } from '@/components/ui/empty-state';
@@ -33,6 +34,7 @@ export default function Board() {
   const [showAddTaskForm, setShowAddTaskForm] = useState(false);
   const [showCreateProjectForm, setShowCreateProjectForm] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
+  const [viewingTaskId, setViewingTaskId] = useState<number | null>(null);
   const [deleteDialog, setDeleteDialog] = useState<{
     isOpen: boolean;
     taskId: number | null;
@@ -233,23 +235,27 @@ export default function Board() {
     navigate('/settings');
   };
 
+  const handleTaskEdit = (taskId: number) => {
+    console.log('Edit task:', taskId);
+    setEditingTaskId(taskId);
+  };
+  
+  const handleTaskView = (taskId: number) => {
+    console.log('View task:', taskId);
+    setViewingTaskId(taskId);
+  };
+  
+  const handleSwitchToEdit = () => {
+    if (viewingTaskId) {
+      setEditingTaskId(viewingTaskId);
+      setViewingTaskId(null);
+    }
+  };
+
   const handleTaskSuccess = async (task: Task) => {
     console.log('Task created/updated successfully:', task);
     setShowAddTaskForm(false);
     setEditingTaskId(null);
-    setError(null);
-    // Refresh tasks after successful creation/update
-    await fetchTasks();
-  };
-
-  const handleTaskCancel = () => {
-    setShowAddTaskForm(false);
-    setEditingTaskId(null);
-    setError(null);
-  };
-
-  const handleCreateProject = () => {
-    setShowCreateProjectForm(true);
   };
 
   const handleProjectSuccess = async (project: Project) => {
@@ -285,7 +291,7 @@ export default function Board() {
         <ProjectSidebar
           selectedProjectId={selectedProjectId}
           onProjectSelect={handleProjectSelect}
-          onCreateProject={handleCreateProject}
+          onCreateProject={() => setShowCreateProjectForm(true)}
           isCollapsed={false} // This will be injected by the layout
         />
       }
@@ -327,9 +333,20 @@ export default function Board() {
           templateId={1}
           initialStage="draft"
           onSuccess={handleTaskSuccess}
-          onCancel={handleTaskCancel}
+          onCancel={() => {
+            setShowAddTaskForm(false);
+            setEditingTaskId(null);
+            setError(null);
+          }}
           onDelete={handleTaskDelete}
           isOpen={showAddTaskForm || !!editingTaskId}
+        />
+        
+        <TaskView
+          taskId={viewingTaskId || 0}
+          isOpen={!!viewingTaskId}
+          onClose={() => setViewingTaskId(null)}
+          onEdit={handleSwitchToEdit}
         />
 
         <ProjectForm
@@ -356,7 +373,7 @@ export default function Board() {
             setTasks={setTasks}
             onTaskUpdate={handleTaskUpdate}
             onTaskDelete={handleTaskDelete}
-            onTaskEdit={(taskId) => setEditingTaskId(taskId)}
+            onTaskEdit={handleTaskView}
             projects={projects}
           />
         )}

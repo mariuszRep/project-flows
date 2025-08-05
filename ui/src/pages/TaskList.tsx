@@ -15,6 +15,7 @@ import { ProjectSidebar } from '@/components/ui/project-sidebar';
 import ProjectForm from '@/components/forms/ProjectForm';
 import { FileText, Plus, Edit, ArrowRight, Filter } from 'lucide-react';
 import TaskForm from '@/components/forms/TaskForm';
+import TaskView from '@/components/task/TaskView';
 
 const DraftTasks = () => {
   const navigate = useNavigate();
@@ -40,6 +41,7 @@ const DraftTasks = () => {
   
   // Edit task state
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
+  const [viewingTaskId, setViewingTaskId] = useState<number | null>(null);
   
   // Delete task state
   const [deleteDialog, setDeleteDialog] = useState<{
@@ -171,6 +173,18 @@ const DraftTasks = () => {
 
   const handleEditTask = (taskId: number) => {
     setEditingTaskId(taskId);
+  };
+  
+  const handleTaskView = (taskId: number) => {
+    console.log('View task:', taskId);
+    setViewingTaskId(taskId);
+  };
+  
+  const handleSwitchToEdit = () => {
+    if (viewingTaskId) {
+      setEditingTaskId(viewingTaskId);
+      setViewingTaskId(null);
+    }
   };
   
   const handleEditSuccess = async (task: Task) => {
@@ -474,25 +488,33 @@ const DraftTasks = () => {
                             </CardDescription>
                           )}
                         </div>
-                        <div className="flex gap-2 flex-shrink-0">
+                      </div>
+                      <div className="flex gap-2 flex-shrink-0">
+                        <Button 
+                          size="sm" 
+                          variant="outline"
+                          onClick={() => handleTaskView(task.id)}
+                        >
+                          <Edit className="h-3 w-3 mr-1" />
+                          View
+                        </Button>
+                        <Button 
+                          size="sm" 
+                          variant="outline"
+                          onClick={() => handleEditTask(task.id)}
+                        >
+                          <Edit className="h-3 w-3 mr-1" />
+                          Edit
+                        </Button>
+                        {canMoveForward && (
                           <Button 
-                            size="sm" 
-                            variant="outline"
-                            onClick={() => handleEditTask(task.id)}
+                            size="sm"
+                            onClick={() => handleMoveTask(task.id, nextStage)}
                           >
-                            <Edit className="h-3 w-3 mr-1" />
-                            Edit
+                            <ArrowRight className="h-3 w-3 mr-1" />
+                            To {stages.find(s => s.key === nextStage)?.title}
                           </Button>
-                          {canMoveForward && (
-                            <Button 
-                              size="sm"
-                              onClick={() => handleMoveTask(task.id, nextStage)}
-                            >
-                              <ArrowRight className="h-3 w-3 mr-1" />
-                              To {stages.find(s => s.key === nextStage)?.title}
-                            </Button>
-                          )}
-                        </div>
+                        )}
                       </div>
                     </CardContent>
                   </Card>
@@ -538,6 +560,13 @@ const DraftTasks = () => {
           onSuccess={handleTaskSuccess}
           onCancel={handleTaskCancel}
           isOpen={showAddTaskForm}
+        />
+        
+        <TaskView
+          taskId={viewingTaskId || 0}
+          isOpen={!!viewingTaskId}
+          onClose={() => setViewingTaskId(null)}
+          onEdit={handleSwitchToEdit}
         />
       </div>
     </HeaderAndSidebarLayout>
