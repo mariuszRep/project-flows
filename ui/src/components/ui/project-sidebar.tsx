@@ -10,6 +10,7 @@ interface ProjectSidebarProps {
   onProjectSelect: (projectId: number | null) => void;
   onCreateProject: () => void;
   onEditProject: (project: Project) => void;
+  refreshTrigger?: number;
 }
 
 export function ProjectSidebar({ 
@@ -17,7 +18,8 @@ export function ProjectSidebar({
   selectedProjectId, 
   onProjectSelect, 
   onCreateProject,
-  onEditProject 
+  onEditProject,
+  refreshTrigger 
 }: ProjectSidebarProps) {
   const { callTool, isConnected, tools } = useMCP();
   const [projects, setProjects] = useState<Project[]>([]);
@@ -83,6 +85,13 @@ export function ProjectSidebar({
       setProjects([]);
     }
   }, [isConnected, tools]);
+
+  // Refresh projects when refreshTrigger changes
+  useEffect(() => {
+    if (refreshTrigger && isConnected && tools.length > 0) {
+      fetchProjects();
+    }
+  }, [refreshTrigger, isConnected, tools]);
 
   const getProjectColor = (color: string) => {
     return `border-l border-l-[${color}]`;
@@ -184,7 +193,7 @@ export function ProjectSidebar({
           variant={selectedProjectId === null ? 'secondary' : 'ghost'}
           size="sm"
           onClick={handleAllTasksClick}
-          className="w-full justify-start"
+          className="w-full justify-start hover:bg-secondary hover:text-secondary-foreground"
         >
           <FolderOpen className="h-4 w-4 mr-2" />
           All Tasks
@@ -209,7 +218,7 @@ export function ProjectSidebar({
                 variant={selectedProjectId === project.id ? 'secondary' : 'ghost'}
                 size="sm"
                 onClick={() => handleProjectClick(project.id)}
-                className="w-full justify-start pr-8"
+                className="w-full justify-start pr-8 hover:bg-secondary hover:text-secondary-foreground"
               >
                 <Folder className="h-4 w-4 mr-2 flex-shrink-0" />
                 <span className="truncate flex-1 text-left">{project.name}</span>

@@ -35,6 +35,7 @@ export default function Board() {
   const [showCreateProjectForm, setShowCreateProjectForm] = useState(false);
   const [editingProjectId, setEditingProjectId] = useState<number | null>(null);
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
+  const [sidebarRefreshTrigger, setSidebarRefreshTrigger] = useState(0);
   const [viewingTaskId, setViewingTaskId] = useState<number | null>(null);
   const [deleteDialog, setDeleteDialog] = useState<{
     isOpen: boolean;
@@ -266,6 +267,8 @@ export default function Board() {
     setError(null);
     // Refresh projects
     await fetchProjects();
+    // Trigger sidebar refresh
+    setSidebarRefreshTrigger(prev => prev + 1);
   };
 
   const handleProjectCancel = () => {
@@ -305,6 +308,8 @@ export default function Board() {
         
         // Refresh projects
         await fetchProjects();
+        // Trigger sidebar refresh
+        setSidebarRefreshTrigger(prev => prev + 1);
       } else {
         console.log('Delete tool not available');
         setError('Delete functionality is not available');
@@ -337,6 +342,7 @@ export default function Board() {
           onProjectSelect={handleProjectSelect}
           onCreateProject={() => setShowCreateProjectForm(true)}
           onEditProject={handleEditProject}
+          refreshTrigger={sidebarRefreshTrigger}
           isCollapsed={false} // This will be injected by the layout
         />
       }

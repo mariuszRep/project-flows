@@ -36,6 +36,7 @@ const DraftTasks = () => {
   const [showCreateProjectForm, setShowCreateProjectForm] = useState(false);
   const [editingProjectId, setEditingProjectId] = useState<number | null>(null);
   const [showAddTaskForm, setShowAddTaskForm] = useState(false);
+  const [sidebarRefreshTrigger, setSidebarRefreshTrigger] = useState(0);
   
   // Filter state - default to all stages selected
   const [selectedStages, setSelectedStages] = useState<TaskStage[]>(['draft', 'backlog', 'doing', 'review', 'completed']);
@@ -316,6 +317,8 @@ const DraftTasks = () => {
     setEditingProjectId(null);
     setError(null);
     await fetchProjects();
+    // Trigger sidebar refresh
+    setSidebarRefreshTrigger(prev => prev + 1);
   };
 
   const handleProjectCancel = () => {
@@ -355,6 +358,8 @@ const DraftTasks = () => {
         
         // Refresh projects
         await fetchProjects();
+        // Trigger sidebar refresh
+        setSidebarRefreshTrigger(prev => prev + 1);
         
         // Refresh tasks since project deletion might affect task display
         await fetchAllTasks();
@@ -404,6 +409,7 @@ const DraftTasks = () => {
           onProjectSelect={handleProjectSelect}
           onCreateProject={handleCreateProject}
           onEditProject={handleEditProject}
+          refreshTrigger={sidebarRefreshTrigger}
           isCollapsed={false} // This will be injected by the layout
         />
       }
