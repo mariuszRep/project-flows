@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Plus, Folder, FolderOpen } from 'lucide-react';
+import { Plus, Folder, FolderOpen, Edit2 } from 'lucide-react';
 import { Project } from '@/types/project';
 import { useMCP } from '@/contexts/MCPContext';
 
@@ -10,13 +9,15 @@ interface ProjectSidebarProps {
   selectedProjectId?: number | null;
   onProjectSelect: (projectId: number | null) => void;
   onCreateProject: () => void;
+  onEditProject: (project: Project) => void;
 }
 
 export function ProjectSidebar({ 
   isCollapsed, 
   selectedProjectId, 
   onProjectSelect, 
-  onCreateProject 
+  onCreateProject,
+  onEditProject 
 }: ProjectSidebarProps) {
   const { callTool, isConnected, tools } = useMCP();
   const [projects, setProjects] = useState<Project[]>([]);
@@ -127,17 +128,30 @@ export function ProjectSidebar({
 
         {/* Project Icons */}
         {projects.map((project) => (
-          <Button
-            key={project.id}
-            variant={selectedProjectId === project.id ? 'secondary' : 'ghost'}
-            size="icon"
-            onClick={() => handleProjectClick(project.id)}
-            className="w-9 h-9 rounded-full"
-            title={project.name}
-            style={{ borderLeftColor: project.color }}
-          >
-            <Folder className="h-4 w-4" />
-          </Button>
+          <div key={project.id} className="relative group">
+            <Button
+              variant={selectedProjectId === project.id ? 'secondary' : 'ghost'}
+              size="icon"
+              onClick={() => handleProjectClick(project.id)}
+              className="w-9 h-9 rounded-full"
+              title={project.name}
+              style={{ borderLeftColor: project.color }}
+            >
+              <Folder className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={(e) => {
+                e.stopPropagation();
+                onEditProject(project);
+              }}
+              className="absolute -right-1 -top-1 w-6 h-6 rounded-full opacity-0 group-hover:opacity-100 transition-opacity bg-background border shadow-sm"
+              title="Edit Project"
+            >
+              <Edit2 className="h-3 w-3" />
+            </Button>
+          </div>
         ))}
       </div>
     );
@@ -190,23 +204,29 @@ export function ProjectSidebar({
       ) : (
         <div className="space-y-1">
           {projects.map((project) => (
-            <Button
-              key={project.id}
-              variant={selectedProjectId === project.id ? 'secondary' : 'ghost'}
-              size="sm"
-              onClick={() => handleProjectClick(project.id)}
-              className={`w-full justify-start ${getProjectColor(project.color)} hover:bg-muted`}
-            >
-              <Folder className="h-4 w-4 mr-2" />
-              <span className="truncate flex-1 text-left">{project.name}</span>
-              <Badge 
-                variant="secondary" 
-                className="ml-2 text-xs"
-                style={{ backgroundColor: project.color + '20', color: project.color }}
+            <div key={project.id} className="flex items-center gap-1">
+              <Button
+                variant={selectedProjectId === project.id ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => handleProjectClick(project.id)}
+                className={`flex-1 justify-start ${getProjectColor(project.color)} hover:bg-muted`}
               >
-                {project.id}
-              </Badge>
-            </Button>
+                <Folder className="h-4 w-4 mr-2" />
+                <span className="truncate flex-1 text-left">{project.name}</span>
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEditProject(project);
+                }}
+                className="h-8 w-8 rounded-md opacity-60 hover:opacity-100 transition-opacity"
+                title="Edit Project"
+              >
+                <Edit2 className="h-3 w-3" />
+              </Button>
+            </div>
           ))}
         </div>
       )}
