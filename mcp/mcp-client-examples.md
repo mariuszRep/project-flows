@@ -8,7 +8,7 @@ This document contains example MCP client configurations for different clients.
 claude mcp add --transport sse project-flows http://localhost:3001/sse --header "X-MCP-Client: claude-code"
 ```
 
-## Windsurf
+## Windsurf 
 
 ```json
 {
@@ -23,17 +23,6 @@ claude mcp add --transport sse project-flows http://localhost:3001/sse --header 
 }
 ```
 
-## Gemini CLI
-
-```json
-{
-  "mcpServers": {
-    "project-flows": {
-      "url": "http://localhost:3001/sse?clientId=gemini-cli"
-    }
-  }
-}
-```
 
 ## Claude Desktop
 
@@ -41,11 +30,11 @@ claude mcp add --transport sse project-flows http://localhost:3001/sse --header 
 {
   "mcpServers": {
     "project-flows": {
-      "command": "node",
-      "args": ["/path/to/project-flows/mcp/dist/index.js"],
-      "env": {
-        "MCP_CLIENT_ID": "claude-desktop"
-      }
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "http://localhost:3001/sse?clientId=claude-desktop"
+      ]
     }
   }
 }
@@ -58,6 +47,18 @@ claude mcp add --transport sse project-flows http://localhost:3001/sse --header 
   "mcpServers": {
     "project-flows": {
       "serverUrl": "http://localhost:3001/sse?clientId=cursor"
+    }
+  }
+}
+```
+
+## Gemini CLI (not working properly evry comand will try to use tools)
+
+```json
+{
+  "mcpServers": {
+    "project-flows": {
+      "url": "http://localhost:3001/sse?clientId=gemini-cli"
     }
   }
 }
