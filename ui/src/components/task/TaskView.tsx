@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import ReactMarkdown from 'react-markdown';
+import MarkdownRenderer from '@/components/ui/MarkdownRenderer';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -147,8 +147,8 @@ const TaskView: React.FC<TaskViewProps> = ({
                   </div>
                 </div>
               )}
-              <div className="prose dark:prose-invert max-w-none prose-headings:font-semibold prose-headings:text-foreground prose-p:text-muted-foreground prose-strong:text-foreground prose-code:text-foreground prose-code:bg-muted prose-code:rounded prose-code:px-1 prose-code:py-0.5 prose-pre:bg-muted prose-pre:text-foreground prose-pre:rounded-md prose-a:text-primary prose-li:text-muted-foreground">
-                <ReactMarkdown>{markdownContent}</ReactMarkdown>
+              <div className="prose dark:prose-invert max-w-none">
+                <MarkdownRenderer content={markdownContent} />
               </div>
             </div>
           )}
