@@ -48,18 +48,6 @@ CREATE TYPE public.task_stage AS ENUM (
 ALTER TYPE public.task_stage OWNER TO mcp_user;
 
 --
--- Name: task_type; Type: TYPE; Schema: public; Owner: mcp_user
---
-
-CREATE TYPE public.task_type AS ENUM (
-    'project',
-    'task'
-);
-
-
-ALTER TYPE public.task_type OWNER TO mcp_user;
-
---
 -- Name: update_updated_at_column(); Type: FUNCTION; Schema: public; Owner: mcp_user
 --
 
@@ -193,7 +181,7 @@ CREATE TABLE public.tasks (
     updated_by text DEFAULT 'system'::text NOT NULL,
     user_id integer,
     parent_id integer,
-    type public.task_type DEFAULT 'task'::public.task_type NOT NULL
+    template_id integer DEFAULT 1 NOT NULL
 );
 
 
@@ -444,6 +432,14 @@ ALTER TABLE ONLY public.properties
 
 ALTER TABLE ONLY public.tasks
     ADD CONSTRAINT tasks_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.tasks(id) ON DELETE CASCADE;
+
+
+--
+-- Name: tasks tasks_template_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: mcp_user
+--
+
+ALTER TABLE ONLY public.tasks
+    ADD CONSTRAINT tasks_template_id_fkey FOREIGN KEY (template_id) REFERENCES public.templates(id) ON DELETE RESTRICT;
 
 
 --

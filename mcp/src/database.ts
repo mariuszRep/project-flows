@@ -21,7 +21,6 @@ interface SchemaProperty {
 }
 
 type TaskStage = 'draft' | 'backlog' | 'doing' | 'review' | 'completed';
-type TaskType = 'project' | 'task';
 
 interface ProjectData {
   id: number;
@@ -39,7 +38,7 @@ interface TaskData {
   parent_id?: number;
   project_id?: number; // For backward compatibility with UI
   stage?: TaskStage;
-  type?: TaskType;
+  template_id?: number;
   [key: string]: any;
 }
 
@@ -66,10 +65,19 @@ class DatabaseService {
   }
 
 
-  async getSchemaProperties(): Promise<Record<string, SchemaProperty>> {
+  async getSchemaProperties(templateId?: number): Promise<Record<string, SchemaProperty>> {
     try {
-      const query = 'SELECT key, type, description, dependencies, execution_order, created_by, updated_by, created_at, updated_at, id, template_id, fixed FROM properties ORDER BY key';
-      const result = await this.pool.query(query);
+      let query = 'SELECT key, type, description, dependencies, execution_order, created_by, updated_by, created_at, updated_at, id, template_id, fixed FROM properties';
+      const params: any[] = [];
+      
+      if (templateId !== undefined) {
+        query += ' WHERE template_id = $1';
+        params.push(templateId);
+      }
+      
+      query += ' ORDER BY key';
+      
+      const result = await this.pool.query(query, params);
       
       const properties: Record<string, SchemaProperty> = {};
       for (const row of result.rows) {
@@ -125,19 +133,19 @@ class DatabaseService {
     try {
       await client.query('BEGIN');
 
-      // Insert task with parent_id, stage, and type
+      // Insert task with parent_id, stage, and template_id
       const taskQuery = `
-        INSERT INTO tasks (parent_id, stage, type, created_by, updated_by) 
+        INSERT INTO tasks (parent_id, stage, template_id, created_by, updated_by) 
         VALUES ($1, $2, $3, $4, $5) 
         RETURNING id
       `;
-      const taskResult = await client.query(taskQuery, [taskData.parent_id || null, taskData.stage || 'draft', taskData.type || 'task', userId, userId]);
+      const taskResult = await client.query(taskQuery, [taskData.parent_id || null, taskData.stage || 'draft', taskData.template_id || 1, userId, userId]);
       const taskId = taskResult.rows[0].id;
 
       // Insert blocks for all properties including Title and Description (previously title/summary)
       let position = 0;
       for (const [key, value] of Object.entries(taskData)) {
-        if (key !== 'stage' && key !== 'parent_id' && key !== 'type' && value) {
+        if (key !== 'stage' && key !== 'parent_id' && key !== 'template_id' && value) {
           // Look up property_id from key
           const propertyQuery = 'SELECT id FROM properties WHERE key = $1 LIMIT 1';
           const propertyResult = await client.query(propertyQuery, [key]);
@@ -169,7 +177,7 @@ class DatabaseService {
     try {
       await client.query('BEGIN');
 
-      // Update task stage, parent_id, and/or type if provided
+      // Update task stage, parent_id, and/or template_id if provided
       const taskUpdates = [];
       const taskValues = [];
       let paramIndex = 1;
@@ -184,9 +192,9 @@ class DatabaseService {
         taskValues.push(updates.parent_id);
       }
       
-      if (updates.type !== undefined) {
-        taskUpdates.push(`type = $${paramIndex++}`);
-        taskValues.push(updates.type);
+      if (updates.template_id !== undefined) {
+        taskUpdates.push(`template_id = $${paramIndex++}`);
+        taskValues.push(updates.template_id);
       }
       
       if (taskUpdates.length > 0) {
@@ -201,7 +209,7 @@ class DatabaseService {
 
       // Update blocks for all other properties (including Title and Description)
       for (const [key, value] of Object.entries(updates)) {
-        if (key !== 'id' && key !== 'stage' && key !== 'parent_id' && key !== 'type' && value !== undefined) {
+        if (key !== 'id' && key !== 'stage' && key !== 'parent_id' && key !== 'template_id' && value !== undefined) {
           // Look up property_id from key
           const propertyQuery = 'SELECT id FROM properties WHERE key = $1 LIMIT 1';
           const propertyResult = await client.query(propertyQuery, [key]);
@@ -231,8 +239,8 @@ class DatabaseService {
 
   async getTask(taskId: number): Promise<TaskData | null> {
     try {
-      // Get task core data (id, parent_id, stage, and type)
-      const taskQuery = 'SELECT id, parent_id, stage, type FROM tasks WHERE id = $1';
+      // Get task core data (id, parent_id, stage, and template_id)
+      const taskQuery = 'SELECT id, parent_id, stage, template_id FROM tasks WHERE id = $1';
       const taskResult = await this.pool.query(taskQuery, [taskId]);
       
       if (taskResult.rows.length === 0) {
@@ -257,7 +265,7 @@ class DatabaseService {
         parent_id: task.parent_id,
         project_id: task.parent_id, // For backward compatibility with UI
         stage: task.stage,
-        type: task.type,
+        template_id: task.template_id,
       };
 
       for (const block of blocksResult.rows) {
@@ -283,21 +291,32 @@ class DatabaseService {
     }
   }
 
-  async listTasks(stageFilter?: string, projectIdFilter?: number): Promise<TaskData[]> {
+  async listTasks(stageFilter?: string, projectIdFilter?: number, templateIdFilter?: number): Promise<TaskData[]> {
     try {
-      // Get basic task data, excluding project-type tasks
-      let query = 'SELECT id, parent_id, stage, type FROM tasks WHERE type != $1';
-      let params: any[] = ['project'];
-      let paramIndex = 2;
+      // Get basic task data
+      let query = 'SELECT id, parent_id, stage, template_id FROM tasks';
+      let params: any[] = [];
+      let paramIndex = 1;
+      
+      const conditions = [];
+      
+      if (templateIdFilter !== undefined) {
+        conditions.push(`template_id = $${paramIndex++}`);
+        params.push(templateIdFilter);
+      }
       
       if (stageFilter) {
-        query += ` AND stage = $${paramIndex++}`;
+        conditions.push(`stage = $${paramIndex++}`);
         params.push(stageFilter);
       }
       
       if (projectIdFilter !== undefined) {
-        query += ` AND parent_id = $${paramIndex++}`;
+        conditions.push(`parent_id = $${paramIndex++}`);
         params.push(projectIdFilter);
+      }
+      
+      if (conditions.length > 0) {
+        query += ' WHERE ' + conditions.join(' AND ');
       }
       
       query += ' ORDER BY id';
@@ -338,7 +357,7 @@ class DatabaseService {
           parent_id: row.parent_id,
           project_id: row.parent_id, // For backward compatibility with UI
           stage: row.stage,
-          type: row.type,
+          template_id: row.template_id,
         };
         
         // Add blocks for this task
@@ -630,10 +649,10 @@ class DatabaseService {
     try {
       await client.query('BEGIN');
 
-      // Create task with type='project'
+      // Create task with template_id=2 (Project template)
       const taskQuery = `
-        INSERT INTO tasks (parent_id, stage, type, created_by, updated_by) 
-        VALUES (NULL, 'backlog', 'project', $1, $2) 
+        INSERT INTO tasks (parent_id, stage, template_id, created_by, updated_by) 
+        VALUES (NULL, 'backlog', 2, $1, $2) 
         RETURNING id
       `;
       const taskResult = await client.query(taskQuery, [userId, userId]);
@@ -699,9 +718,9 @@ class DatabaseService {
     try {
       await client.query('BEGIN');
 
-      // Verify this is a project task
-      const checkQuery = 'SELECT id FROM tasks WHERE id = $1 AND type = $2';
-      const checkResult = await client.query(checkQuery, [projectId, 'project']);
+      // Verify this is a project task (template_id = 2)
+      const checkQuery = 'SELECT id FROM tasks WHERE id = $1 AND template_id = $2';
+      const checkResult = await client.query(checkQuery, [projectId, 2]);
       if (checkResult.rows.length === 0) {
         return false; // Project not found
       }
@@ -771,9 +790,9 @@ class DatabaseService {
 
   async getProject(projectId: number): Promise<ProjectData | null> {
     try {
-      // Get task data for project type
-      const taskQuery = 'SELECT id, created_at, updated_at, created_by, updated_by FROM tasks WHERE id = $1 AND type = $2';
-      const taskResult = await this.pool.query(taskQuery, [projectId, 'project']);
+      // Get task data for project type (template_id = 2)
+      const taskQuery = 'SELECT id, created_at, updated_at, created_by, updated_by FROM tasks WHERE id = $1 AND template_id = $2';
+      const taskResult = await this.pool.query(taskQuery, [projectId, 2]);
       
       if (taskResult.rows.length === 0) {
         return null;
@@ -827,9 +846,9 @@ class DatabaseService {
 
   async listProjects(): Promise<ProjectData[]> {
     try {
-      // Get all project tasks
-      const tasksQuery = 'SELECT id, created_at, updated_at, created_by, updated_by FROM tasks WHERE type = $1 ORDER BY created_at';
-      const tasksResult = await this.pool.query(tasksQuery, ['project']);
+      // Get all project tasks (template_id = 2)
+      const tasksQuery = 'SELECT id, created_at, updated_at, created_by, updated_by FROM tasks WHERE template_id = $1 ORDER BY created_at';
+      const tasksResult = await this.pool.query(tasksQuery, [2]);
       
       if (tasksResult.rows.length === 0) {
         return [];
@@ -893,9 +912,9 @@ class DatabaseService {
     try {
       await client.query('BEGIN');
 
-      // Check if project exists (using tasks table with type='project')
-      const projectQuery = 'SELECT id FROM tasks WHERE id = $1 AND type = $2';
-      const projectResult = await client.query(projectQuery, [projectId, 'project']);
+      // Check if project exists (using tasks table with template_id=2)
+      const projectQuery = 'SELECT id FROM tasks WHERE id = $1 AND template_id = $2';
+      const projectResult = await client.query(projectQuery, [projectId, 2]);
       
       if (projectResult.rows.length === 0) {
         await client.query('ROLLBACK');
@@ -917,8 +936,8 @@ class DatabaseService {
       await client.query(deleteBlocksQuery, [projectId]);
 
       // Delete the project task itself
-      const deleteQuery = 'DELETE FROM tasks WHERE id = $1 AND type = $2';
-      const deleteResult = await client.query(deleteQuery, [projectId, 'project']);
+      const deleteQuery = 'DELETE FROM tasks WHERE id = $1 AND template_id = $2';
+      const deleteResult = await client.query(deleteQuery, [projectId, 2]);
       
       await client.query('COMMIT');
       return (deleteResult.rowCount || 0) > 0;

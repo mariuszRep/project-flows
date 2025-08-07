@@ -27,7 +27,8 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
 
   async function loadDynamicSchemaProperties(): Promise<SchemaProperties> {
     try {
-      return await sharedDbService.getSchemaProperties();
+      // Load task properties only (template_id = 1)
+      return await sharedDbService.getSchemaProperties(1);
     } catch (error) {
       console.error('Error loading schema properties from database:', error);
       // Fallback to file-based loading
@@ -100,27 +101,15 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
 
   // Set up tool list handler
   server.setRequestHandler(ListToolsRequestSchema, async () => {
-    const dynamicProperties = await loadDynamicSchemaProperties();
-
-    // Filter properties for tasks (template_id = 1)
-    const taskProperties: Record<string, any> = {};
-    const otherProperties: Record<string, any> = {};
-    
-    for (const [propName, propConfig] of Object.entries(dynamicProperties)) {
-      // Check if this is a task property (template_id = 1)
-      if (propConfig.template_id === 1) {
-        taskProperties[propName] = propConfig;
-      } else {
-        otherProperties[propName] = propConfig;
-      }
-    }
+    // Get task properties only (template_id = 1)
+    const taskProperties = await sharedDbService.getSchemaProperties(1);
 
     // Clean properties for schema (remove execution metadata and convert types)
     const schemaProperties: Record<string, any> = {};
-    for (const [propName, propConfig] of Object.entries(dynamicProperties)) {
+    for (const [propName, propConfig] of Object.entries(taskProperties)) {
       const cleanConfig: Record<string, any> = {};
       for (const [key, value] of Object.entries(propConfig)) {
-        if (!["dependencies", "execution_order"].includes(key)) {
+        if (!["dependencies", "execution_order", "template_id", "id", "created_by", "updated_by", "created_at", "updated_at", "fixed"].includes(key)) {
           if (key === "type") {
             // Convert custom types to JSON Schema types
             switch (value) {
@@ -148,13 +137,9 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
       schemaProperties[propName] = cleanConfig;
     }
 
-    // Use task properties as base properties if available, otherwise use empty object
-    const baseProperties = Object.keys(taskProperties).length > 0 ? taskProperties : {};
-    const allProperties = { ...baseProperties, ...schemaProperties };
-
     return {
       tools: [
-        ...taskTools.getToolDefinitions(allProperties),
+        ...taskTools.getToolDefinitions(schemaProperties),
         ...propertyTools.getToolDefinitions(),
         ...projectTools.getToolDefinitions(),
       ],
