@@ -138,11 +138,18 @@ class DatabaseService {
       let position = 0;
       for (const [key, value] of Object.entries(taskData)) {
         if (key !== 'stage' && key !== 'parent_id' && key !== 'type' && value) {
-          const blockQuery = `
-            INSERT INTO blocks (task_id, property_name, content, position, created_by, updated_by) 
-            VALUES ($1, $2, $3, $4, $5, $6)
-          `;
-          await client.query(blockQuery, [taskId, key, this.flattenToText(value), position++, userId, userId]);
+          // Look up property_id from key
+          const propertyQuery = 'SELECT id FROM properties WHERE key = $1 LIMIT 1';
+          const propertyResult = await client.query(propertyQuery, [key]);
+          
+          if (propertyResult.rows.length > 0) {
+            const propertyId = propertyResult.rows[0].id;
+            const blockQuery = `
+              INSERT INTO blocks (task_id, property_id, content, position, created_by, updated_by) 
+              VALUES ($1, $2, $3, $4, $5, $6)
+            `;
+            await client.query(blockQuery, [taskId, propertyId, this.flattenToText(value), position++, userId, userId]);
+          }
         }
       }
 
@@ -195,13 +202,20 @@ class DatabaseService {
       // Update blocks for all other properties (including Title and Description)
       for (const [key, value] of Object.entries(updates)) {
         if (key !== 'id' && key !== 'stage' && key !== 'parent_id' && key !== 'type' && value !== undefined) {
-          const blockQuery = `
-            INSERT INTO blocks (task_id, property_name, content, position, created_by, updated_by) 
-            VALUES ($1, $2, $3, 0, $4, $5)
-            ON CONFLICT (task_id, property_name) 
-            DO UPDATE SET content = $3, updated_at = CURRENT_TIMESTAMP, updated_by = $5
-          `;
-          await client.query(blockQuery, [taskId, key, this.flattenToText(value), userId, userId]);
+          // Look up property_id from key
+          const propertyQuery = 'SELECT id FROM properties WHERE key = $1 LIMIT 1';
+          const propertyResult = await client.query(propertyQuery, [key]);
+          
+          if (propertyResult.rows.length > 0) {
+            const propertyId = propertyResult.rows[0].id;
+            const blockQuery = `
+              INSERT INTO blocks (task_id, property_id, content, position, created_by, updated_by) 
+              VALUES ($1, $2, $3, 0, $4, $5)
+              ON CONFLICT (task_id, property_id) 
+              DO UPDATE SET content = $3, updated_at = CURRENT_TIMESTAMP, updated_by = $5
+            `;
+            await client.query(blockQuery, [taskId, propertyId, this.flattenToText(value), userId, userId]);
+          }
         }
       }
 
@@ -229,10 +243,11 @@ class DatabaseService {
       
       // Get blocks for all properties including Title and Description
       const blocksQuery = `
-        SELECT property_name, content 
-        FROM blocks 
-        WHERE task_id = $1 
-        ORDER BY position
+        SELECT p.key as property_name, b.content 
+        FROM blocks b
+        JOIN properties p ON b.property_id = p.id
+        WHERE b.task_id = $1 
+        ORDER BY b.position
       `;
       const blocksResult = await this.pool.query(blocksQuery, [taskId]);
       
@@ -296,10 +311,11 @@ class DatabaseService {
       // Get all blocks for these tasks
       const taskIds = tasksResult.rows.map(row => row.id);
       const blocksQuery = `
-        SELECT task_id, property_name, content 
-        FROM blocks 
-        WHERE task_id = ANY($1)
-        ORDER BY task_id, position
+        SELECT b.task_id, p.key as property_name, b.content 
+        FROM blocks b
+        JOIN properties p ON b.property_id = p.id
+        WHERE b.task_id = ANY($1)
+        ORDER BY b.task_id, b.position
       `;
       const blocksResult = await this.pool.query(blocksQuery, [taskIds]);
       
@@ -509,17 +525,16 @@ class DatabaseService {
         throw new Error(`Property "${property.key}" is fixed and cannot be deleted`);
       }
 
-      // Check for existing blocks using this property
-      const blocksQuery = 'SELECT COUNT(*) as count FROM blocks WHERE property_name = $1';
-      const blocksResult = await client.query(blocksQuery, [property.key]);
-      const blockCount = parseInt(blocksResult.rows[0].count);
+      // Delete all blocks that use this property first (CASCADE DELETE)
+      const deleteBlocksQuery = 'DELETE FROM blocks WHERE property_id = $1';
+      const blocksResult = await client.query(deleteBlocksQuery, [propertyId]);
+      const deletedBlockCount = blocksResult.rowCount || 0;
 
-      if (blockCount > 0) {
-        await client.query('ROLLBACK');
-        throw new Error(`Property "${property.key}" cannot be deleted because it is used by ${blockCount} existing task block(s). Delete the tasks using this property first.`);
+      if (deletedBlockCount > 0) {
+        console.log(`Deleted ${deletedBlockCount} block(s) using property "${property.key}"`);
       }
 
-      // Safe to delete - no references exist
+      // Now safe to delete the property
       const deleteQuery = 'DELETE FROM properties WHERE id = $1';
       const deleteResult = await client.query(deleteQuery, [propertyId]);
       
@@ -625,28 +640,43 @@ class DatabaseService {
       const taskId = taskResult.rows[0].id;
 
       // Insert Title block
-      const titleQuery = `
-        INSERT INTO blocks (task_id, property_name, content, position, created_by, updated_by) 
-        VALUES ($1, 'Title', $2, 1, $3, $4)
-      `;
-      await client.query(titleQuery, [taskId, projectData.name, userId, userId]);
+      const titlePropertyQuery = 'SELECT id FROM properties WHERE key = $1 LIMIT 1';
+      const titlePropertyResult = await client.query(titlePropertyQuery, ['Title']);
+      if (titlePropertyResult.rows.length > 0) {
+        const titlePropertyId = titlePropertyResult.rows[0].id;
+        const titleQuery = `
+          INSERT INTO blocks (task_id, property_id, content, position, created_by, updated_by) 
+          VALUES ($1, $2, $3, 1, $4, $5)
+        `;
+        await client.query(titleQuery, [taskId, titlePropertyId, projectData.name, userId, userId]);
+      }
 
       // Insert Description block if provided
       if (projectData.description) {
-        const descQuery = `
-          INSERT INTO blocks (task_id, property_name, content, position, created_by, updated_by) 
-          VALUES ($1, 'Description', $2, 2, $3, $4)
-        `;
-        await client.query(descQuery, [taskId, projectData.description, userId, userId]);
+        const descPropertyQuery = 'SELECT id FROM properties WHERE key = $1 LIMIT 1';
+        const descPropertyResult = await client.query(descPropertyQuery, ['Description']);
+        if (descPropertyResult.rows.length > 0) {
+          const descPropertyId = descPropertyResult.rows[0].id;
+          const descQuery = `
+            INSERT INTO blocks (task_id, property_id, content, position, created_by, updated_by) 
+            VALUES ($1, $2, $3, 2, $4, $5)
+          `;
+          await client.query(descQuery, [taskId, descPropertyId, projectData.description, userId, userId]);
+        }
       }
 
       // Insert color as Notes block for backward compatibility
       if (projectData.color) {
-        const colorQuery = `
-          INSERT INTO blocks (task_id, property_name, content, position, created_by, updated_by) 
-          VALUES ($1, 'Notes', $2, 3, $3, $4)
-        `;
-        await client.query(colorQuery, [taskId, `Color: ${projectData.color}`, userId, userId]);
+        const notesPropertyQuery = 'SELECT id FROM properties WHERE key = $1 LIMIT 1';
+        const notesPropertyResult = await client.query(notesPropertyQuery, ['Notes']);
+        if (notesPropertyResult.rows.length > 0) {
+          const notesPropertyId = notesPropertyResult.rows[0].id;
+          const colorQuery = `
+            INSERT INTO blocks (task_id, property_id, content, position, created_by, updated_by) 
+            VALUES ($1, $2, $3, 3, $4, $5)
+          `;
+          await client.query(colorQuery, [taskId, notesPropertyId, `Color: ${projectData.color}`, userId, userId]);
+        }
       }
 
       await client.query('COMMIT');
@@ -682,35 +712,50 @@ class DatabaseService {
 
       // Update Title block if name is provided
       if (updates.name !== undefined) {
-        const titleQuery = `
-          INSERT INTO blocks (task_id, property_name, content, position, created_by, updated_by) 
-          VALUES ($1, 'Title', $2, 1, $3, $4)
-          ON CONFLICT (task_id, property_name) 
-          DO UPDATE SET content = EXCLUDED.content, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP
-        `;
-        await client.query(titleQuery, [projectId, updates.name, userId, userId]);
+        const titlePropertyQuery = 'SELECT id FROM properties WHERE key = $1 LIMIT 1';
+        const titlePropertyResult = await client.query(titlePropertyQuery, ['Title']);
+        if (titlePropertyResult.rows.length > 0) {
+          const titlePropertyId = titlePropertyResult.rows[0].id;
+          const titleQuery = `
+            INSERT INTO blocks (task_id, property_id, content, position, created_by, updated_by) 
+            VALUES ($1, $2, $3, 1, $4, $5)
+            ON CONFLICT (task_id, property_id) 
+            DO UPDATE SET content = EXCLUDED.content, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP
+          `;
+          await client.query(titleQuery, [projectId, titlePropertyId, updates.name, userId, userId]);
+        }
       }
 
       // Update Description block if provided
       if (updates.description !== undefined) {
-        const descQuery = `
-          INSERT INTO blocks (task_id, property_name, content, position, created_by, updated_by) 
-          VALUES ($1, 'Description', $2, 2, $3, $4)
-          ON CONFLICT (task_id, property_name) 
-          DO UPDATE SET content = EXCLUDED.content, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP
-        `;
-        await client.query(descQuery, [projectId, updates.description, userId, userId]);
+        const descPropertyQuery = 'SELECT id FROM properties WHERE key = $1 LIMIT 1';
+        const descPropertyResult = await client.query(descPropertyQuery, ['Description']);
+        if (descPropertyResult.rows.length > 0) {
+          const descPropertyId = descPropertyResult.rows[0].id;
+          const descQuery = `
+            INSERT INTO blocks (task_id, property_id, content, position, created_by, updated_by) 
+            VALUES ($1, $2, $3, 2, $4, $5)
+            ON CONFLICT (task_id, property_id) 
+            DO UPDATE SET content = EXCLUDED.content, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP
+          `;
+          await client.query(descQuery, [projectId, descPropertyId, updates.description, userId, userId]);
+        }
       }
 
       // Update color in Notes block if provided
       if (updates.color !== undefined) {
-        const colorQuery = `
-          INSERT INTO blocks (task_id, property_name, content, position, created_by, updated_by) 
-          VALUES ($1, 'Notes', $2, 3, $3, $4)
-          ON CONFLICT (task_id, property_name) 
-          DO UPDATE SET content = EXCLUDED.content, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP
-        `;
-        await client.query(colorQuery, [projectId, `Color: ${updates.color}`, userId, userId]);
+        const notesPropertyQuery = 'SELECT id FROM properties WHERE key = $1 LIMIT 1';
+        const notesPropertyResult = await client.query(notesPropertyQuery, ['Notes']);
+        if (notesPropertyResult.rows.length > 0) {
+          const notesPropertyId = notesPropertyResult.rows[0].id;
+          const colorQuery = `
+            INSERT INTO blocks (task_id, property_id, content, position, created_by, updated_by) 
+            VALUES ($1, $2, $3, 3, $4, $5)
+            ON CONFLICT (task_id, property_id) 
+            DO UPDATE SET content = EXCLUDED.content, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP
+          `;
+          await client.query(colorQuery, [projectId, notesPropertyId, `Color: ${updates.color}`, userId, userId]);
+        }
       }
 
       await client.query('COMMIT');
@@ -737,7 +782,13 @@ class DatabaseService {
       const task = taskResult.rows[0];
 
       // Get blocks for this project
-      const blocksQuery = 'SELECT property_name, content FROM blocks WHERE task_id = $1 ORDER BY position';
+      const blocksQuery = `
+        SELECT p.key as property_name, b.content 
+        FROM blocks b
+        JOIN properties p ON b.property_id = p.id
+        WHERE b.task_id = $1 
+        ORDER BY b.position
+      `;
       const blocksResult = await this.pool.query(blocksQuery, [projectId]);
 
       // Build project data from blocks
@@ -788,7 +839,13 @@ class DatabaseService {
 
       // Get blocks for all project tasks
       for (const task of tasksResult.rows) {
-        const blocksQuery = 'SELECT property_name, content FROM blocks WHERE task_id = $1 ORDER BY position';
+        const blocksQuery = `
+          SELECT p.key as property_name, b.content 
+          FROM blocks b
+          JOIN properties p ON b.property_id = p.id
+          WHERE b.task_id = $1 
+          ORDER BY b.position
+        `;
         const blocksResult = await this.pool.query(blocksQuery, [task.id]);
 
         // Build project data from blocks
