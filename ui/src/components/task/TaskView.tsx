@@ -146,6 +146,11 @@ const TaskView: React.FC<TaskViewProps> = ({
                         {task.stage.charAt(0).toUpperCase() + task.stage.slice(1)}
                       </Badge>
                     )}
+                    {task.parent_name && (
+                      <Badge variant="outline" className="text-xs">
+                        Project: {task.parent_name}
+                      </Badge>
+                    )}
                     {task.created_at && (
                       <div className="text-xs text-muted-foreground flex items-center gap-1">
                         <Calendar className="h-3 w-3" />
@@ -161,7 +166,21 @@ const TaskView: React.FC<TaskViewProps> = ({
                   {orderedProperties
                     .filter(propertyName => propertyName !== 'Title' && task[propertyName])
                     .map((propertyName) => (
-                      <div key={propertyName}>
+                      <div 
+                        key={propertyName}
+                        className="relative -mx-4 px-4 py-2 rounded"
+                        style={{
+                          border: '1px solid transparent',
+                          transition: 'border-color 0.2s ease',
+                        }}
+                        onMouseEnter={(e) => {
+                          const textColor = window.getComputedStyle(e.currentTarget).color;
+                          e.currentTarget.style.borderColor = textColor;
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.borderColor = 'transparent';
+                        }}
+                      >
                         <h3 className="text-sm font-semibold mb-2">{propertyName}</h3>
                         <div className="prose dark:prose-invert max-w-none">
                           <MarkdownRenderer content={task[propertyName]} />
@@ -169,13 +188,7 @@ const TaskView: React.FC<TaskViewProps> = ({
                       </div>
                     ))}
                   
-                  {/* Show project info at the end */}
-                  {task.parent_name && (
-                    <div>
-                      <h3 className="text-sm font-semibold mb-2">Project</h3>
-                      <p className="text-sm text-muted-foreground">{task.parent_name}</p>
-                    </div>
-                  )}
+                  {/* Project info has been moved to the top */}
                 </div>
               )}
             </div>
