@@ -85,41 +85,81 @@ export default function Board() {
             
             const contentText = result.content[0].text;
             
-            // Parse the markdown table format
-            const lines = contentText.split('\n').filter(line => line.trim());
-            const taskRows = lines.slice(2); // Skip header and separator
-            
-            const parsedTasks = taskRows.map((row, index) => {
-              const columns = row.split('|').map(col => col.trim()).filter(col => col);
-              
-              if (columns.length >= 6) { // Now expecting 6 columns: ID, Title, Description, Stage, Project, Project ID
-                const id = parseInt(columns[0]) || index + 1;
-                const titleColumn = columns[1] || 'Untitled Task';
-                const descriptionColumn = columns[2] || '';
-                const stage = columns[3] || 'backlog';
-                const projectName = columns[4]; // Project name for display (not used in filtering)
-                const projectIdColumn = columns[5]; // Project ID for filtering
-                const projectId = projectIdColumn === 'None' ? undefined : parseInt(projectIdColumn);
+            // Check if response is JSON (object or array)
+            if (contentText.trim().startsWith('{') || contentText.trim().startsWith('[')) {
+              try {
+                const jsonResponse = JSON.parse(contentText);
                 
-                return {
-                  id,
-                  title: titleColumn, // For backward compatibility
-                  body: descriptionColumn, // For backward compatibility
-                  stage: stage as 'draft' | 'backlog' | 'doing' | 'review' | 'completed',
-                  project_id: projectId,
-                  created_at: new Date().toISOString(),
-                  updated_at: new Date().toISOString(),
-                  created_by: 'user@example.com',
-                  updated_by: 'user@example.com',
-                  // Store original block-based properties
-                  Title: titleColumn,
-                  Description: descriptionColumn
-                };
+                // Handle new JSON response format with { tasks: [...], count: number }
+                let tasksArray;
+                if (jsonResponse.tasks && Array.isArray(jsonResponse.tasks)) {
+                  tasksArray = jsonResponse.tasks;
+                } else if (Array.isArray(jsonResponse)) {
+                  // Handle simple array format as fallback
+                  tasksArray = jsonResponse;
+                } else {
+                  console.warn('Unexpected JSON response format:', jsonResponse);
+                  allTasks = [];
+                  return;
+                }
+
+                const parsedTasks = tasksArray.map((taskData: any) => ({
+                  id: taskData.id,
+                  title: taskData.title || taskData.Title || 'Untitled Task',
+                  body: taskData.description || taskData.Description || taskData.Summary || '',
+                  stage: taskData.stage as 'draft' | 'backlog' | 'doing' | 'review' | 'completed',
+                  project_id: taskData.parent_id || taskData.project_id,
+                  created_at: taskData.created_at || new Date().toISOString(),
+                  updated_at: taskData.updated_at || new Date().toISOString(),
+                  created_by: taskData.created_by || 'user@example.com',
+                  updated_by: taskData.updated_by || 'user@example.com',
+                  // Store original block-based properties for compatibility
+                  Title: taskData.title || taskData.Title,
+                  Description: taskData.description || taskData.Description
+                }));
+                allTasks = parsedTasks;
+              } catch (e) {
+                console.error('Error parsing JSON response:', e);
+                // Fallback to empty array on parse error
+                allTasks = [];
               }
-              return null;
-            }).filter(task => task !== null);
-            
-            allTasks = parsedTasks;
+            } else {
+              // Fallback to markdown table parsing for compatibility
+              const lines = contentText.split('\n').filter(line => line.trim());
+              const taskRows = lines.slice(2); // Skip header and separator
+              
+              const parsedTasks = taskRows.map((row, index) => {
+                const columns = row.split('|').map(col => col.trim()).filter(col => col);
+                
+                if (columns.length >= 6) { // Now expecting 6 columns: ID, Title, Description, Stage, Project, Project ID
+                  const id = parseInt(columns[0]) || index + 1;
+                  const titleColumn = columns[1] || 'Untitled Task';
+                  const descriptionColumn = columns[2] || '';
+                  const stage = columns[3] || 'backlog';
+                  const projectName = columns[4]; // Project name for display (not used in filtering)
+                  const projectIdColumn = columns[5]; // Project ID for filtering
+                  const projectId = projectIdColumn === 'None' ? undefined : parseInt(projectIdColumn);
+                  
+                  return {
+                    id,
+                    title: titleColumn, // For backward compatibility
+                    body: descriptionColumn, // For backward compatibility
+                    stage: stage as 'draft' | 'backlog' | 'doing' | 'review' | 'completed',
+                    project_id: projectId,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                    created_by: 'user@example.com',
+                    updated_by: 'user@example.com',
+                    // Store original block-based properties
+                    Title: titleColumn,
+                    Description: descriptionColumn
+                  };
+                }
+                return null;
+              }).filter(task => task !== null);
+              
+              allTasks = parsedTasks;
+            }
           }
         } catch (err) {
           console.warn('Failed to get tasks with list_tasks:', err);

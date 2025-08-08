@@ -193,8 +193,27 @@ export const ToolExecutor: React.FC<ToolExecutorProps> = ({
               <div className="space-y-2">
                 <p className="font-medium">Result:</p>
                 {result.content && result.content.length > 0 && result.content[0].text ? (
-                  <div className="text-sm bg-muted p-3 rounded border overflow-x-auto whitespace-pre-wrap">
-                    {result.content[0].text}
+                  <div className="text-sm bg-muted p-3 rounded border overflow-x-auto">
+                    {(() => {
+                      const text = result.content[0].text;
+                      // Check if it's JSON and format it nicely for task tools
+                      if ((tool.name.includes('task') || tool.name.includes('list')) && 
+                          (text.trim().startsWith('{') || text.trim().startsWith('['))) {
+                        try {
+                          const jsonData = JSON.parse(text);
+                          return (
+                            <pre className="whitespace-pre-wrap">
+                              {JSON.stringify(jsonData, null, 2)}
+                            </pre>
+                          );
+                        } catch (e) {
+                          // If JSON parsing fails, show original text
+                          return <div className="whitespace-pre-wrap">{text}</div>;
+                        }
+                      }
+                      // For non-JSON responses, show as plain text
+                      return <div className="whitespace-pre-wrap">{text}</div>;
+                    })()}
                   </div>
                 ) : (
                   <pre className="text-xs bg-muted p-2 rounded overflow-x-auto whitespace-pre-wrap">

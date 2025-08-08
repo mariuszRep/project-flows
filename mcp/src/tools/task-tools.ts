@@ -69,19 +69,13 @@ export class TaskTools {
       } as Tool,
       {
         name: "get_task",
-        description: "Retrieve a task by its numeric ID. Returns the complete task data in the specified format.",
+        description: "Retrieve a task by its numeric ID. Returns the complete task data in JSON format.",
         inputSchema: {
           type: "object",
           properties: {
             task_id: {
               type: "number",
               description: "The numeric ID of the task to retrieve"
-            },
-            output_format: {
-              type: "string",
-              description: "Output format: 'markdown' (default) for human-readable format, 'json' for structured data",
-              enum: ["markdown", "json"],
-              default: "markdown"
             }
           },
           required: ["task_id"],
@@ -200,7 +194,7 @@ export class TaskTools {
       };
     }
 
-    // Create the markdown formatted task plan
+    // Create JSON response with task data
     const title = toolArgs?.Title || "";
     const description = toolArgs?.Description || toolArgs?.Summary || "";
   
@@ -221,33 +215,34 @@ export class TaskTools {
     const templateId = taskData.template_id || 1;
     const typeDisplay = templateId === 2 ? 'Project' : 'Task';
   
-    let markdownContent = `# ${typeDisplay}
-**${typeDisplay} ID:** ${taskId}
-
-**Title:** ${title}
-
-**Project ID:** ${projectId || 'None'}
-
-**Project Name:** ${projectInfo}
-
-## Description
-
-${description}
-`;
-
-    // Process properties in execution order
-    for (const { prop_name } of executionChain) {
-      const value = toolArgs?.[prop_name] || "";
-      if (value && prop_name !== 'Title' && prop_name !== 'Description') {
-        markdownContent += `\n## ${prop_name}\n\n${value}\n`;
-      }
-    }
+    // Build JSON response with structured data
+    const jsonResponse = {
+      success: true,
+      task_id: taskId,
+      type: typeDisplay.toLowerCase(),
+      title: title,
+      description: description,
+      project_id: projectId,
+      project_name: projectInfo,
+      template_id: templateId,
+      stage: taskData.stage || 'draft',
+      // Add all dynamic properties
+      ...Object.fromEntries(
+        executionChain
+          .filter(({ prop_name }) => 
+            toolArgs?.[prop_name] && 
+            prop_name !== 'Title' && 
+            prop_name !== 'Description'
+          )
+          .map(({ prop_name }) => [prop_name, toolArgs?.[prop_name]])
+      )
+    };
 
     return {
       content: [
         {
           type: "text",
-          text: markdownContent,
+          text: JSON.stringify(jsonResponse, null, 2),
         } as TextContent,
       ],
     };
@@ -343,41 +338,45 @@ ${description}
       };
     }
 
-    let markdownContent = `# Task Update
-**Task ID:** ${taskId}
-
-`;
-
-    // Include provided core fields first
+    // Build JSON response with updated fields
+    const updatedFields: Record<string, any> = {};
+    
+    // Include provided core fields
     if (toolArgs?.Title) {
-      markdownContent += `**Title (updated):** ${toolArgs.Title}\n\n`;
+      updatedFields.Title = toolArgs.Title;
     }
     if (toolArgs?.Description) {
-      markdownContent += `## Description (updated)\n\n${toolArgs.Description}\n`;
+      updatedFields.Description = toolArgs.Description;
     }
     if (toolArgs?.Summary) {
-      markdownContent += `## Summary (updated)\n\n${toolArgs.Summary}\n`;
+      updatedFields.Summary = toolArgs.Summary;
     }
 
-    // Append any dynamic property updates in order
+    // Add any dynamic property updates
     for (const { prop_name } of executionChain) {
       const value = toolArgs?.[prop_name];
       if (value && prop_name !== 'Title' && prop_name !== 'Description' && prop_name !== 'Summary') {
-        markdownContent += `\n## ${prop_name} (updated)\n\n${value}\n`;
+        updatedFields[prop_name] = value;
       }
     }
 
-    // If no content fields were supplied, inform user
+    // Check if any content fields were supplied
     const hasContentUpdates = Object.keys(contentArgs).length > 0;
-    if (!hasContentUpdates) {
-      markdownContent += "No fields supplied for update.";
-    }
+    
+    const jsonResponse = {
+      success: true,
+      task_id: taskId,
+      message: hasContentUpdates 
+        ? `Task ${taskId} updated successfully`
+        : `Task ${taskId} - no fields supplied for update`,
+      updated_fields: hasContentUpdates ? updatedFields : {}
+    };
 
     return {
       content: [
         {
           type: "text",
-          text: markdownContent,
+          text: JSON.stringify(jsonResponse, null, 2),
         } as TextContent,
       ],
     };
@@ -410,60 +409,88 @@ ${description}
       filters.push(`template_id '1'`);
       if (projectIdFilter) filters.push(`project_id '${projectIdFilter}'`);
       const filterMsg = filters.length > 0 ? ` with ${filters.join(' and ')}` : '';
+      
       return {
         content: [
           {
             type: "text",
-            text: `No tasks found${filterMsg}.`,
+            text: JSON.stringify({
+              tasks: [],
+              count: 0,
+              message: `No tasks found${filterMsg}.`,
+              filters: {
+                stage: stageFilter,
+                project_id: projectIdFilter,
+                template_id: 1
+              }
+            }, null, 2),
           } as TextContent,
         ],
       };
     }
 
-    // Build markdown table with stage, template_id, and parent task columns
-    let markdownContent = `| ID | Title | Description | Stage | Template | Parent | Parent ID |\n| --- | --- | --- | --- | --- | --- | --- |`;
+    // Build JSON array with task data
     try {
       // Create a map of task IDs to titles for parent references
       const taskMap = new Map(tasks.map(t => [t.id, t.Title || 'Untitled']));
 
-      for (const task of tasks) {
-        const cleanTitle = String(task.Title || '').replace(/\n|\r/g, ' ');
-        const cleanDescription = String(task.Description || task.Summary || '').replace(/\n|\r/g, ' ');
-        const stage = task.stage || 'draft';
-        const templateName = task.template_id === 2 ? 'Project' : 'Task';
-        const parentName = task.parent_id ? (taskMap.get(task.parent_id) || `Unknown (${task.parent_id})`) : 'None';
-        const parentId = task.parent_id || 'None';
-        markdownContent += `\n| ${task.id} | ${cleanTitle} | ${cleanDescription} | ${stage} | ${templateName} | ${parentName} | ${parentId} |`;
-      }
-    } catch (error) {
-      console.error('Error formatting tasks table:', error);
+      const tasksList = tasks.map(task => ({
+        id: task.id,
+        title: task.Title || '',
+        description: task.Description || task.Summary || '',
+        stage: task.stage || 'draft',
+        template_id: task.template_id,
+        type: task.template_id === 2 ? 'Project' : 'Task',
+        parent_id: task.parent_id,
+        parent_name: task.parent_id ? (taskMap.get(task.parent_id) || `Unknown (${task.parent_id})`) : null,
+        // Include any additional properties
+        ...Object.fromEntries(
+          Object.entries(task).filter(([key, value]) => 
+            !['id', 'Title', 'Description', 'Summary', 'stage', 'template_id', 'parent_id'].includes(key) &&
+            value
+          )
+        )
+      }));
+
+      const jsonResponse = {
+        tasks: tasksList,
+        count: tasksList.length,
+        filters: {
+          stage: stageFilter,
+          project_id: projectIdFilter,
+          template_id: 1
+        }
+      };
+
       return {
         content: [
           {
             type: "text",
-            text: "Error: Failed to format tasks table.",
+            text: JSON.stringify(jsonResponse, null, 2),
+          } as TextContent,
+        ],
+      };
+    } catch (error) {
+      console.error('Error formatting tasks list:', error);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              error: "Failed to format tasks list.",
+              success: false
+            }, null, 2),
           } as TextContent,
         ],
       };
     }
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: markdownContent,
-        } as TextContent,
-      ],
-    };
   }
 
   private async handleGetTask(toolArgs?: Record<string, any>) {
     // Handle retrieving a task by ID
     const taskId = toolArgs?.task_id;
-    const outputFormat = toolArgs?.output_format || 'markdown'; // Default to markdown for backward compatibility
     
     console.log('handleGetTask called with args:', toolArgs);
-    console.log('Output format requested:', outputFormat);
     
     // Validate task ID
     if (!taskId || typeof taskId !== 'number' || taskId < 1) {
@@ -493,7 +520,7 @@ ${description}
     const dynamicProperties = await this.loadDynamicSchemaProperties();
     const executionChain = this.createExecutionChain(dynamicProperties);
 
-    // Generate markdown for the complete task
+    // Generate JSON response for the complete task
     const title = task.Title || '';
     const description = task.Description || task.Summary || '';
     
@@ -511,69 +538,33 @@ ${description}
     const templateId = task.template_id || 1;
     const typeDisplay = templateId === 2 ? 'Project' : 'Task';
     
-    let markdownContent = `# ${typeDisplay}
-**${typeDisplay} ID:** ${task.id}
-
-**Title:** ${title}
-
-**Stage:** ${task.stage || 'draft'}
-
-**Template ID:** ${templateId}
-
-**Parent Task:** ${parentInfo}
-
-## Description
-
-${description}
-`;
-
-    // Add dynamic properties in execution order
-    for (const { prop_name } of executionChain) {
-      const value = task[prop_name];
-      if (value && prop_name !== 'Title' && prop_name !== 'Description' && prop_name !== 'Summary') {
-        markdownContent += `\n## ${prop_name}\n\n${value}\n`;
-      }
-    }
-
-    // Return based on requested output format
-    if (outputFormat === 'json') {
-      // Return structured JSON data for UI consumption
-      const jsonData = {
-        id: task.id,
-        title: title,
-        description: description,
-        stage: task.stage || 'draft',
-        template_id: templateId,
-        parent_id: task.parent_id,
-        parent_name: parentInfo,
-        // Include all dynamic properties
-        ...Object.fromEntries(
-          Object.entries(task).filter(([key, value]) => 
-            key !== 'id' && 
-            key !== 'stage' && 
-            key !== 'template_id' && 
-            key !== 'parent_id' && 
-            value
-          )
+    // Return structured JSON data
+    const jsonData = {
+      id: task.id,
+      type: typeDisplay.toLowerCase(),
+      title: title,
+      description: description,
+      stage: task.stage || 'draft',
+      template_id: templateId,
+      parent_id: task.parent_id,
+      parent_name: parentInfo,
+      // Include all dynamic properties
+      ...Object.fromEntries(
+        Object.entries(task).filter(([key, value]) => 
+          key !== 'id' && 
+          key !== 'stage' && 
+          key !== 'template_id' && 
+          key !== 'parent_id' && 
+          value
         )
-      };
-      
-      return {
-        content: [
-          {
-            type: "text", 
-            text: JSON.stringify(jsonData, null, 2),
-          } as TextContent,
-        ],
-      };
-    }
+      )
+    };
     
-    // Default markdown format
     return {
       content: [
         {
-          type: "text",
-          text: markdownContent,
+          type: "text", 
+          text: JSON.stringify(jsonData, null, 2),
         } as TextContent,
       ],
     };
@@ -611,31 +602,49 @@ ${description}
     try {
       const deleted = await this.sharedDbService.deleteTask(taskId);
       if (deleted) {
+        const jsonResponse = {
+          success: true,
+          task_id: taskId,
+          message: `Task with ID ${taskId} has been successfully deleted.`
+        };
+        
         return {
           content: [
             {
               type: "text",
-              text: `Task with ID ${taskId} has been successfully deleted.`,
+              text: JSON.stringify(jsonResponse, null, 2),
             } as TextContent,
           ],
         };
       } else {
+        const jsonResponse = {
+          success: false,
+          task_id: taskId,
+          error: `Failed to delete task with ID ${taskId}.`
+        };
+        
         return {
           content: [
             {
               type: "text",
-              text: `Error: Failed to delete task with ID ${taskId}.`,
+              text: JSON.stringify(jsonResponse, null, 2),
             } as TextContent,
           ],
         };
       }
     } catch (error) {
       console.error('Error deleting task:', error);
+      const jsonResponse = {
+        success: false,
+        task_id: taskId,
+        error: "Failed to delete task from database."
+      };
+      
       return {
         content: [
           {
             type: "text",
-            text: "Error: Failed to delete task from database.",
+            text: JSON.stringify(jsonResponse, null, 2),
           } as TextContent,
         ],
       };

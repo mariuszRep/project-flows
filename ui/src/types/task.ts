@@ -10,10 +10,18 @@ export interface Task {
   updated_at: string;
   created_by: string;
   updated_by: string;
+  // JSON response properties
+  parent_id?: number; // Alternative to project_id from JSON
+  parent_name?: string; // Project name from JSON
+  type?: string; // Task type from JSON
+  template_id?: number; // Template ID from JSON
+  description?: string; // Alternative to body from JSON
   // Dynamic properties from blocks system
   Title?: string;
   Summary?: string;
   Description?: string;
+  Items?: string;
+  Notes?: string;
   [key: string]: any; // for other dynamic properties
 }
 

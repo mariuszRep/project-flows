@@ -207,72 +207,30 @@ const TaskForm: React.FC<TaskFormProps> = ({
           project_id: null
         };
         
-        // Try to parse as JSON first, fall back to markdown parsing
-        if (responseContent.trim().startsWith('{')) {
-          try {
-            const jsonData = JSON.parse(responseContent);
-            console.log('Parsed JSON task data:', jsonData);
-            
-            // Map the JSON fields to form data
-            taskData = {
-              stage: jsonData.stage || 'draft',
-              project_id: jsonData.parent_id || null,
-              // Copy all other properties
-              ...jsonData
-            };
-            
-            // Ensure proper field mapping
-            if (jsonData.title && !taskData.Title) {
-              taskData.Title = jsonData.title;
-            }
-            if (jsonData.description && !taskData.Description) {
-              taskData.Description = jsonData.description;
-            }
-            
-          } catch (jsonError) {
-            console.error('JSON parsing failed:', jsonError);
-            throw new Error('Failed to parse JSON response from server');
-          }
-        } else {
-          // Fall back to markdown parsing
-          console.log('Falling back to markdown parsing');
-          const taskContent = responseContent;
+        // Parse JSON response
+        try {
+          const jsonData = JSON.parse(responseContent);
+          console.log('Parsed JSON task data:', jsonData);
           
-          // Parse ** fields (single line format)
-          const titleMatch = taskContent.match(/\*\*Title:\*\* (.+)/i);
-          if (titleMatch) {
-            taskData.Title = titleMatch[1].trim();
+          // Map the JSON fields to form data
+          taskData = {
+            stage: jsonData.stage || 'draft',
+            project_id: jsonData.parent_id || null,
+            // Copy all other properties
+            ...jsonData
+          };
+          
+          // Ensure proper field mapping
+          if (jsonData.title && !taskData.Title) {
+            taskData.Title = jsonData.title;
+          }
+          if (jsonData.description && !taskData.Description) {
+            taskData.Description = jsonData.description;
           }
           
-          const stageMatch = taskContent.match(/\*\*Stage:\*\* (\w+)/);
-          if (stageMatch) {
-            taskData.stage = stageMatch[1];
-          }
-          
-          const parentMatch = taskContent.match(/\*\*Parent Task:\*\* [^(]*\(ID: (\d+)\)/);
-          if (parentMatch) {
-            taskData.project_id = parseInt(parentMatch[1]);
-          } else if (taskContent.match(/\*\*Parent Task:\*\* None/)) {
-            taskData.project_id = null;
-          }
-          
-          // Parse ## sections (multi-line format)
-          const sections = taskContent.split(/\n## /);
-          console.log('Found sections:', sections.length);
-          
-          for (let i = 1; i < sections.length; i++) {
-            const section = sections[i];
-            const lines = section.split('\n');
-            const sectionTitle = lines[0];
-            const sectionContent = lines.slice(1).join('\n').trim();
-            
-            console.log(`Section ${i}: "${sectionTitle}" -> content length: ${sectionContent.length}`);
-            
-            if (sectionContent) {
-              taskData[sectionTitle] = sectionContent;
-              console.log(`Added field "${sectionTitle}": ${sectionContent.substring(0, 50)}...`);
-            }
-          }
+        } catch (jsonError) {
+          console.error('JSON parsing failed:', jsonError);
+          throw new Error('Failed to parse JSON response from server');
         }
         
         console.log('Final task data:', taskData);

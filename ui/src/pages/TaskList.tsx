@@ -94,11 +94,45 @@ const DraftTasks = () => {
           if (result && result.content && result.content[0]) {
             const contentText = result.content[0].text;
             
-            // Check if there are any tasks
-            if (contentText.includes('No tasks found')) {
+            // Check if response is JSON (object or array)
+            if (contentText.trim().startsWith('{') || contentText.trim().startsWith('[')) {
+              try {
+                const jsonResponse = JSON.parse(contentText);
+                
+                // Handle new JSON response format with { tasks: [...], count: number }
+                let tasksArray;
+                if (jsonResponse.tasks && Array.isArray(jsonResponse.tasks)) {
+                  tasksArray = jsonResponse.tasks;
+                } else if (Array.isArray(jsonResponse)) {
+                  // Handle simple array format as fallback
+                  tasksArray = jsonResponse;
+                } else {
+                  console.warn('Unexpected JSON response format:', jsonResponse);
+                  setAllTasks([]);
+                  return;
+                }
+
+                const parsedTasks = tasksArray.map((taskData: any) => ({
+                  id: taskData.id,
+                  title: taskData.title || taskData.Title || 'Untitled Task',
+                  body: taskData.description || taskData.Description || taskData.Summary || '',
+                  stage: taskData.stage as TaskStage,
+                  project_id: taskData.parent_id || taskData.project_id,
+                  created_at: taskData.created_at || new Date().toISOString(),
+                  updated_at: taskData.updated_at || new Date().toISOString(),
+                  created_by: taskData.created_by || 'user@example.com',
+                  updated_by: taskData.updated_by || 'user@example.com'
+                }));
+                setAllTasks(parsedTasks);
+              } catch (e) {
+                console.error('Error parsing JSON response:', e);
+                setError('Error parsing task list response');
+                setAllTasks([]);
+              }
+            } else if (contentText.includes('No tasks found')) {
               setAllTasks([]);
             } else {
-              // Parse the markdown table format
+              // Fallback to markdown table parsing for compatibility
               const lines = contentText.split('\n').filter(line => line.trim());
               const taskRows = lines.slice(2); // Skip header and separator
               

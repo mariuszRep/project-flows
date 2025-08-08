@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import MarkdownRenderer from '@/components/ui/MarkdownRenderer';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { X, Edit, Calendar, CheckCircle2 } from 'lucide-react';
+import { X, Edit, Calendar } from 'lucide-react';
 import { useMCP } from '@/contexts/MCPContext';
-import { Task, TaskStage } from '@/types/task';
+import { Task } from '@/types/task';
 
 interface TaskViewProps {
   taskId: number;
@@ -21,16 +21,41 @@ const TaskView: React.FC<TaskViewProps> = ({
   onEdit
 }) => {
   const { callTool, isConnected } = useMCP();
-  const [markdownContent, setMarkdownContent] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [task, setTask] = useState<Task | null>(null);
+  const [orderedProperties, setOrderedProperties] = useState<string[]>([]);
 
   useEffect(() => {
     if (isOpen && taskId && isConnected) {
       fetchTaskDetails();
+      fetchTemplateProperties();
     }
   }, [taskId, isOpen, isConnected]);
+
+  const fetchTemplateProperties = async () => {
+    if (!callTool) return;
+
+    try {
+      // Assume template_id = 1 for tasks
+      const result = await callTool('get_template_properties', { template_id: 1 });
+      
+      if (result?.content?.[0]?.text) {
+        const properties: Record<string, { execution_order?: number }> = JSON.parse(result.content[0].text);
+        
+        // Sort properties by execution order
+        const ordered = Object.entries(properties)
+          .sort(([, a], [, b]) => (a.execution_order || 999) - (b.execution_order || 999))
+          .map(([key]) => key);
+        
+        setOrderedProperties(ordered);
+      }
+    } catch (err) {
+      console.error('Error fetching template properties:', err);
+      // Fallback to common order if template properties fail
+      setOrderedProperties(['Title', 'Description', 'Items', 'Notes']);
+    }
+  };
 
   const fetchTaskDetails = async () => {
     setIsLoading(true);
@@ -45,37 +70,20 @@ const TaskView: React.FC<TaskViewProps> = ({
         throw new Error('No task ID provided');
       }
 
-      // First try to get JSON format for task data
-      try {
-        const jsonResult = await callTool('get_task', {
-          task_id: taskId,
-          output_format: 'json'
-        });
-        
-        if (jsonResult && jsonResult.content && jsonResult.content[0]) {
-          try {
-            const taskData = JSON.parse(jsonResult.content[0].text);
-            setTask(taskData);
-          } catch (e) {
-            console.error('Error parsing task JSON:', e);
-            setError('Error parsing task data');
-          }
-        } else {
-          console.warn('No JSON data returned for task');
-        }
-      } catch (jsonErr) {
-        console.error('Error fetching task JSON:', jsonErr);
-        // Continue to markdown fetch even if JSON fails
-      }
-
-      // Then get markdown format
+      // Get task data in JSON format
       const result = await callTool('get_task', {
         task_id: taskId,
-        output_format: 'markdown'
+        output_format: 'json'
       });
-
+      
       if (result && result.content && result.content[0]) {
-        setMarkdownContent(result.content[0].text);
+        try {
+          const taskData = JSON.parse(result.content[0].text);
+          setTask(taskData);
+        } catch (e) {
+          console.error('Error parsing task JSON:', e);
+          setError('Error parsing task data');
+        }
       } else {
         throw new Error('Failed to fetch task details');
       }
@@ -147,18 +155,32 @@ const TaskView: React.FC<TaskViewProps> = ({
                   </div>
                 </div>
               )}
-              <div className="prose dark:prose-invert max-w-none">
-                <MarkdownRenderer content={markdownContent} />
-              </div>
+              {task && (
+                <div className="space-y-4">
+                  {/* Render properties in execution order, skipping Title since it's already displayed in header */}
+                  {orderedProperties
+                    .filter(propertyName => propertyName !== 'Title' && task[propertyName])
+                    .map((propertyName) => (
+                      <div key={propertyName}>
+                        <h3 className="text-sm font-semibold mb-2">{propertyName}</h3>
+                        <div className="prose dark:prose-invert max-w-none">
+                          <MarkdownRenderer content={task[propertyName]} />
+                        </div>
+                      </div>
+                    ))}
+                  
+                  {/* Show project info at the end */}
+                  {task.parent_name && (
+                    <div>
+                      <h3 className="text-sm font-semibold mb-2">Project</h3>
+                      <p className="text-sm text-muted-foreground">{task.parent_name}</p>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </CardContent>
-        <CardFooter className="flex justify-end">
-          <Button onClick={onEdit}>
-            <Edit className="h-4 w-4 mr-2" />
-            Edit Task
-          </Button>
-        </CardFooter>
       </Card>
     </div>
   );
