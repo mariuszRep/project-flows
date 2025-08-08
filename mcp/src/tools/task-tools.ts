@@ -25,10 +25,6 @@ export class TaskTools {
               type: "number",
               description: "Optional parent task ID to create hierarchical relationships (subtasks under parent tasks)"
             },
-            template_id: {
-              type: "number",
-              description: "Template ID: 1 for regular tasks, 2 for projects (defaults to 1)"
-            },
             ...allProperties
           },
           required: ["Title", "Description"],
@@ -48,10 +44,6 @@ export class TaskTools {
               type: "number",
               description: "Optional parent task ID for hierarchical relationships"
             },
-            template_id: {
-              type: "number",
-              description: "Template ID: 1 for regular tasks, 2 for projects"
-            },
             ...allProperties
           },
           required: ["task_id"],
@@ -66,10 +58,6 @@ export class TaskTools {
             stage: {
               type: "string",
               description: "Optional stage filter: 'draft', 'backlog', 'doing', 'review', or 'completed'"
-            },
-            template_id: {
-              type: "number",
-              description: "Optional template ID filter: 1 for tasks, 2 for projects"
             },
             project_id: {
               type: "number",
@@ -178,15 +166,8 @@ export class TaskTools {
       }
     }
 
-    // Handle template_id for project/task distinction
-    if (toolArgs?.template_id !== undefined) {
-      const validTemplateIds = [1, 2]; // 1 = task, 2 = project
-      if (validTemplateIds.includes(toolArgs.template_id)) {
-        taskData.template_id = toolArgs.template_id;
-        const templateType = toolArgs.template_id === 2 ? 'project' : 'task';
-        console.log(`Creating ${templateType} with template_id ${toolArgs.template_id}`);
-      }
-    }
+    // Set template_id to 1 for tasks (create_task always creates tasks, not projects)
+    taskData.template_id = 1;
 
     // Add all properties (including Title and Summary/Description) to task data
     for (const { prop_name } of executionChain) {
@@ -196,9 +177,9 @@ export class TaskTools {
       }
     }
     
-    // Also add any properties not in the execution chain (exclude parent_id and template_id as they're already handled)
+    // Also add any properties not in the execution chain (exclude parent_id as it's already handled)
     for (const [key, value] of Object.entries(toolArgs || {})) {
-      if (value && key !== 'parent_id' && key !== 'template_id' && !taskData[key]) {
+      if (value && key !== 'parent_id' && !taskData[key]) {
         taskData[key] = value;
       }
     }
@@ -326,13 +307,8 @@ ${description}
       updateData.parent_id = toolArgs.parent_id;
     }
     
-    if (toolArgs?.template_id !== undefined) {
-      // Validate template_id value
-      const validTemplateIds = [1, 2]; // 1 = task, 2 = project
-      if (validTemplateIds.includes(Number(toolArgs.template_id))) {
-        updateData.template_id = Number(toolArgs.template_id);
-      }
-    }
+    // Set template_id to 1 for tasks (consistent with create_task)
+    updateData.template_id = 1;
 
     // Create execution chain to order fields when building markdown
     const executionChain = this.createExecutionChain(dynamicProperties);
@@ -408,10 +384,11 @@ ${description}
   }
 
   private async handleListTasks(toolArgs?: Record<string, any>) {
-    // List all tasks with optional stage, template_id, and project_id filters
+    // List all tasks with optional stage and project_id filters
     const stageFilter = toolArgs?.stage as string | undefined;
-    const templateIdFilter = toolArgs?.template_id as number | undefined;
     const projectIdFilter = toolArgs?.project_id as number | undefined;
+    // Always use template_id 1 for consistency
+    const templateIdFilter = 1;
     let tasks: TaskData[];
     try {
       tasks = await this.sharedDbService.listTasks(stageFilter, projectIdFilter, templateIdFilter);
@@ -430,7 +407,7 @@ ${description}
     if (tasks.length === 0) {
       const filters = [];
       if (stageFilter) filters.push(`stage '${stageFilter}'`);
-      if (templateIdFilter) filters.push(`template_id '${templateIdFilter}'`);
+      filters.push(`template_id '1'`);
       if (projectIdFilter) filters.push(`project_id '${projectIdFilter}'`);
       const filterMsg = filters.length > 0 ? ` with ${filters.join(' and ')}` : '';
       return {
