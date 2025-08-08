@@ -388,7 +388,7 @@ class DatabaseService {
 
   async getTemplateProperties(templateId: number): Promise<Record<string, SchemaProperty>> {
     try {
-      const query = 'SELECT key, type, description, dependencies, execution_order, created_by, updated_by, created_at, updated_at, id, template_id, fixed FROM properties WHERE template_id = $1 ORDER BY execution_order, key';
+      const query = 'SELECT key, type, description, dependencies, execution_order, created_by, updated_by, created_at, updated_at, id, template_id, fixed, position FROM properties WHERE template_id = $1 ORDER BY position, key';
       const result = await this.pool.query(query, [templateId]);
       
       const properties: Record<string, SchemaProperty> = {};

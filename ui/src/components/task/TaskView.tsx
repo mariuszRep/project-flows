@@ -53,7 +53,6 @@ const TaskView: React.FC<TaskViewProps> = ({
     } catch (err) {
       console.error('Error fetching template properties:', err);
       // Fallback to common order if template properties fail
-      setOrderedProperties(['Title', 'Description', 'Items', 'Notes']);
     }
   };
 
@@ -72,8 +71,7 @@ const TaskView: React.FC<TaskViewProps> = ({
 
       // Get task data in JSON format
       const result = await callTool('get_task', {
-        task_id: taskId,
-        output_format: 'json'
+        task_id: taskId
       });
       
       if (result && result.content && result.content[0]) {
