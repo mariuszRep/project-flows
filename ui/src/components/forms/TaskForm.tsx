@@ -22,13 +22,14 @@ interface TaskFormProps {
 }
 
 interface TemplateProperty {
+  id: number;
+  template_id: number;
+  key: string;
   type: string;
   description: string;
-  dependencies?: string[];
-  execution_order?: number;
-  id?: number;
-  template_id?: number;
-  fixed?: boolean;
+  dependencies: string[];
+  execution_order: number;
+  fixed: boolean;
 }
 
 interface FormField {
@@ -120,22 +121,22 @@ const TaskForm: React.FC<TaskFormProps> = ({
 
     try {
       console.log('Fetching template properties for templateId:', templateId);
-      const result = await callTool('get_template_properties', { template_id: templateId });
+      const result = await callTool('list_properties', { template_id: templateId });
       
       if (result?.content?.[0]?.text) {
-        const properties: Record<string, TemplateProperty> = JSON.parse(result.content[0].text);
+        const properties: TemplateProperty[] = JSON.parse(result.content[0].text);
         console.log('Template properties:', properties);
         
         // Convert properties to form fields
-        const fields: FormField[] = Object.entries(properties)
-          .sort(([, a], [, b]) => (a.execution_order || 999) - (b.execution_order || 999))
-          .map(([key, property]) => ({
-            name: key,
-            label: key,
+        const fields: FormField[] = properties
+          .sort((a, b) => (a.execution_order || 999) - (b.execution_order || 999))
+          .map((property) => ({
+            name: property.key,
+            label: property.key,
             description: property.description || '',
-            type: inferInputType(key, property.type),
-            required: key === 'Title', // Title is always required
-            placeholder: generatePlaceholder(key, property.description || ''),
+            type: inferInputType(property.key, property.type),
+            required: property.key === 'Title', // Title is always required
+            placeholder: generatePlaceholder(property.key, property.description || ''),
             order: property.execution_order || 999
           }));
 
