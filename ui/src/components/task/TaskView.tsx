@@ -100,7 +100,7 @@ const TaskView: React.FC<TaskViewProps> = ({
       <Card className="w-full max-w-3xl mx-auto">
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>
-            {task ? `${task.title || task.Title || `Task #${taskId}`}` : `Task #${taskId}`}
+            {task ? `${task.blocks?.Title || task.title || task.Title || `Task #${taskId}`}` : `Task #${taskId}`}
           </CardTitle>
           <div className="flex gap-2">
             <Button variant="outline" size="icon" onClick={onEdit}>
@@ -160,10 +160,27 @@ const TaskView: React.FC<TaskViewProps> = ({
               )}
               {task && (
                 <div className="space-y-4">
-                  {/* Render properties in execution order, skipping Title since it's already displayed in header */}
-                  {orderedProperties
-                    .filter(propertyName => propertyName !== 'Title' && task[propertyName])
-                    .map((propertyName) => (
+                  {/* Render properties - prioritize blocks, fall back to template properties or direct properties */}
+                  {(() => {
+                    // Get all available property names
+                    const blocksProperties = task.blocks ? Object.keys(task.blocks) : [];
+                    const directProperties = Object.keys(task).filter(key => 
+                      !['id', 'stage', 'parent_id', 'parent_name', 'parent_type', 'template_id', 'created_at', 'updated_at', 'created_by', 'updated_by', 'blocks', 'title', 'body', 'project_id', 'description', 'type'].includes(key)
+                    );
+                    
+                    // Use ordered properties if available, otherwise use all available properties
+                    const propertiesToRender = orderedProperties.length > 0 
+                      ? orderedProperties 
+                      : [...new Set([...blocksProperties, ...directProperties])];
+                    
+                    return propertiesToRender
+                      .filter(propertyName => {
+                        if (propertyName === 'Title' || propertyName === 'project_id') return false;
+                        const blockValue = task.blocks?.[propertyName];
+                        const directValue = task[propertyName];
+                        return blockValue || directValue;
+                      })
+                      .map((propertyName) => (
                       <div 
                         key={propertyName}
                         className="relative -mx-4 px-4 py-2 rounded"
@@ -181,10 +198,11 @@ const TaskView: React.FC<TaskViewProps> = ({
                       >
                         <h3 className="text-sm font-semibold mb-2">{propertyName}</h3>
                         <div className="prose dark:prose-invert max-w-none">
-                          <MarkdownRenderer content={task[propertyName]} />
+                          <MarkdownRenderer content={String(task.blocks?.[propertyName] || task[propertyName] || '')} />
                         </div>
                       </div>
-                    ))}
+                    ));
+                  })()}
                   
                   {/* Project info has been moved to the top */}
                 </div>

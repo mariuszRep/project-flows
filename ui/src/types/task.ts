@@ -13,16 +13,26 @@ export interface Task {
   // JSON response properties
   parent_id?: number; // Alternative to project_id from JSON
   parent_name?: string; // Project name from JSON
+  parent_type?: string; // Type of parent (project, task, etc.)
   type?: string; // Task type from JSON
   template_id?: number; // Template ID from JSON
   description?: string; // Alternative to body from JSON
-  // Dynamic properties from blocks system
+  // New blocks structure - properties are nested in blocks object
+  blocks?: {
+    Title?: string;
+    Summary?: string;
+    Description?: string;
+    Items?: string;
+    Notes?: string;
+    [key: string]: string | number | boolean | undefined; // for other dynamic properties
+  };
+  // Legacy properties for backward compatibility - these are now in blocks
   Title?: string;
   Summary?: string;
   Description?: string;
   Items?: string;
   Notes?: string;
-  [key: string]: any; // for other dynamic properties
+  [key: string]: string | number | boolean | undefined; // for other dynamic properties
 }
 
 export interface CreateTaskRequest {

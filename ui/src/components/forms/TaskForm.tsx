@@ -217,16 +217,26 @@ const TaskForm: React.FC<TaskFormProps> = ({
           taskData = {
             stage: jsonData.stage || 'draft',
             project_id: jsonData.parent_id || null,
-            // Copy all other properties
+            // Copy properties from blocks object if it exists, otherwise from top level
+            ...(jsonData.blocks || {}),
+            // Also copy any top-level properties for backward compatibility
             ...jsonData
           };
           
-          // Ensure proper field mapping
-          if (jsonData.title && !taskData.Title) {
-            taskData.Title = jsonData.title;
-          }
-          if (jsonData.description && !taskData.Description) {
-            taskData.Description = jsonData.description;
+          // Ensure proper field mapping for new blocks format
+          if (jsonData.blocks) {
+            // Use blocks data as primary source
+            Object.keys(jsonData.blocks).forEach(key => {
+              taskData[key] = jsonData.blocks[key];
+            });
+          } else {
+            // Fallback to old format for backward compatibility
+            if (jsonData.title && !taskData.Title) {
+              taskData.Title = jsonData.title;
+            }
+            if (jsonData.description && !taskData.Description) {
+              taskData.Description = jsonData.description;
+            }
           }
           
         } catch (jsonError) {

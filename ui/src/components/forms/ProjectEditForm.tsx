@@ -176,8 +176,14 @@ const ProjectEditForm: React.FC<ProjectEditFormProps> = ({
             const jsonData = JSON.parse(responseContent);
             console.log('Parsed JSON project data:', jsonData);
             
-            // Map the JSON fields to form data
-            projectData = { ...jsonData };
+            // Map the JSON fields to form data - handle blocks structure
+            if (jsonData.blocks) {
+              // Use blocks data as primary source for new format
+              projectData = { ...jsonData.blocks };
+            } else {
+              // Fallback to old format for backward compatibility
+              projectData = { ...jsonData };
+            }
             
           } catch (jsonError) {
             console.error('JSON parsing failed:', jsonError);
