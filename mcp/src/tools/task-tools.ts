@@ -517,47 +517,40 @@ export class TaskTools {
       };
     }
 
-    const dynamicProperties = await this.loadDynamicSchemaProperties();
-    const executionChain = this.createExecutionChain(dynamicProperties);
-
-    // Generate JSON response for the complete task
-    const title = task.Title || '';
-    const description = task.Description || task.Summary || '';
-    
-    // Get parent task name if task has parent_id
-    let parentInfo = 'None';
+    // Get parent task name if task has parent_id (clean format without ID)
+    let parentName = null;
     if (task.parent_id) {
       try {
         const parentTask = await this.sharedDbService.getTask(task.parent_id);
-        parentInfo = parentTask ? `${parentTask.Title || 'Untitled'} (ID: ${parentTask.id})` : `Unknown (ID: ${task.parent_id})`;
+        parentName = parentTask ? (parentTask.Title || 'Untitled') : 'Unknown';
       } catch (error) {
-        parentInfo = `Error loading parent task (ID: ${task.parent_id})`;
+        parentName = 'Unknown';
       }
     }
     
     const templateId = task.template_id || 1;
-    const typeDisplay = templateId === 2 ? 'Project' : 'Task';
     
-    // Return structured JSON data
+    // Build blocks object dynamically from task properties
+    const blocks: Record<string, string> = {};
+    
+    // Add all task properties to blocks, excluding system fields
+    const systemFields = ['id', 'stage', 'template_id', 'parent_id', 'created_at', 'updated_at', 'created_by', 'updated_by'];
+    
+    for (const [key, value] of Object.entries(task)) {
+      if (!systemFields.includes(key) && value) {
+        blocks[key] = String(value);
+      }
+    }
+    
+    // Return structured JSON data with blocks format
     const jsonData = {
       id: task.id,
-      type: typeDisplay.toLowerCase(),
-      title: title,
-      description: description,
       stage: task.stage || 'draft',
       template_id: templateId,
       parent_id: task.parent_id,
-      parent_name: parentInfo,
-      // Include all dynamic properties
-      ...Object.fromEntries(
-        Object.entries(task).filter(([key, value]) => 
-          key !== 'id' && 
-          key !== 'stage' && 
-          key !== 'template_id' && 
-          key !== 'parent_id' && 
-          value
-        )
-      )
+      parent_type: 'project',
+      parent_name: parentName,
+      blocks: blocks
     };
     
     return {
