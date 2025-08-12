@@ -41,34 +41,30 @@ export function ProjectSidebar({
         if (result && result.content && result.content[0]) {
           const contentText = result.content[0].text;
           
-          // Parse the markdown table format
-          const lines = contentText.split('\n').filter(line => line.trim());
-          const projectRows = lines.slice(2); // Skip header and separator
-          
-          const parsedProjects = projectRows.map((row, index) => {
-            const columns = row.split('|').map(col => col.trim()).filter(col => col);
+          try {
+            // Parse the JSON response
+            const jsonResponse = JSON.parse(contentText);
             
-            if (columns.length >= 4) { // ID, Name, Description, Color
-              const id = parseInt(columns[0]) || index + 1;
-              const name = columns[1] || 'Untitled Project';
-              const description = columns[2] || '';
-              const color = columns[3] || '#3b82f6';
-              
-              return {
-                id,
-                name,
-                description,
-                color,
+            if (jsonResponse.tasks && Array.isArray(jsonResponse.tasks)) {
+              const parsedProjects = jsonResponse.tasks.map((task: any) => ({
+                id: task.id,
+                name: task.title || 'Untitled Project',
+                description: task.description || '',
+                color: '#3b82f6', // Default color since projects are now stored as tasks
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
                 created_by: 'user@example.com',
                 updated_by: 'user@example.com'
-              };
+              }));
+              
+              setProjects(parsedProjects);
+            } else {
+              setProjects([]);
             }
-            return null;
-          }).filter(project => project !== null);
-          
-          setProjects(parsedProjects);
+          } catch (parseError) {
+            console.error('Error parsing JSON response:', parseError);
+            setProjects([]);
+          }
         }
       }
     } catch (err) {

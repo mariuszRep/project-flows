@@ -79,9 +79,8 @@ export default function ProjectForm({
     try {
       if (mode === 'create') {
         const result = await callTool('create_project', {
-          name: formData.name.trim(),
-          description: formData.description.trim() || undefined,
-          color: formData.color
+          Title: formData.name.trim(),
+          Description: formData.description.trim() || undefined
         });
 
         if (result && result.content && result.content[0]) {
@@ -111,9 +110,8 @@ export default function ProjectForm({
       } else if (mode === 'edit' && project) {
         const result = await callTool('update_project', {
           project_id: project.id,
-          name: formData.name.trim(),
-          description: formData.description.trim() || undefined,
-          color: formData.color
+          Title: formData.name.trim(),
+          Description: formData.description.trim() || undefined
         });
 
         if (result && result.content && result.content[0]) {

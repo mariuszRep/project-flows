@@ -55,34 +55,30 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
         if (result && result.content && result.content[0]) {
           const contentText = result.content[0].text;
           
-          // Parse the markdown table format
-          const lines = contentText.split('\n').filter(line => line.trim());
-          const projectRows = lines.slice(2); // Skip header and separator
-          
-          const parsedProjects = projectRows.map((row, index) => {
-            const columns = row.split('|').map(col => col.trim()).filter(col => col);
+          try {
+            // Parse the JSON response
+            const jsonResponse = JSON.parse(contentText);
             
-            if (columns.length >= 4) { // ID, Name, Description, Color
-              const id = parseInt(columns[0]) || index + 1;
-              const name = columns[1] || 'Untitled Project';
-              const description = columns[2] || '';
-              const color = columns[3] || '#3b82f6';
-              
-              return {
-                id,
-                name,
-                description,
-                color,
+            if (jsonResponse.tasks && Array.isArray(jsonResponse.tasks)) {
+              const parsedProjects = jsonResponse.tasks.map((task: any) => ({
+                id: task.id,
+                name: task.title || 'Untitled Project',
+                description: task.description || '',
+                color: '#3b82f6', // Default color since projects are now stored as tasks
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
                 created_by: 'user@example.com',
                 updated_by: 'user@example.com'
-              };
+              }));
+              
+              setProjects(parsedProjects);
+            } else {
+              setProjects([]);
             }
-            return null;
-          }).filter(project => project !== null);
-          
-          setProjects(parsedProjects);
+          } catch (parseError) {
+            console.error('Error parsing JSON response:', parseError);
+            setProjects([]);
+          }
         }
       }
     } catch (err) {
@@ -102,26 +98,47 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
 
     try {
       const result = await callTool('create_project', {
-        name: projectData.name,
-        description: projectData.description,
-        color: projectData.color || '#3b82f6'
+        Title: projectData.name,
+        Description: projectData.description
       });
 
       if (result && result.content && result.content[0]) {
-        // Refresh projects list to get the new project
-        await fetchProjects();
+        const responseText = result.content[0].text;
         
-        // Return a mock project object
-        return {
-          id: Date.now(), // Temporary ID until we refresh
-          name: projectData.name,
-          description: projectData.description || '',
-          color: projectData.color || '#3b82f6',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          created_by: 'user@example.com',
-          updated_by: 'user@example.com'
-        };
+        try {
+          // Parse JSON response to get the actual project ID
+          const jsonResponse = JSON.parse(responseText);
+          
+          // Refresh projects list to get the new project
+          await fetchProjects();
+          
+          // Return project object with real ID from response
+          return {
+            id: jsonResponse.task_id || Date.now(),
+            name: projectData.name,
+            description: projectData.description || '',
+            color: projectData.color || '#3b82f6',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            created_by: 'user@example.com',
+            updated_by: 'user@example.com'
+          };
+        } catch (parseError) {
+          console.error('Error parsing create_project response:', parseError);
+          // Fallback to refresh and return mock object
+          await fetchProjects();
+          
+          return {
+            id: Date.now(),
+            name: projectData.name,
+            description: projectData.description || '',
+            color: projectData.color || '#3b82f6',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            created_by: 'user@example.com',
+            updated_by: 'user@example.com'
+          };
+        }
       }
     } catch (err) {
       console.error('Error creating project:', err);
@@ -139,13 +156,28 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
     }
 
     try {
-      const result = await callTool('update_project', {
-        project_id: projectId,
-        ...updates
-      });
+      const updateData: Record<string, any> = { project_id: projectId };
+      
+      // Map UI field names to MCP tool field names
+      if (updates.name) updateData.Title = updates.name;
+      if (updates.description) updateData.Description = updates.description;
+      // Note: color is not supported in the new template-based system
+      
+      const result = await callTool('update_project', updateData);
 
       if (result && result.content && result.content[0]) {
-        // Refresh projects list to get updated data
+        try {
+          const jsonResponse = JSON.parse(result.content[0].text);
+          if (jsonResponse.success) {
+            // Refresh projects list to get updated data
+            await fetchProjects();
+            return true;
+          }
+        } catch (parseError) {
+          console.error('Error parsing update_project response:', parseError);
+        }
+        
+        // Refresh projects list anyway in case of parsing issues
         await fetchProjects();
         return true;
       }
@@ -170,12 +202,27 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
       });
 
       if (result && result.content && result.content[0]) {
-        // If the deleted project was selected, deselect it
+        try {
+          const jsonResponse = JSON.parse(result.content[0].text);
+          if (jsonResponse.success) {
+            // If the deleted project was selected, deselect it
+            if (selectedProjectId === projectId) {
+              setSelectedProjectId(null);
+            }
+            
+            // Refresh projects list
+            await fetchProjects();
+            return true;
+          }
+        } catch (parseError) {
+          console.error('Error parsing delete_project response:', parseError);
+        }
+        
+        // If parsing fails, assume success and refresh anyway
         if (selectedProjectId === projectId) {
           setSelectedProjectId(null);
         }
         
-        // Refresh projects list
         await fetchProjects();
         return true;
       }
