@@ -19,20 +19,6 @@ export class PropertyTools {
         },
       } as Tool,
       {
-        name: "get_template_properties",
-        description: "Get properties for a specific template by template ID.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            template_id: {
-              type: "number",
-              description: "The numeric ID of the template"
-            }
-          },
-          required: ["template_id"],
-        },
-      } as Tool,
-      {
         name: "create_property",
         description: "Create a new property for a specific template by template ID.",
         inputSchema: {
@@ -144,7 +130,6 @@ export class PropertyTools {
   canHandle(toolName: string): boolean {
     return [
       "list_templates",
-      "get_template_properties", 
       "create_property",
       "update_property",
       "delete_property",
@@ -156,8 +141,6 @@ export class PropertyTools {
     switch (name) {
       case "list_templates":
         return await this.handleListTemplates();
-      case "get_template_properties":
-        return await this.handleGetTemplateProperties(toolArgs);
       case "create_property":
         return await this.handleCreateProperty(toolArgs);
       case "update_property":
@@ -218,56 +201,6 @@ export class PropertyTools {
     }
   }
 
-  private async handleGetTemplateProperties(toolArgs?: Record<string, any>) {
-    const templateId = toolArgs?.template_id;
-    
-    // Validate template ID
-    if (!templateId || typeof templateId !== 'number' || templateId < 1) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: "Error: Valid numeric template_id is required.",
-          } as TextContent,
-        ],
-      };
-    }
-
-    try {
-      const properties = await this.sharedDbService.getTemplateProperties(templateId);
-      
-      if (Object.keys(properties).length === 0) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `No properties found for template ID ${templateId}.`,
-            } as TextContent,
-          ],
-        };
-      }
-
-      // Return JSON response with properties data
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify(properties, null, 2),
-          } as TextContent,
-        ],
-      };
-    } catch (error) {
-      console.error('Error fetching template properties:', error);
-      return {
-        content: [
-          {
-            type: "text",
-            text: "Error: Failed to retrieve template properties.",
-          } as TextContent,
-        ],
-      };
-    }
-  }
 
   private async handleCreateProperty(toolArgs?: Record<string, any>) {
     const templateId = toolArgs?.template_id;

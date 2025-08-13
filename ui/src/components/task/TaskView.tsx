@@ -38,17 +38,24 @@ const TaskView: React.FC<TaskViewProps> = ({
 
     try {
       // Assume template_id = 1 for tasks
-      const result = await callTool('get_template_properties', { template_id: 1 });
+      const result = await callTool('list_properties', { template_id: 1 });
       
       if (result?.content?.[0]?.text) {
-        const properties: Record<string, { execution_order?: number }> = JSON.parse(result.content[0].text);
+        const properties = JSON.parse(result.content[0].text);
         
-        // Sort properties by execution order
-        const ordered = Object.entries(properties)
-          .sort(([, a], [, b]) => (a.execution_order || 999) - (b.execution_order || 999))
-          .map(([key]) => key);
-        
-        setOrderedProperties(ordered);
+        // list_properties returns an array, so sort by execution_order then by key
+        if (Array.isArray(properties)) {
+          const ordered = properties
+            .sort((a, b) => {
+              const orderA = a.execution_order || 999;
+              const orderB = b.execution_order || 999;
+              if (orderA !== orderB) return orderA - orderB;
+              return (a.key || '').localeCompare(b.key || '');
+            })
+            .map(property => property.key);
+          
+          setOrderedProperties(ordered);
+        }
       }
     } catch (err) {
       console.error('Error fetching template properties:', err);

@@ -386,34 +386,6 @@ class DatabaseService {
     }
   }
 
-  async getTemplateProperties(templateId: number): Promise<Record<string, SchemaProperty>> {
-    try {
-      const query = 'SELECT key, type, description, dependencies, execution_order, created_by, updated_by, created_at, updated_at, id, template_id, fixed, position FROM properties WHERE template_id = $1 ORDER BY position, key';
-      const result = await this.pool.query(query, [templateId]);
-      
-      const properties: Record<string, SchemaProperty> = {};
-      for (const row of result.rows) {
-        properties[row.key] = {
-          type: row.type,
-          description: row.description,
-          dependencies: row.dependencies,
-          execution_order: row.execution_order,
-          created_by: row.created_by,
-          updated_by: row.updated_by,
-          created_at: row.created_at,
-          updated_at: row.updated_at,
-          id: row.id,
-          template_id: row.template_id,
-          fixed: row.fixed
-        };
-      }
-      
-      return properties;
-    } catch (error) {
-      console.error('Error fetching template properties:', error);
-      return {};
-    }
-  }
 
   async createProperty(templateId: number, propertyData: {
     key: string;
