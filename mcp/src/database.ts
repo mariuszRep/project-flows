@@ -21,7 +21,6 @@ interface SchemaProperty {
 }
 
 type TaskStage = 'draft' | 'backlog' | 'doing' | 'review' | 'completed';
-type TaskType = 'project' | 'task';
 
 interface ProjectData {
   id: number;
@@ -39,7 +38,7 @@ interface TaskData {
   parent_id?: number;
   project_id?: number; // For backward compatibility with UI
   stage?: TaskStage;
-  type?: TaskType;
+  template_id?: number;
   [key: string]: any;
 }
 
@@ -66,10 +65,19 @@ class DatabaseService {
   }
 
 
-  async getSchemaProperties(): Promise<Record<string, SchemaProperty>> {
+  async getSchemaProperties(templateId?: number): Promise<Record<string, SchemaProperty>> {
     try {
-      const query = 'SELECT key, type, description, dependencies, execution_order, created_by, updated_by, created_at, updated_at, id, template_id, fixed FROM properties ORDER BY key';
-      const result = await this.pool.query(query);
+      let query = 'SELECT key, type, description, dependencies, execution_order, created_by, updated_by, created_at, updated_at, id, template_id, fixed FROM properties';
+      const params: any[] = [];
+      
+      if (templateId !== undefined) {
+        query += ' WHERE template_id = $1';
+        params.push(templateId);
+      }
+      
+      query += ' ORDER BY key';
+      
+      const result = await this.pool.query(query, params);
       
       const properties: Record<string, SchemaProperty> = {};
       for (const row of result.rows) {
@@ -125,24 +133,31 @@ class DatabaseService {
     try {
       await client.query('BEGIN');
 
-      // Insert task with parent_id, stage, and type
+      // Insert task with parent_id, stage, and template_id
       const taskQuery = `
-        INSERT INTO tasks (parent_id, stage, type, created_by, updated_by) 
+        INSERT INTO tasks (parent_id, stage, template_id, created_by, updated_by) 
         VALUES ($1, $2, $3, $4, $5) 
         RETURNING id
       `;
-      const taskResult = await client.query(taskQuery, [taskData.parent_id || null, taskData.stage || 'draft', taskData.type || 'task', userId, userId]);
+      const taskResult = await client.query(taskQuery, [taskData.parent_id || null, taskData.stage || 'draft', taskData.template_id || 1, userId, userId]);
       const taskId = taskResult.rows[0].id;
 
       // Insert blocks for all properties including Title and Description (previously title/summary)
       let position = 0;
       for (const [key, value] of Object.entries(taskData)) {
-        if (key !== 'stage' && key !== 'parent_id' && key !== 'type' && value) {
-          const blockQuery = `
-            INSERT INTO blocks (task_id, property_name, content, position, created_by, updated_by) 
-            VALUES ($1, $2, $3, $4, $5, $6)
-          `;
-          await client.query(blockQuery, [taskId, key, this.flattenToText(value), position++, userId, userId]);
+        if (key !== 'stage' && key !== 'parent_id' && key !== 'template_id' && value) {
+          // Look up property_id from key
+          const propertyQuery = 'SELECT id FROM properties WHERE key = $1 LIMIT 1';
+          const propertyResult = await client.query(propertyQuery, [key]);
+          
+          if (propertyResult.rows.length > 0) {
+            const propertyId = propertyResult.rows[0].id;
+            const blockQuery = `
+              INSERT INTO blocks (task_id, property_id, content, position, created_by, updated_by) 
+              VALUES ($1, $2, $3, $4, $5, $6)
+            `;
+            await client.query(blockQuery, [taskId, propertyId, this.flattenToText(value), position++, userId, userId]);
+          }
         }
       }
 
@@ -162,7 +177,7 @@ class DatabaseService {
     try {
       await client.query('BEGIN');
 
-      // Update task stage, parent_id, and/or type if provided
+      // Update task stage, parent_id, and/or template_id if provided
       const taskUpdates = [];
       const taskValues = [];
       let paramIndex = 1;
@@ -177,9 +192,9 @@ class DatabaseService {
         taskValues.push(updates.parent_id);
       }
       
-      if (updates.type !== undefined) {
-        taskUpdates.push(`type = $${paramIndex++}`);
-        taskValues.push(updates.type);
+      if (updates.template_id !== undefined) {
+        taskUpdates.push(`template_id = $${paramIndex++}`);
+        taskValues.push(updates.template_id);
       }
       
       if (taskUpdates.length > 0) {
@@ -194,14 +209,21 @@ class DatabaseService {
 
       // Update blocks for all other properties (including Title and Description)
       for (const [key, value] of Object.entries(updates)) {
-        if (key !== 'id' && key !== 'stage' && key !== 'parent_id' && key !== 'type' && value !== undefined) {
-          const blockQuery = `
-            INSERT INTO blocks (task_id, property_name, content, position, created_by, updated_by) 
-            VALUES ($1, $2, $3, 0, $4, $5)
-            ON CONFLICT (task_id, property_name) 
-            DO UPDATE SET content = $3, updated_at = CURRENT_TIMESTAMP, updated_by = $5
-          `;
-          await client.query(blockQuery, [taskId, key, this.flattenToText(value), userId, userId]);
+        if (key !== 'id' && key !== 'stage' && key !== 'parent_id' && key !== 'template_id' && value !== undefined) {
+          // Look up property_id from key
+          const propertyQuery = 'SELECT id FROM properties WHERE key = $1 LIMIT 1';
+          const propertyResult = await client.query(propertyQuery, [key]);
+          
+          if (propertyResult.rows.length > 0) {
+            const propertyId = propertyResult.rows[0].id;
+            const blockQuery = `
+              INSERT INTO blocks (task_id, property_id, content, position, created_by, updated_by) 
+              VALUES ($1, $2, $3, 0, $4, $5)
+              ON CONFLICT (task_id, property_id) 
+              DO UPDATE SET content = $3, updated_at = CURRENT_TIMESTAMP, updated_by = $5
+            `;
+            await client.query(blockQuery, [taskId, propertyId, this.flattenToText(value), userId, userId]);
+          }
         }
       }
 
@@ -217,8 +239,8 @@ class DatabaseService {
 
   async getTask(taskId: number): Promise<TaskData | null> {
     try {
-      // Get task core data (id, parent_id, stage, and type)
-      const taskQuery = 'SELECT id, parent_id, stage, type FROM tasks WHERE id = $1';
+      // Get task core data (id, parent_id, stage, and template_id)
+      const taskQuery = 'SELECT id, parent_id, stage, template_id FROM tasks WHERE id = $1';
       const taskResult = await this.pool.query(taskQuery, [taskId]);
       
       if (taskResult.rows.length === 0) {
@@ -229,10 +251,11 @@ class DatabaseService {
       
       // Get blocks for all properties including Title and Description
       const blocksQuery = `
-        SELECT property_name, content 
-        FROM blocks 
-        WHERE task_id = $1 
-        ORDER BY position
+        SELECT p.key as property_name, b.content 
+        FROM blocks b
+        JOIN properties p ON b.property_id = p.id
+        WHERE b.task_id = $1 
+        ORDER BY b.position
       `;
       const blocksResult = await this.pool.query(blocksQuery, [taskId]);
       
@@ -242,7 +265,7 @@ class DatabaseService {
         parent_id: task.parent_id,
         project_id: task.parent_id, // For backward compatibility with UI
         stage: task.stage,
-        type: task.type,
+        template_id: task.template_id,
       };
 
       for (const block of blocksResult.rows) {
@@ -268,21 +291,32 @@ class DatabaseService {
     }
   }
 
-  async listTasks(stageFilter?: string, projectIdFilter?: number): Promise<TaskData[]> {
+  async listTasks(stageFilter?: string, projectIdFilter?: number, templateIdFilter?: number): Promise<TaskData[]> {
     try {
-      // Get basic task data, excluding project-type tasks
-      let query = 'SELECT id, parent_id, stage, type FROM tasks WHERE type != $1';
-      let params: any[] = ['project'];
-      let paramIndex = 2;
+      // Get basic task data
+      let query = 'SELECT id, parent_id, stage, template_id FROM tasks';
+      let params: any[] = [];
+      let paramIndex = 1;
+      
+      const conditions = [];
+      
+      if (templateIdFilter !== undefined) {
+        conditions.push(`template_id = $${paramIndex++}`);
+        params.push(templateIdFilter);
+      }
       
       if (stageFilter) {
-        query += ` AND stage = $${paramIndex++}`;
+        conditions.push(`stage = $${paramIndex++}`);
         params.push(stageFilter);
       }
       
       if (projectIdFilter !== undefined) {
-        query += ` AND parent_id = $${paramIndex++}`;
+        conditions.push(`parent_id = $${paramIndex++}`);
         params.push(projectIdFilter);
+      }
+      
+      if (conditions.length > 0) {
+        query += ' WHERE ' + conditions.join(' AND ');
       }
       
       query += ' ORDER BY id';
@@ -296,10 +330,11 @@ class DatabaseService {
       // Get all blocks for these tasks
       const taskIds = tasksResult.rows.map(row => row.id);
       const blocksQuery = `
-        SELECT task_id, property_name, content 
-        FROM blocks 
-        WHERE task_id = ANY($1)
-        ORDER BY task_id, position
+        SELECT b.task_id, p.key as property_name, b.content 
+        FROM blocks b
+        JOIN properties p ON b.property_id = p.id
+        WHERE b.task_id = ANY($1)
+        ORDER BY b.task_id, b.position
       `;
       const blocksResult = await this.pool.query(blocksQuery, [taskIds]);
       
@@ -322,7 +357,7 @@ class DatabaseService {
           parent_id: row.parent_id,
           project_id: row.parent_id, // For backward compatibility with UI
           stage: row.stage,
-          type: row.type,
+          template_id: row.template_id,
         };
         
         // Add blocks for this task
@@ -351,34 +386,6 @@ class DatabaseService {
     }
   }
 
-  async getTemplateProperties(templateId: number): Promise<Record<string, SchemaProperty>> {
-    try {
-      const query = 'SELECT key, type, description, dependencies, execution_order, created_by, updated_by, created_at, updated_at, id, template_id, fixed FROM properties WHERE template_id = $1 ORDER BY execution_order, key';
-      const result = await this.pool.query(query, [templateId]);
-      
-      const properties: Record<string, SchemaProperty> = {};
-      for (const row of result.rows) {
-        properties[row.key] = {
-          type: row.type,
-          description: row.description,
-          dependencies: row.dependencies,
-          execution_order: row.execution_order,
-          created_by: row.created_by,
-          updated_by: row.updated_by,
-          created_at: row.created_at,
-          updated_at: row.updated_at,
-          id: row.id,
-          template_id: row.template_id,
-          fixed: row.fixed
-        };
-      }
-      
-      return properties;
-    } catch (error) {
-      console.error('Error fetching template properties:', error);
-      return {};
-    }
-  }
 
   async createProperty(templateId: number, propertyData: {
     key: string;
@@ -509,17 +516,16 @@ class DatabaseService {
         throw new Error(`Property "${property.key}" is fixed and cannot be deleted`);
       }
 
-      // Check for existing blocks using this property
-      const blocksQuery = 'SELECT COUNT(*) as count FROM blocks WHERE property_name = $1';
-      const blocksResult = await client.query(blocksQuery, [property.key]);
-      const blockCount = parseInt(blocksResult.rows[0].count);
+      // Delete all blocks that use this property first (CASCADE DELETE)
+      const deleteBlocksQuery = 'DELETE FROM blocks WHERE property_id = $1';
+      const blocksResult = await client.query(deleteBlocksQuery, [propertyId]);
+      const deletedBlockCount = blocksResult.rowCount || 0;
 
-      if (blockCount > 0) {
-        await client.query('ROLLBACK');
-        throw new Error(`Property "${property.key}" cannot be deleted because it is used by ${blockCount} existing task block(s). Delete the tasks using this property first.`);
+      if (deletedBlockCount > 0) {
+        console.log(`Deleted ${deletedBlockCount} block(s) using property "${property.key}"`);
       }
 
-      // Safe to delete - no references exist
+      // Now safe to delete the property
       const deleteQuery = 'DELETE FROM properties WHERE id = $1';
       const deleteResult = await client.query(deleteQuery, [propertyId]);
       
@@ -615,38 +621,53 @@ class DatabaseService {
     try {
       await client.query('BEGIN');
 
-      // Create task with type='project'
+      // Create task with template_id=2 (Project template)
       const taskQuery = `
-        INSERT INTO tasks (parent_id, stage, type, created_by, updated_by) 
-        VALUES (NULL, 'backlog', 'project', $1, $2) 
+        INSERT INTO tasks (parent_id, stage, template_id, created_by, updated_by) 
+        VALUES (NULL, 'backlog', 2, $1, $2) 
         RETURNING id
       `;
       const taskResult = await client.query(taskQuery, [userId, userId]);
       const taskId = taskResult.rows[0].id;
 
       // Insert Title block
-      const titleQuery = `
-        INSERT INTO blocks (task_id, property_name, content, position, created_by, updated_by) 
-        VALUES ($1, 'Title', $2, 1, $3, $4)
-      `;
-      await client.query(titleQuery, [taskId, projectData.name, userId, userId]);
+      const titlePropertyQuery = 'SELECT id FROM properties WHERE key = $1 LIMIT 1';
+      const titlePropertyResult = await client.query(titlePropertyQuery, ['Title']);
+      if (titlePropertyResult.rows.length > 0) {
+        const titlePropertyId = titlePropertyResult.rows[0].id;
+        const titleQuery = `
+          INSERT INTO blocks (task_id, property_id, content, position, created_by, updated_by) 
+          VALUES ($1, $2, $3, 1, $4, $5)
+        `;
+        await client.query(titleQuery, [taskId, titlePropertyId, projectData.name, userId, userId]);
+      }
 
       // Insert Description block if provided
       if (projectData.description) {
-        const descQuery = `
-          INSERT INTO blocks (task_id, property_name, content, position, created_by, updated_by) 
-          VALUES ($1, 'Description', $2, 2, $3, $4)
-        `;
-        await client.query(descQuery, [taskId, projectData.description, userId, userId]);
+        const descPropertyQuery = 'SELECT id FROM properties WHERE key = $1 LIMIT 1';
+        const descPropertyResult = await client.query(descPropertyQuery, ['Description']);
+        if (descPropertyResult.rows.length > 0) {
+          const descPropertyId = descPropertyResult.rows[0].id;
+          const descQuery = `
+            INSERT INTO blocks (task_id, property_id, content, position, created_by, updated_by) 
+            VALUES ($1, $2, $3, 2, $4, $5)
+          `;
+          await client.query(descQuery, [taskId, descPropertyId, projectData.description, userId, userId]);
+        }
       }
 
       // Insert color as Notes block for backward compatibility
       if (projectData.color) {
-        const colorQuery = `
-          INSERT INTO blocks (task_id, property_name, content, position, created_by, updated_by) 
-          VALUES ($1, 'Notes', $2, 3, $3, $4)
-        `;
-        await client.query(colorQuery, [taskId, `Color: ${projectData.color}`, userId, userId]);
+        const notesPropertyQuery = 'SELECT id FROM properties WHERE key = $1 LIMIT 1';
+        const notesPropertyResult = await client.query(notesPropertyQuery, ['Notes']);
+        if (notesPropertyResult.rows.length > 0) {
+          const notesPropertyId = notesPropertyResult.rows[0].id;
+          const colorQuery = `
+            INSERT INTO blocks (task_id, property_id, content, position, created_by, updated_by) 
+            VALUES ($1, $2, $3, 3, $4, $5)
+          `;
+          await client.query(colorQuery, [taskId, notesPropertyId, `Color: ${projectData.color}`, userId, userId]);
+        }
       }
 
       await client.query('COMMIT');
@@ -669,9 +690,9 @@ class DatabaseService {
     try {
       await client.query('BEGIN');
 
-      // Verify this is a project task
-      const checkQuery = 'SELECT id FROM tasks WHERE id = $1 AND type = $2';
-      const checkResult = await client.query(checkQuery, [projectId, 'project']);
+      // Verify this is a project task (template_id = 2)
+      const checkQuery = 'SELECT id FROM tasks WHERE id = $1 AND template_id = $2';
+      const checkResult = await client.query(checkQuery, [projectId, 2]);
       if (checkResult.rows.length === 0) {
         return false; // Project not found
       }
@@ -682,35 +703,50 @@ class DatabaseService {
 
       // Update Title block if name is provided
       if (updates.name !== undefined) {
-        const titleQuery = `
-          INSERT INTO blocks (task_id, property_name, content, position, created_by, updated_by) 
-          VALUES ($1, 'Title', $2, 1, $3, $4)
-          ON CONFLICT (task_id, property_name) 
-          DO UPDATE SET content = EXCLUDED.content, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP
-        `;
-        await client.query(titleQuery, [projectId, updates.name, userId, userId]);
+        const titlePropertyQuery = 'SELECT id FROM properties WHERE key = $1 LIMIT 1';
+        const titlePropertyResult = await client.query(titlePropertyQuery, ['Title']);
+        if (titlePropertyResult.rows.length > 0) {
+          const titlePropertyId = titlePropertyResult.rows[0].id;
+          const titleQuery = `
+            INSERT INTO blocks (task_id, property_id, content, position, created_by, updated_by) 
+            VALUES ($1, $2, $3, 1, $4, $5)
+            ON CONFLICT (task_id, property_id) 
+            DO UPDATE SET content = EXCLUDED.content, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP
+          `;
+          await client.query(titleQuery, [projectId, titlePropertyId, updates.name, userId, userId]);
+        }
       }
 
       // Update Description block if provided
       if (updates.description !== undefined) {
-        const descQuery = `
-          INSERT INTO blocks (task_id, property_name, content, position, created_by, updated_by) 
-          VALUES ($1, 'Description', $2, 2, $3, $4)
-          ON CONFLICT (task_id, property_name) 
-          DO UPDATE SET content = EXCLUDED.content, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP
-        `;
-        await client.query(descQuery, [projectId, updates.description, userId, userId]);
+        const descPropertyQuery = 'SELECT id FROM properties WHERE key = $1 LIMIT 1';
+        const descPropertyResult = await client.query(descPropertyQuery, ['Description']);
+        if (descPropertyResult.rows.length > 0) {
+          const descPropertyId = descPropertyResult.rows[0].id;
+          const descQuery = `
+            INSERT INTO blocks (task_id, property_id, content, position, created_by, updated_by) 
+            VALUES ($1, $2, $3, 2, $4, $5)
+            ON CONFLICT (task_id, property_id) 
+            DO UPDATE SET content = EXCLUDED.content, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP
+          `;
+          await client.query(descQuery, [projectId, descPropertyId, updates.description, userId, userId]);
+        }
       }
 
       // Update color in Notes block if provided
       if (updates.color !== undefined) {
-        const colorQuery = `
-          INSERT INTO blocks (task_id, property_name, content, position, created_by, updated_by) 
-          VALUES ($1, 'Notes', $2, 3, $3, $4)
-          ON CONFLICT (task_id, property_name) 
-          DO UPDATE SET content = EXCLUDED.content, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP
-        `;
-        await client.query(colorQuery, [projectId, `Color: ${updates.color}`, userId, userId]);
+        const notesPropertyQuery = 'SELECT id FROM properties WHERE key = $1 LIMIT 1';
+        const notesPropertyResult = await client.query(notesPropertyQuery, ['Notes']);
+        if (notesPropertyResult.rows.length > 0) {
+          const notesPropertyId = notesPropertyResult.rows[0].id;
+          const colorQuery = `
+            INSERT INTO blocks (task_id, property_id, content, position, created_by, updated_by) 
+            VALUES ($1, $2, $3, 3, $4, $5)
+            ON CONFLICT (task_id, property_id) 
+            DO UPDATE SET content = EXCLUDED.content, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP
+          `;
+          await client.query(colorQuery, [projectId, notesPropertyId, `Color: ${updates.color}`, userId, userId]);
+        }
       }
 
       await client.query('COMMIT');
@@ -726,9 +762,9 @@ class DatabaseService {
 
   async getProject(projectId: number): Promise<ProjectData | null> {
     try {
-      // Get task data for project type
-      const taskQuery = 'SELECT id, created_at, updated_at, created_by, updated_by FROM tasks WHERE id = $1 AND type = $2';
-      const taskResult = await this.pool.query(taskQuery, [projectId, 'project']);
+      // Get task data for project type (template_id = 2)
+      const taskQuery = 'SELECT id, created_at, updated_at, created_by, updated_by FROM tasks WHERE id = $1 AND template_id = $2';
+      const taskResult = await this.pool.query(taskQuery, [projectId, 2]);
       
       if (taskResult.rows.length === 0) {
         return null;
@@ -737,7 +773,13 @@ class DatabaseService {
       const task = taskResult.rows[0];
 
       // Get blocks for this project
-      const blocksQuery = 'SELECT property_name, content FROM blocks WHERE task_id = $1 ORDER BY position';
+      const blocksQuery = `
+        SELECT p.key as property_name, b.content 
+        FROM blocks b
+        JOIN properties p ON b.property_id = p.id
+        WHERE b.task_id = $1 
+        ORDER BY b.position
+      `;
       const blocksResult = await this.pool.query(blocksQuery, [projectId]);
 
       // Build project data from blocks
@@ -776,9 +818,9 @@ class DatabaseService {
 
   async listProjects(): Promise<ProjectData[]> {
     try {
-      // Get all project tasks
-      const tasksQuery = 'SELECT id, created_at, updated_at, created_by, updated_by FROM tasks WHERE type = $1 ORDER BY created_at';
-      const tasksResult = await this.pool.query(tasksQuery, ['project']);
+      // Get all project tasks (template_id = 2)
+      const tasksQuery = 'SELECT id, created_at, updated_at, created_by, updated_by FROM tasks WHERE template_id = $1 ORDER BY created_at';
+      const tasksResult = await this.pool.query(tasksQuery, [2]);
       
       if (tasksResult.rows.length === 0) {
         return [];
@@ -788,7 +830,13 @@ class DatabaseService {
 
       // Get blocks for all project tasks
       for (const task of tasksResult.rows) {
-        const blocksQuery = 'SELECT property_name, content FROM blocks WHERE task_id = $1 ORDER BY position';
+        const blocksQuery = `
+          SELECT p.key as property_name, b.content 
+          FROM blocks b
+          JOIN properties p ON b.property_id = p.id
+          WHERE b.task_id = $1 
+          ORDER BY b.position
+        `;
         const blocksResult = await this.pool.query(blocksQuery, [task.id]);
 
         // Build project data from blocks
@@ -836,9 +884,9 @@ class DatabaseService {
     try {
       await client.query('BEGIN');
 
-      // Check if project exists (using tasks table with type='project')
-      const projectQuery = 'SELECT id FROM tasks WHERE id = $1 AND type = $2';
-      const projectResult = await client.query(projectQuery, [projectId, 'project']);
+      // Check if project exists (using tasks table with template_id=2)
+      const projectQuery = 'SELECT id FROM tasks WHERE id = $1 AND template_id = $2';
+      const projectResult = await client.query(projectQuery, [projectId, 2]);
       
       if (projectResult.rows.length === 0) {
         await client.query('ROLLBACK');
@@ -860,8 +908,8 @@ class DatabaseService {
       await client.query(deleteBlocksQuery, [projectId]);
 
       // Delete the project task itself
-      const deleteQuery = 'DELETE FROM tasks WHERE id = $1 AND type = $2';
-      const deleteResult = await client.query(deleteQuery, [projectId, 'project']);
+      const deleteQuery = 'DELETE FROM tasks WHERE id = $1 AND template_id = $2';
+      const deleteResult = await client.query(deleteQuery, [projectId, 2]);
       
       await client.query('COMMIT');
       return (deleteResult.rowCount || 0) > 0;

@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import MarkdownRenderer from '@/components/ui/MarkdownRenderer';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { X, Edit, Calendar, CheckCircle2 } from 'lucide-react';
+import { X, Edit, Calendar } from 'lucide-react';
 import { useMCP } from '@/contexts/MCPContext';
-import { Task, TaskStage } from '@/types/task';
+import { Task } from '@/types/task';
 
 interface TaskViewProps {
   taskId: number;
@@ -21,16 +21,47 @@ const TaskView: React.FC<TaskViewProps> = ({
   onEdit
 }) => {
   const { callTool, isConnected } = useMCP();
-  const [markdownContent, setMarkdownContent] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [task, setTask] = useState<Task | null>(null);
+  const [orderedProperties, setOrderedProperties] = useState<string[]>([]);
 
   useEffect(() => {
     if (isOpen && taskId && isConnected) {
       fetchTaskDetails();
+      fetchTemplateProperties();
     }
   }, [taskId, isOpen, isConnected]);
+
+  const fetchTemplateProperties = async () => {
+    if (!callTool) return;
+
+    try {
+      // Assume template_id = 1 for tasks
+      const result = await callTool('list_properties', { template_id: 1 });
+      
+      if (result?.content?.[0]?.text) {
+        const properties = JSON.parse(result.content[0].text);
+        
+        // list_properties returns an array, so sort by execution_order then by key
+        if (Array.isArray(properties)) {
+          const ordered = properties
+            .sort((a, b) => {
+              const orderA = a.execution_order || 999;
+              const orderB = b.execution_order || 999;
+              if (orderA !== orderB) return orderA - orderB;
+              return (a.key || '').localeCompare(b.key || '');
+            })
+            .map(property => property.key);
+          
+          setOrderedProperties(ordered);
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching template properties:', err);
+      // Fallback to common order if template properties fail
+    }
+  };
 
   const fetchTaskDetails = async () => {
     setIsLoading(true);
@@ -45,37 +76,19 @@ const TaskView: React.FC<TaskViewProps> = ({
         throw new Error('No task ID provided');
       }
 
-      // First try to get JSON format for task data
-      try {
-        const jsonResult = await callTool('get_task', {
-          task_id: taskId,
-          output_format: 'json'
-        });
-        
-        if (jsonResult && jsonResult.content && jsonResult.content[0]) {
-          try {
-            const taskData = JSON.parse(jsonResult.content[0].text);
-            setTask(taskData);
-          } catch (e) {
-            console.error('Error parsing task JSON:', e);
-            setError('Error parsing task data');
-          }
-        } else {
-          console.warn('No JSON data returned for task');
-        }
-      } catch (jsonErr) {
-        console.error('Error fetching task JSON:', jsonErr);
-        // Continue to markdown fetch even if JSON fails
-      }
-
-      // Then get markdown format
+      // Get task data in JSON format
       const result = await callTool('get_task', {
-        task_id: taskId,
-        output_format: 'markdown'
+        task_id: taskId
       });
-
+      
       if (result && result.content && result.content[0]) {
-        setMarkdownContent(result.content[0].text);
+        try {
+          const taskData = JSON.parse(result.content[0].text);
+          setTask(taskData);
+        } catch (e) {
+          console.error('Error parsing task JSON:', e);
+          setError('Error parsing task data');
+        }
       } else {
         throw new Error('Failed to fetch task details');
       }
@@ -94,7 +107,7 @@ const TaskView: React.FC<TaskViewProps> = ({
       <Card className="w-full max-w-3xl mx-auto">
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>
-            {task ? `${task.title || task.Title || `Task #${taskId}`}` : `Task #${taskId}`}
+            {task ? `${task.blocks?.Title || task.title || task.Title || `Task #${taskId}`}` : `Task #${taskId}`}
           </CardTitle>
           <div className="flex gap-2">
             <Button variant="outline" size="icon" onClick={onEdit}>
@@ -138,6 +151,11 @@ const TaskView: React.FC<TaskViewProps> = ({
                         {task.stage.charAt(0).toUpperCase() + task.stage.slice(1)}
                       </Badge>
                     )}
+                    {task.parent_name && (
+                      <Badge variant="outline" className="text-xs">
+                        Project: {task.parent_name}
+                      </Badge>
+                    )}
                     {task.created_at && (
                       <div className="text-xs text-muted-foreground flex items-center gap-1">
                         <Calendar className="h-3 w-3" />
@@ -147,18 +165,58 @@ const TaskView: React.FC<TaskViewProps> = ({
                   </div>
                 </div>
               )}
-              <div className="prose dark:prose-invert max-w-none">
-                <MarkdownRenderer content={markdownContent} />
-              </div>
+              {task && (
+                <div className="space-y-4">
+                  {/* Render properties - prioritize blocks, fall back to template properties or direct properties */}
+                  {(() => {
+                    // Get all available property names
+                    const blocksProperties = task.blocks ? Object.keys(task.blocks) : [];
+                    const directProperties = Object.keys(task).filter(key => 
+                      !['id', 'stage', 'parent_id', 'parent_name', 'parent_type', 'template_id', 'created_at', 'updated_at', 'created_by', 'updated_by', 'blocks', 'title', 'body', 'project_id', 'description', 'type'].includes(key)
+                    );
+                    
+                    // Use ordered properties if available, otherwise use all available properties
+                    const propertiesToRender = orderedProperties.length > 0 
+                      ? orderedProperties 
+                      : [...new Set([...blocksProperties, ...directProperties])];
+                    
+                    return propertiesToRender
+                      .filter(propertyName => {
+                        if (propertyName === 'Title' || propertyName === 'project_id') return false;
+                        const blockValue = task.blocks?.[propertyName];
+                        const directValue = task[propertyName];
+                        return blockValue || directValue;
+                      })
+                      .map((propertyName) => (
+                      <div 
+                        key={propertyName}
+                        className="relative -mx-4 px-4 py-2 rounded"
+                        style={{
+                          border: '1px solid transparent',
+                          transition: 'border-color 0.2s ease',
+                        }}
+                        onMouseEnter={(e) => {
+                          const textColor = window.getComputedStyle(e.currentTarget).color;
+                          e.currentTarget.style.borderColor = textColor;
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.borderColor = 'transparent';
+                        }}
+                      >
+                        <h3 className="text-sm font-semibold mb-2">{propertyName}</h3>
+                        <div className="prose dark:prose-invert max-w-none">
+                          <MarkdownRenderer content={String(task.blocks?.[propertyName] || task[propertyName] || '')} />
+                        </div>
+                      </div>
+                    ));
+                  })()}
+                  
+                  {/* Project info has been moved to the top */}
+                </div>
+              )}
             </div>
           )}
         </CardContent>
-        <CardFooter className="flex justify-end">
-          <Button onClick={onEdit}>
-            <Edit className="h-4 w-4 mr-2" />
-            Edit Task
-          </Button>
-        </CardFooter>
       </Card>
     </div>
   );

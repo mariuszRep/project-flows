@@ -15,6 +15,7 @@ interface TemplateFormProps {
 }
 
 interface TemplateProperty {
+  key?: string;
   type: string;
   description: string;
   dependencies?: string[];
@@ -63,42 +64,54 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({ isOpen, onClose, tem
       setLoading(true);
       setError(null);
       console.log('Fetching template properties for templateId:', templateId);
-      const result = await callTool('get_template_properties', { template_id: templateId });
+      const result = await callTool('list_properties', { template_id: templateId });
       console.log('MCP tool result:', result);
       
       if (result.content && result.content[0] && result.content[0].text) {
         const propertiesData = JSON.parse(result.content[0].text);
         console.log('Parsed properties data:', propertiesData);
-        setProperties(propertiesData);
-        setOriginalProperties(JSON.parse(JSON.stringify(propertiesData))); // Deep copy for comparison
         
-        // Convert properties to blocks - handle both object and array formats
+        // list_properties returns an array, so convert it to object format for compatibility
+        const propertiesObject: Record<string, TemplateProperty> = {};
+        if (Array.isArray(propertiesData)) {
+          propertiesData.forEach(property => {
+            propertiesObject[property.key] = {
+              type: property.type,
+              description: property.description,
+              dependencies: property.dependencies,
+              execution_order: property.execution_order,
+              created_by: property.created_by,
+              updated_by: property.updated_by,
+              created_at: property.created_at,
+              updated_at: property.updated_at,
+              id: property.id,
+              template_id: property.template_id,
+              fixed: property.fixed
+            };
+          });
+        }
+        
+        setProperties(propertiesObject);
+        setOriginalProperties(JSON.parse(JSON.stringify(propertiesObject))); // Deep copy for comparison
+        
+        // Convert properties to blocks - now always using array format from list_properties
         let blocks = [];
         if (Array.isArray(propertiesData)) {
-          // If propertiesData is an array of property objects
+          // Sort by execution_order, then by key name
           blocks = propertiesData
-            .sort((a, b) => (a.execution_order || 999) - (b.execution_order || 999))
+            .sort((a, b) => {
+              const orderA = a.execution_order || 999;
+              const orderB = b.execution_order || 999;
+              if (orderA !== orderB) return orderA - orderB;
+              return (a.key || '').localeCompare(b.key || '');
+            })
             .map((property, index) => ({
-              title: property.key || property.name || `Property ${index + 1}`,
+              title: property.key || `Property ${index + 1}`,
               describe: property.description || '',
               order: property.execution_order || index + 1,
               type: property.type || 'string',
               dependencies: property.dependencies || []
             }));
-        } else {
-          // If propertiesData is an object with property keys
-          blocks = Object.entries(propertiesData)
-            .sort(([, a], [, b]) => ((a as TemplateProperty).execution_order || 999) - ((b as TemplateProperty).execution_order || 999))
-            .map(([key, property], index) => {
-              const typedProperty = property as TemplateProperty;
-              return {
-                title: key,
-                describe: typedProperty.description || '',
-                order: typedProperty.execution_order || index + 1,
-                type: typedProperty.type || 'string',
-                dependencies: typedProperty.dependencies || []
-              };
-            });
         }
         
         console.log('Converted blocks:', blocks);
@@ -130,18 +143,14 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({ isOpen, onClose, tem
       fetchTemplateProperties(templateId);
       
       // Determine if this is a project template based on the template ID
-      // This is a simplified check - you may need to adjust based on your actual data
+      // Check template type by getting template info from templates table
       const checkTemplateType = async () => {
         try {
-          const result = await callTool('get_template_properties', { template_id: templateId });
+          const result = await callTool('list_templates');
           if (result.content && result.content[0] && result.content[0].text) {
-            const data = JSON.parse(result.content[0].text) as Record<string, TemplateProperty>;
-            // Check if any property or the template name indicates this is a project template
-            // This logic should be adjusted based on your actual data structure
-            const isProject = Object.values(data).some((prop: TemplateProperty) => 
-              prop.type?.toLowerCase().includes('project') || 
-              prop.description?.toLowerCase().includes('project')
-            );
+            const templates = JSON.parse(result.content[0].text);
+            const template = templates.find((t: any) => t.id === templateId);
+            const isProject = template?.name?.toLowerCase() === 'project';
             setIsProjectTemplate(isProject);
             
             // Update the title based on template type

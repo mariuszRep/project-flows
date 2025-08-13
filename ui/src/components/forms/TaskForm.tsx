@@ -22,13 +22,14 @@ interface TaskFormProps {
 }
 
 interface TemplateProperty {
+  id: number;
+  template_id: number;
+  key: string;
   type: string;
   description: string;
-  dependencies?: string[];
-  execution_order?: number;
-  id?: number;
-  template_id?: number;
-  fixed?: boolean;
+  dependencies: string[];
+  execution_order: number;
+  fixed: boolean;
 }
 
 interface FormField {
@@ -120,22 +121,22 @@ const TaskForm: React.FC<TaskFormProps> = ({
 
     try {
       console.log('Fetching template properties for templateId:', templateId);
-      const result = await callTool('get_template_properties', { template_id: templateId });
+      const result = await callTool('list_properties', { template_id: templateId });
       
       if (result?.content?.[0]?.text) {
-        const properties: Record<string, TemplateProperty> = JSON.parse(result.content[0].text);
+        const properties: TemplateProperty[] = JSON.parse(result.content[0].text);
         console.log('Template properties:', properties);
         
         // Convert properties to form fields
-        const fields: FormField[] = Object.entries(properties)
-          .sort(([, a], [, b]) => (a.execution_order || 999) - (b.execution_order || 999))
-          .map(([key, property]) => ({
-            name: key,
-            label: key,
+        const fields: FormField[] = properties
+          .sort((a, b) => (a.execution_order || 999) - (b.execution_order || 999))
+          .map((property) => ({
+            name: property.key,
+            label: property.key,
             description: property.description || '',
-            type: inferInputType(key, property.type),
-            required: key === 'Title', // Title is always required
-            placeholder: generatePlaceholder(key, property.description || ''),
+            type: inferInputType(property.key, property.type),
+            required: property.key === 'Title', // Title is always required
+            placeholder: generatePlaceholder(property.key, property.description || ''),
             order: property.execution_order || 999
           }));
 
@@ -207,72 +208,40 @@ const TaskForm: React.FC<TaskFormProps> = ({
           project_id: null
         };
         
-        // Try to parse as JSON first, fall back to markdown parsing
-        if (responseContent.trim().startsWith('{')) {
-          try {
-            const jsonData = JSON.parse(responseContent);
-            console.log('Parsed JSON task data:', jsonData);
-            
-            // Map the JSON fields to form data
-            taskData = {
-              stage: jsonData.stage || 'draft',
-              project_id: jsonData.parent_id || null,
-              // Copy all other properties
-              ...jsonData
-            };
-            
-            // Ensure proper field mapping
+        // Parse JSON response
+        try {
+          const jsonData = JSON.parse(responseContent);
+          console.log('Parsed JSON task data:', jsonData);
+          
+          // Map the JSON fields to form data
+          taskData = {
+            stage: jsonData.stage || 'draft',
+            project_id: jsonData.parent_id || null,
+            // Copy properties from blocks object if it exists, otherwise from top level
+            ...(jsonData.blocks || {}),
+            // Also copy any top-level properties for backward compatibility
+            ...jsonData
+          };
+          
+          // Ensure proper field mapping for new blocks format
+          if (jsonData.blocks) {
+            // Use blocks data as primary source
+            Object.keys(jsonData.blocks).forEach(key => {
+              taskData[key] = jsonData.blocks[key];
+            });
+          } else {
+            // Fallback to old format for backward compatibility
             if (jsonData.title && !taskData.Title) {
               taskData.Title = jsonData.title;
             }
             if (jsonData.description && !taskData.Description) {
               taskData.Description = jsonData.description;
             }
-            
-          } catch (jsonError) {
-            console.error('JSON parsing failed:', jsonError);
-            throw new Error('Failed to parse JSON response from server');
-          }
-        } else {
-          // Fall back to markdown parsing
-          console.log('Falling back to markdown parsing');
-          const taskContent = responseContent;
-          
-          // Parse ** fields (single line format)
-          const titleMatch = taskContent.match(/\*\*Title:\*\* (.+)/i);
-          if (titleMatch) {
-            taskData.Title = titleMatch[1].trim();
           }
           
-          const stageMatch = taskContent.match(/\*\*Stage:\*\* (\w+)/);
-          if (stageMatch) {
-            taskData.stage = stageMatch[1];
-          }
-          
-          const parentMatch = taskContent.match(/\*\*Parent Task:\*\* [^(]*\(ID: (\d+)\)/);
-          if (parentMatch) {
-            taskData.project_id = parseInt(parentMatch[1]);
-          } else if (taskContent.match(/\*\*Parent Task:\*\* None/)) {
-            taskData.project_id = null;
-          }
-          
-          // Parse ## sections (multi-line format)
-          const sections = taskContent.split(/\n## /);
-          console.log('Found sections:', sections.length);
-          
-          for (let i = 1; i < sections.length; i++) {
-            const section = sections[i];
-            const lines = section.split('\n');
-            const sectionTitle = lines[0];
-            const sectionContent = lines.slice(1).join('\n').trim();
-            
-            console.log(`Section ${i}: "${sectionTitle}" -> content length: ${sectionContent.length}`);
-            
-            if (sectionContent) {
-              taskData[sectionTitle] = sectionContent;
-              console.log(`Added field "${sectionTitle}": ${sectionContent.substring(0, 50)}...`);
-            }
-          }
+        } catch (jsonError) {
+          console.error('JSON parsing failed:', jsonError);
+          throw new Error('Failed to parse JSON response from server');
         }
         
         console.log('Final task data:', taskData);

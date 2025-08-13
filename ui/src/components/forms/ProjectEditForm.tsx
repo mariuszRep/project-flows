@@ -17,13 +17,14 @@ interface ProjectEditFormProps {
 }
 
 interface TemplateProperty {
+  id: number;
+  template_id: number;
+  key: string;
   type: string;
   description: string;
-  dependencies?: string[];
-  execution_order?: number;
-  id?: number;
-  template_id?: number;
-  fixed?: boolean;
+  dependencies: string[];
+  execution_order: number;
+  fixed: boolean;
 }
 
 interface FormField {
@@ -101,46 +102,43 @@ const ProjectEditForm: React.FC<ProjectEditFormProps> = ({
 
     try {
       console.log('Fetching template properties for project template (ID: 2)');
-      const result = await callTool('get_template_properties', { template_id: 2 });
+      const result = await callTool('list_properties', { template_id: 2 });
       
       if (result?.content?.[0]?.text) {
         const responseContent = result.content[0].text;
         console.log('Template properties response:', responseContent);
         
-        let properties: Record<string, TemplateProperty> = {};
+        // Parse as array of TemplateProperty objects (like TaskForm does)
+        const properties: TemplateProperty[] = JSON.parse(responseContent);
+        console.log('Template properties:', properties);
         
-        // Try to parse as JSON
-        if (responseContent.trim().startsWith('{')) {
-          properties = JSON.parse(responseContent);
-        } else {
-          // Parse as text if needed
-          console.warn('Expected JSON response for template properties');
-          throw new Error('Invalid template properties response format');
-        }
-
         // Convert properties to form fields
-        const fields: FormField[] = Object.entries(properties)
-          .map(([key, prop]) => ({
-            name: key,
-            label: key,
-            description: prop.description || '',
-            type: inferInputType(key, prop.type),
-            required: prop.fixed || key === 'Title',
-            placeholder: generatePlaceholder(key, prop.description || ''),
-            order: prop.execution_order || 0
-          }))
-          .sort((a, b) => a.order - b.order);
+        const fields: FormField[] = properties
+          .sort((a, b) => (a.execution_order || 999) - (b.execution_order || 999))
+          .map((property) => ({
+            name: property.key,
+            label: property.key,
+            description: property.description || '',
+            type: inferInputType(property.key, property.type),
+            required: property.fixed || property.key === 'Title',
+            placeholder: generatePlaceholder(property.key, property.description || ''),
+            order: property.execution_order || 999
+          }));
 
         setFormFields(fields);
         console.log('Generated form fields:', fields);
+        console.log('Form fields count:', fields.length);
+        console.log('Field names:', fields.map(f => f.name));
         
-        // Initialize form data with empty values
+        // Initialize form data with empty values for all fields
         const initialData: Record<string, any> = {};
         fields.forEach(field => {
           initialData[field.name] = '';
         });
         
         setFormData(initialData);
+        console.log('Initial form data:', initialData);
+        console.log('Form will render fields:', fields.map(f => `${f.name} (${f.type})`));
         
       } else {
         throw new Error('No template properties found');
@@ -162,7 +160,7 @@ const ProjectEditForm: React.FC<ProjectEditFormProps> = ({
 
     try {
       console.log('Fetching project data for projectId:', projectId);
-      const result = await callTool('get_task', { task_id: projectId, output_format: 'json' });
+      const result = await callTool('get_project', { project_id: projectId });
       
       if (result?.content?.[0]?.text) {
         const responseContent = result.content[0].text;
@@ -170,40 +168,31 @@ const ProjectEditForm: React.FC<ProjectEditFormProps> = ({
         
         let projectData: Record<string, any> = {};
         
-        // Try to parse as JSON first
-        if (responseContent.trim().startsWith('{')) {
-          try {
-            const jsonData = JSON.parse(responseContent);
-            console.log('Parsed JSON project data:', jsonData);
-            
-            // Map the JSON fields to form data
-            projectData = { ...jsonData };
-            
-          } catch (jsonError) {
-            console.error('JSON parsing failed:', jsonError);
-            throw new Error('Failed to parse JSON response from server');
-          }
-        } else {
-          // Fall back to markdown parsing if needed
-          console.log('Falling back to markdown parsing');
-          const projectContent = responseContent;
+        try {
+          // Parse JSON format from get_project
+          console.log('Parsing JSON project data');
+          const jsonData = JSON.parse(responseContent);
           
-          // Parse ** fields (single line format)
-          const titleMatch = projectContent.match(/\*\*Title:\*\* (.+)/i);
-          if (titleMatch) {
-            projectData.Title = titleMatch[1].trim();
+          if (jsonData.blocks) {
+            // Extract data from blocks format
+            projectData = { ...jsonData.blocks };
+            console.log('Extracted project data from blocks:', projectData);
           }
           
-          // Parse ## sections (multi-line format)
-          const sections = projectContent.split('## ');
-          sections.forEach(section => {
-            const lines = section.split('\n');
-            const headerLine = lines[0].trim();
-            const content = lines.slice(1).join('\n').trim();
-            
-            if (headerLine && content) {
-              projectData[headerLine] = content;
+          // For now, initialize empty values for any missing template fields
+          const templateFields = ['Title', 'Description', 'Personas', 'Features', 'Stack', 'Architectural', 'Structure'];
+          templateFields.forEach(field => {
+            if (!projectData[field]) {
+              projectData[field] = '';
             }
+          });
+          
+        } catch (parseError) {
+          console.error('Error parsing JSON project data:', parseError);
+          // Initialize empty values as fallback
+          const templateFields = ['Title', 'Description', 'Personas', 'Features', 'Stack', 'Architectural', 'Structure'];
+          templateFields.forEach(field => {
+            projectData[field] = '';
           });
         }
         
@@ -267,7 +256,7 @@ const ProjectEditForm: React.FC<ProjectEditFormProps> = ({
       
       if (mode === 'create') {
         // Create new project
-        const createData: Record<string, any> = { type: 'project' };
+        const createData: Record<string, any> = {};
         formFields.forEach(field => {
           if (formData[field.name]) {
             createData[field.name] = formData[field.name];
@@ -275,11 +264,11 @@ const ProjectEditForm: React.FC<ProjectEditFormProps> = ({
         });
         
         console.log('Creating project with data:', createData);
-        result = await callTool('create_task', createData);
+        result = await callTool('create_project', createData);
         
       } else if (mode === 'edit' && projectId) {
         // Update existing project
-        const updateData: Record<string, any> = { task_id: projectId };
+        const updateData: Record<string, any> = { project_id: projectId };
         formFields.forEach(field => {
           if (formData[field.name] !== undefined) {
             updateData[field.name] = formData[field.name];
@@ -287,7 +276,7 @@ const ProjectEditForm: React.FC<ProjectEditFormProps> = ({
         });
         
         console.log('Updating project with data:', updateData);
-        result = await callTool('update_task', updateData);
+        result = await callTool('update_project', updateData);
       }
 
       if (result?.content) {

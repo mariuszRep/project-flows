@@ -27,7 +27,8 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
 
   async function loadDynamicSchemaProperties(): Promise<SchemaProperties> {
     try {
-      return await sharedDbService.getSchemaProperties();
+      // Load task properties only (template_id = 1)
+      return await sharedDbService.getSchemaProperties(1);
     } catch (error) {
       console.error('Error loading schema properties from database:', error);
       // Fallback to file-based loading
@@ -39,6 +40,16 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
         console.error('Fallback file loading also failed:', fallbackError);
         return {};
       }
+    }
+  }
+
+  async function loadProjectSchemaProperties(): Promise<SchemaProperties> {
+    try {
+      // Load project properties (template_id = 2)
+      return await sharedDbService.getSchemaProperties(2);
+    } catch (error) {
+      console.error('Error loading project schema properties from database:', error);
+      return {};
     }
   }
 
@@ -87,7 +98,13 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
   // Create tool handlers
   const propertyTools = createPropertyTools(sharedDbService, clientId);
   
-  const projectTools = createProjectTools(sharedDbService, clientId);
+  const projectTools = createProjectTools(
+    sharedDbService,
+    clientId,
+    loadProjectSchemaProperties,
+    createExecutionChain,
+    validateDependencies
+  );
   
   const taskTools = createTaskTools(
     sharedDbService,
@@ -100,63 +117,55 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
 
   // Set up tool list handler
   server.setRequestHandler(ListToolsRequestSchema, async () => {
-    const dynamicProperties = await loadDynamicSchemaProperties();
-
-    // Filter properties for tasks (template_id = 1)
-    const taskProperties: Record<string, any> = {};
-    const otherProperties: Record<string, any> = {};
-    
-    for (const [propName, propConfig] of Object.entries(dynamicProperties)) {
-      // Check if this is a task property (template_id = 1)
-      if (propConfig.template_id === 1) {
-        taskProperties[propName] = propConfig;
-      } else {
-        otherProperties[propName] = propConfig;
-      }
-    }
+    // Get task properties (template_id = 1)
+    const taskProperties = await sharedDbService.getSchemaProperties(1);
+    // Get project properties (template_id = 2)
+    const projectProperties = await sharedDbService.getSchemaProperties(2);
 
     // Clean properties for schema (remove execution metadata and convert types)
-    const schemaProperties: Record<string, any> = {};
-    for (const [propName, propConfig] of Object.entries(dynamicProperties)) {
-      const cleanConfig: Record<string, any> = {};
-      for (const [key, value] of Object.entries(propConfig)) {
-        if (!["dependencies", "execution_order"].includes(key)) {
-          if (key === "type") {
-            // Convert custom types to JSON Schema types
-            switch (value) {
-              case "text":
-                cleanConfig[key] = "string";
-                break;
-              case "list":
-                cleanConfig[key] = "array";
-                cleanConfig["items"] = { "type": "string" };
-                break;
-              case "number":
-                cleanConfig[key] = "number";
-                break;
-              case "boolean":
-                cleanConfig[key] = "boolean";
-                break;
-              default:
-                cleanConfig[key] = "string"; // fallback to string for unknown types
+    function cleanSchemaProperties(properties: SchemaProperties): Record<string, any> {
+      const schemaProperties: Record<string, any> = {};
+      for (const [propName, propConfig] of Object.entries(properties)) {
+        const cleanConfig: Record<string, any> = {};
+        for (const [key, value] of Object.entries(propConfig)) {
+          if (!["dependencies", "execution_order", "template_id", "id", "created_by", "updated_by", "created_at", "updated_at", "fixed"].includes(key)) {
+            if (key === "type") {
+              // Convert custom types to JSON Schema types
+              switch (value) {
+                case "text":
+                  cleanConfig[key] = "string";
+                  break;
+                case "list":
+                  cleanConfig[key] = "array";
+                  cleanConfig["items"] = { "type": "string" };
+                  break;
+                case "number":
+                  cleanConfig[key] = "number";
+                  break;
+                case "boolean":
+                  cleanConfig[key] = "boolean";
+                  break;
+                default:
+                  cleanConfig[key] = "string"; // fallback to string for unknown types
+              }
+            } else {
+              cleanConfig[key] = value;
             }
-          } else {
-            cleanConfig[key] = value;
           }
         }
+        schemaProperties[propName] = cleanConfig;
       }
-      schemaProperties[propName] = cleanConfig;
+      return schemaProperties;
     }
 
-    // Use task properties as base properties if available, otherwise use empty object
-    const baseProperties = Object.keys(taskProperties).length > 0 ? taskProperties : {};
-    const allProperties = { ...baseProperties, ...schemaProperties };
+    const taskSchemaProperties = cleanSchemaProperties(taskProperties);
+    const projectSchemaProperties = cleanSchemaProperties(projectProperties);
 
     return {
       tools: [
-        ...taskTools.getToolDefinitions(allProperties),
+        ...taskTools.getToolDefinitions(taskSchemaProperties),
         ...propertyTools.getToolDefinitions(),
-        ...projectTools.getToolDefinitions(),
+        ...projectTools.getToolDefinitions(projectSchemaProperties),
       ],
     };
   });
