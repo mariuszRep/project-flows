@@ -15,7 +15,8 @@ import { ProjectSidebar } from '@/components/ui/project-sidebar';
 import ProjectEditForm from '@/components/forms/ProjectEditForm';
 import { FileText, Plus, Edit, ArrowRight, Filter } from 'lucide-react';
 import TaskForm from '@/components/forms/TaskForm';
-import TaskView from '@/components/task/TaskView';
+import TaskView from '@/components/view/TaskView';
+import ProjectView from '@/components/view/ProjectView';
 
 const DraftTasks = () => {
   const navigate = useNavigate();
@@ -44,6 +45,9 @@ const DraftTasks = () => {
   // Edit task state
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
   const [viewingTaskId, setViewingTaskId] = useState<number | null>(null);
+  
+  // Project view state
+  const [viewingProjectId, setViewingProjectId] = useState<number | null>(null);
   
   // Delete task state
   const [deleteDialog, setDeleteDialog] = useState<{
@@ -362,7 +366,15 @@ const DraftTasks = () => {
   };
 
   const handleEditProject = (project: Project) => {
-    setEditingProjectId(project.id);
+    // First show the project view instead of directly editing
+    setViewingProjectId(project.id);
+  };
+  
+  const handleSwitchToProjectEdit = () => {
+    if (viewingProjectId) {
+      setEditingProjectId(viewingProjectId);
+      setViewingProjectId(null);
+    }
   };
 
   const handleProjectDelete = async (projectId: number, projectTitle: string) => {
@@ -653,6 +665,13 @@ const DraftTasks = () => {
           isOpen={!!viewingTaskId}
           onClose={() => setViewingTaskId(null)}
           onEdit={handleSwitchToEdit}
+        />
+        
+        <ProjectView
+          projectId={viewingProjectId || 0}
+          isOpen={!!viewingProjectId}
+          onClose={() => setViewingProjectId(null)}
+          onEdit={handleSwitchToProjectEdit}
         />
       </div>
     </HeaderAndSidebarLayout>
