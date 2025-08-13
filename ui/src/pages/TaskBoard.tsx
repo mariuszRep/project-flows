@@ -6,7 +6,8 @@ import { Project } from '@/types/project';
 import { TaskBoard } from '@/components/board/TaskBoard';
 import { Button } from '@/components/ui/button';
 import TaskForm from '@/components/forms/TaskForm';
-import TaskView from '@/components/task/TaskView';
+import TaskView from '@/components/view/TaskView';
+import ProjectView from '@/components/view/ProjectView';
 import ProjectEditForm from '@/components/forms/ProjectEditForm';
 import { ProjectSidebar } from '@/components/ui/project-sidebar';
 import { MCPDisconnectedState, NoTasksState } from '@/components/ui/empty-state';
@@ -37,6 +38,7 @@ export default function Board() {
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
   const [sidebarRefreshTrigger, setSidebarRefreshTrigger] = useState(0);
   const [viewingTaskId, setViewingTaskId] = useState<number | null>(null);
+  const [viewingProjectId, setViewingProjectId] = useState<number | null>(null);
   const [deleteDialog, setDeleteDialog] = useState<{
     isOpen: boolean;
     taskId: number | null;
@@ -318,7 +320,15 @@ export default function Board() {
   };
 
   const handleEditProject = (project: Project) => {
-    setEditingProjectId(project.id);
+    // First show the project view instead of directly editing
+    setViewingProjectId(project.id);
+  };
+  
+  const handleSwitchToProjectEdit = () => {
+    if (viewingProjectId) {
+      setEditingProjectId(viewingProjectId);
+      setViewingProjectId(null);
+    }
   };
 
   const handleProjectDelete = async (projectId: number, projectTitle: string) => {
@@ -438,6 +448,13 @@ export default function Board() {
           isOpen={!!viewingTaskId}
           onClose={() => setViewingTaskId(null)}
           onEdit={handleSwitchToEdit}
+        />
+        
+        <ProjectView
+          projectId={viewingProjectId || 0}
+          isOpen={!!viewingProjectId}
+          onClose={() => setViewingProjectId(null)}
+          onEdit={handleSwitchToProjectEdit}
         />
 
         <ProjectEditForm

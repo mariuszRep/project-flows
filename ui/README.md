@@ -60,6 +60,27 @@ This project is built with .
 - shadcn-ui
 - Tailwind CSS
 
+## Architecture: Unified Entity Viewer
+
+This application features a unified viewing system for both tasks and projects, providing consistent UI/UX across entity types:
+
+### EntityView Component
+- **Location**: `src/components/view/EntityView.tsx`
+- **Purpose**: Core unified viewer component that handles both tasks and projects
+- **Features**:
+  - Template-driven property ordering using database templates
+  - Dynamic entity type handling (tasks show stage badges, projects show project badges)
+  - Intelligent template ID resolution with multiple fallback strategies
+  - Consistent modal layout with edit/close actions
+  - Graceful error handling and loading states
+
+### Wrapper Components
+- **TaskView** (`src/components/view/TaskView.tsx`): Task-specific wrapper maintaining backward compatibility
+- **ProjectView** (`src/components/view/ProjectView.tsx`): Project-specific wrapper for project viewing
+
+### Usage
+The viewer system integrates with the sidebar project management - clicking edit buttons on projects opens a read-only view first, then allows switching to edit mode. This provides a consistent "view → edit" workflow for both tasks and projects.
+
 ## How can I deploy this project?
 
 Simply open [Lovable](https://lovable.dev/projects/45497c4b-702e-466a-9174-29ff5a50bbc5) and click on Share -> Publish.
