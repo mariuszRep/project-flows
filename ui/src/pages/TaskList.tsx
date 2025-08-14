@@ -12,9 +12,9 @@ import { Project } from '@/types/project';
 import { MCPDisconnectedState } from '@/components/ui/empty-state';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { ProjectSidebar } from '@/components/ui/project-sidebar';
-import ProjectEditForm from '@/components/forms/ProjectEditForm';
+// import ProjectEditForm from '@/components/forms/ProjectEditForm'; // Replaced by UnifiedForm
 import { FileText, Plus, Edit, ArrowRight, Filter } from 'lucide-react';
-import TaskForm from '@/components/forms/TaskForm';
+import UnifiedForm from '@/components/forms/UnifiedForm';
 import TaskView from '@/components/view/TaskView';
 import ProjectView from '@/components/view/ProjectView';
 
@@ -621,9 +621,10 @@ const DraftTasks = () => {
         )}
         
         {/* Edit Task Form */}
-        <TaskForm
+        <UnifiedForm
+          entityType="task"
           mode="edit"
-          taskId={editingTaskId || 0}
+          entityId={editingTaskId || undefined}
           templateId={1}
           onSuccess={handleEditSuccess}
           onCancel={handleEditCancel}
@@ -642,16 +643,18 @@ const DraftTasks = () => {
           variant="destructive"
         />
 
-        <ProjectEditForm
+        <UnifiedForm
+          entityType="project"
           mode={editingProjectId ? 'edit' : 'create'}
-          projectId={editingProjectId || undefined}
+          entityId={editingProjectId || undefined}
           onSuccess={handleProjectSuccess}
           onCancel={handleProjectCancel}
           onDelete={handleProjectDelete}
           isOpen={showCreateProjectForm || !!editingProjectId}
         />
 
-        <TaskForm
+        <UnifiedForm
+          entityType="task"
           mode="create"
           templateId={1}
           initialStage="draft"
