@@ -6,6 +6,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { X, GripVertical, Edit, Trash2, Plus, Save } from 'lucide-react';
 import { useMCP } from '@/contexts/MCPContext';
 import { DragDropContext, Droppable, Draggable, DropResult } from 'react-beautiful-dnd';
+import MarkdownRenderer from '@/components/ui/MarkdownRenderer';
 
 
 interface TemplateFormProps {
@@ -607,9 +608,9 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({ isOpen, onClose, tem
                   {!isExpanded && (
                     <CardContent className="pt-0 pl-10">
                       <div className="space-y-2">
-                        <p className="text-sm text-muted-foreground">
-                          {block.describe || 'No description provided'}
-                        </p>
+                        <div className="text-sm text-muted-foreground prose dark:prose-invert max-w-none">
+                          <MarkdownRenderer content={block.describe || 'No description provided'} />
+                        </div>
                         {(block.type || block.dependencies?.length) && (
                           <div className="flex flex-wrap gap-2 mt-2">
                             {block.type && (
