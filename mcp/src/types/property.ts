@@ -21,3 +21,10 @@ export interface ExecutionChainItem {
   prop_name: string;
   prop_config: SchemaProperty;
 }
+
+export interface ToolContext {
+  projectId?: number;
+  userRole?: string;
+  parentTaskId?: number;
+  clientId?: string;
+}

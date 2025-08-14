@@ -10,7 +10,9 @@
     "dev": "tsx src/index.ts",
     "clean": "rm -rf dist",
     "test": "node tests/integration.test.js",
-    "test:db": "DATABASE_URL=postgresql://mcp_user:mcp_password@localhost:5432/mcp_tasks node tests/integration.test.js"
+    "test:db": "DATABASE_URL=postgresql://mcp_user:mcp_password@localhost:5432/mcp_tasks node tests/integration.test.js",
+    "test:compatibility": "node tests/test-runner.js",
+    "test:all": "npm run test && npm run test:compatibility"
   },
   "keywords": [
     "mcp",

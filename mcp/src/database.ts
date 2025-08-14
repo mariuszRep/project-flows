@@ -3,6 +3,7 @@
  */
 
 import pg from 'pg';
+import { ToolContext } from './types/property.js';
 
 const { Pool } = pg;
 
@@ -65,7 +66,9 @@ class DatabaseService {
   }
 
 
-  async getSchemaProperties(templateId?: number): Promise<Record<string, SchemaProperty>> {
+  async getSchemaProperties(templateId?: number): Promise<Record<string, SchemaProperty>>;
+  async getSchemaProperties(templateId: number | undefined, context: ToolContext): Promise<Record<string, SchemaProperty>>;
+  async getSchemaProperties(templateId?: number, context?: ToolContext): Promise<Record<string, SchemaProperty>> {
     try {
       let query = 'SELECT key, type, description, dependencies, execution_order, created_by, updated_by, created_at, updated_at, id, template_id, fixed FROM properties';
       const params: any[] = [];
@@ -96,12 +99,55 @@ class DatabaseService {
         };
       }
       
+      // Apply context-aware filtering if context is provided
+      if (context) {
+        return this.applyContextFilters(properties, context);
+      }
+      
       return properties;
     } catch (error) {
       console.error('Error fetching schema properties:', error);
       // Return empty object on error to allow service to continue
       return {};
     }
+  }
+
+  private applyContextFilters(properties: Record<string, SchemaProperty>, context: ToolContext): Record<string, SchemaProperty> {
+    const filteredProperties: Record<string, SchemaProperty> = {};
+    
+    for (const [key, property] of Object.entries(properties)) {
+      let shouldInclude = true;
+      
+      // Project-specific filtering
+      if (context.projectId && property.description) {
+        // For now, include all properties, but this can be enhanced
+        // to filter based on project-specific requirements
+        shouldInclude = true;
+      }
+      
+      // Role-based filtering
+      if (context.userRole) {
+        // Example: Admin users see all properties, regular users see subset
+        if (context.userRole === 'admin') {
+          shouldInclude = true;
+        } else if (context.userRole === 'user') {
+          // Regular users might not see certain admin-only properties
+          shouldInclude = !property.description?.toLowerCase().includes('admin');
+        }
+      }
+      
+      // Parent task context filtering
+      if (context.parentTaskId && property.dependencies) {
+        // Could filter properties based on parent task context
+        shouldInclude = true;
+      }
+      
+      if (shouldInclude) {
+        filteredProperties[key] = property;
+      }
+    }
+    
+    return filteredProperties;
   }
 
   // Helper function to flatten complex data to text
