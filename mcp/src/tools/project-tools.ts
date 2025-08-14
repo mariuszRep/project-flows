@@ -8,7 +8,7 @@ export class ProjectTools {
   constructor(
     private sharedDbService: DatabaseService,
     private clientId: string,
-    private loadDynamicSchemaProperties: () => Promise<SchemaProperties>,
+    private loadProjectSchemaProperties: () => Promise<SchemaProperties>,
     private createExecutionChain: (properties: SchemaProperties) => ExecutionChainItem[],
     private validateDependencies: (properties: SchemaProperties, args: Record<string, any>, isUpdateContext?: boolean) => boolean
   ) {}
@@ -138,7 +138,7 @@ export class ProjectTools {
   }
 
   private async handleCreateProject(toolArgs?: Record<string, any>) {
-    const dynamicProperties = await this.loadDynamicSchemaProperties();
+    const dynamicProperties = await this.loadProjectSchemaProperties();
 
     // Validate dependencies
     if (!this.validateDependencies(dynamicProperties, toolArgs || {}, false)) {
@@ -293,7 +293,7 @@ export class ProjectTools {
       };
     }
 
-    const dynamicProperties = await this.loadDynamicSchemaProperties();
+    const dynamicProperties = await this.loadProjectSchemaProperties();
 
     // Filter out project_id from validation since it's not a content field
     const contentArgs = { ...toolArgs };
