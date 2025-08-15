@@ -1,0 +1,18 @@
+{
+  "timestamp": "2025-08-15T14:23:24.988Z",
+  "database": "mcp_tasks",
+  "host": "localhost",
+  "port": "5432",
+  "user": "mcp_user",
+  "tables": [
+    "blocks",
+    "global_state",
+    "properties",
+    "tasks",
+    "templates"
+  ],
+  "schemaOnly": false,
+  "dataOnly": false,
+  "filename": "/root/projects/project-flows/database/backup/backups/mcp_tasks_backup_2025-08-15T14-23-24-827Z.json.gz",
+  "compressed": true
+}

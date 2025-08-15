@@ -6,7 +6,11 @@
   "scripts": {
     "migrate": "node migrate.js",
     "bootstrap": "node bootstrap.js",
-    "setup": "npm run migrate && npm run bootstrap"
+    "setup": "npm run migrate && npm run bootstrap",
+    "backup": "node backup/backup.js",
+    "restore": "node backup/restore.js",
+    "backup:trigger": "node backup/backup-trigger.js",
+    "backup:test": "node backup/test-backup.js"
   },
   "dependencies": {
     "pg": "^8.11.0"
