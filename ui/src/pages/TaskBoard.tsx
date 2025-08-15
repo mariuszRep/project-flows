@@ -5,10 +5,10 @@ import { Task } from '@/types/task';
 import { Project } from '@/types/project';
 import { TaskBoard } from '@/components/board/TaskBoard';
 import { Button } from '@/components/ui/button';
-import TaskForm from '@/components/forms/TaskForm';
+import UnifiedForm from '@/components/forms/UnifiedForm';
 import TaskView from '@/components/view/TaskView';
 import ProjectView from '@/components/view/ProjectView';
-import ProjectEditForm from '@/components/forms/ProjectEditForm';
+// import ProjectEditForm from '@/components/forms/ProjectEditForm'; // Replaced by UnifiedForm
 import { ProjectSidebar } from '@/components/ui/project-sidebar';
 import { MCPDisconnectedState, NoTasksState } from '@/components/ui/empty-state';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
@@ -428,9 +428,10 @@ export default function Board() {
           </div>
         )}
 
-        <TaskForm
+        <UnifiedForm
+          entityType="task"
           mode={editingTaskId ? 'edit' : 'create'}
-          taskId={editingTaskId || undefined}
+          entityId={editingTaskId || undefined}
           templateId={1}
           initialStage="draft"
           onSuccess={handleTaskSuccess}
@@ -457,9 +458,10 @@ export default function Board() {
           onEdit={handleSwitchToProjectEdit}
         />
 
-        <ProjectEditForm
+        <UnifiedForm
+          entityType="project"
           mode={editingProjectId ? 'edit' : 'create'}
-          projectId={editingProjectId || undefined}
+          entityId={editingProjectId || undefined}
           onSuccess={handleProjectSuccess}
           onCancel={handleProjectCancel}
           onDelete={handleProjectDelete}
