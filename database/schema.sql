@@ -68,10 +68,10 @@ SET default_tablespace = '';
 SET default_table_access_method = heap;
 
 --
--- Name: blocks; Type: TABLE; Schema: public; Owner: mcp_user
+-- Name: object_properties; Type: TABLE; Schema: public; Owner: mcp_user
 --
 
-CREATE TABLE public.blocks (
+CREATE TABLE public.object_properties (
     id integer NOT NULL,
     task_id integer NOT NULL,
     "position" integer DEFAULT 0 NOT NULL,
@@ -84,13 +84,13 @@ CREATE TABLE public.blocks (
 );
 
 
-ALTER TABLE public.blocks OWNER TO mcp_user;
+ALTER TABLE public.object_properties OWNER TO mcp_user;
 
 --
--- Name: blocks_id_seq; Type: SEQUENCE; Schema: public; Owner: mcp_user
+-- Name: object_template_properties_id_seq; Type: SEQUENCE; Schema: public; Owner: mcp_user
 --
 
-CREATE SEQUENCE public.blocks_id_seq
+CREATE SEQUENCE public.object_template_properties_id_seq
     AS integer
     START WITH 1
     INCREMENT BY 1
@@ -99,13 +99,13 @@ CREATE SEQUENCE public.blocks_id_seq
     CACHE 1;
 
 
-ALTER TABLE public.blocks_id_seq OWNER TO mcp_user;
+ALTER TABLE public.object_template_properties_id_seq OWNER TO mcp_user;
 
 --
--- Name: blocks_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: mcp_user
+-- Name: object_template_properties_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: mcp_user
 --
 
-ALTER SEQUENCE public.blocks_id_seq OWNED BY public.blocks.id;
+ALTER SEQUENCE public.object_template_properties_id_seq OWNED BY public.object_properties.id;
 
 
 --
@@ -125,10 +125,10 @@ CREATE TABLE public.global_state (
 ALTER TABLE public.global_state OWNER TO mcp_user;
 
 --
--- Name: properties; Type: TABLE; Schema: public; Owner: mcp_user
+-- Name: template_properties; Type: TABLE; Schema: public; Owner: mcp_user
 --
 
-CREATE TABLE public.properties (
+CREATE TABLE public.template_properties (
     id integer NOT NULL,
     template_id integer NOT NULL,
     key text NOT NULL,
@@ -144,13 +144,13 @@ CREATE TABLE public.properties (
 );
 
 
-ALTER TABLE public.properties OWNER TO mcp_user;
+ALTER TABLE public.template_properties OWNER TO mcp_user;
 
 --
--- Name: properties_id_seq; Type: SEQUENCE; Schema: public; Owner: mcp_user
+-- Name: template_properties_id_seq; Type: SEQUENCE; Schema: public; Owner: mcp_user
 --
 
-CREATE SEQUENCE public.properties_id_seq
+CREATE SEQUENCE public.template_properties_id_seq
     AS integer
     START WITH 1
     INCREMENT BY 1
@@ -159,20 +159,20 @@ CREATE SEQUENCE public.properties_id_seq
     CACHE 1;
 
 
-ALTER TABLE public.properties_id_seq OWNER TO mcp_user;
+ALTER TABLE public.template_template_properties_id_seq OWNER TO mcp_user;
 
 --
--- Name: properties_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: mcp_user
+-- Name: template_properties_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: mcp_user
 --
 
-ALTER SEQUENCE public.properties_id_seq OWNED BY public.properties.id;
+ALTER SEQUENCE public.template_properties_id_seq OWNED BY public.template_properties.id;
 
 
 --
--- Name: tasks; Type: TABLE; Schema: public; Owner: mcp_user
+-- Name: objects; Type: TABLE; Schema: public; Owner: mcp_user
 --
 
-CREATE TABLE public.tasks (
+CREATE TABLE public.objects (
     id integer NOT NULL,
     stage public.task_stage DEFAULT 'draft'::public.task_stage NOT NULL,
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
@@ -185,13 +185,13 @@ CREATE TABLE public.tasks (
 );
 
 
-ALTER TABLE public.tasks OWNER TO mcp_user;
+ALTER TABLE public.objects OWNER TO mcp_user;
 
 --
--- Name: tasks_id_seq; Type: SEQUENCE; Schema: public; Owner: mcp_user
+-- Name: objects_id_seq; Type: SEQUENCE; Schema: public; Owner: mcp_user
 --
 
-CREATE SEQUENCE public.tasks_id_seq
+CREATE SEQUENCE public.objects_id_seq
     AS integer
     START WITH 1
     INCREMENT BY 1
@@ -200,13 +200,13 @@ CREATE SEQUENCE public.tasks_id_seq
     CACHE 1;
 
 
-ALTER TABLE public.tasks_id_seq OWNER TO mcp_user;
+ALTER TABLE public.objects_id_seq OWNER TO mcp_user;
 
 --
--- Name: tasks_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: mcp_user
+-- Name: objects_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: mcp_user
 --
 
-ALTER SEQUENCE public.tasks_id_seq OWNED BY public.tasks.id;
+ALTER SEQUENCE public.objects_id_seq OWNED BY public.objects.id;
 
 
 --
@@ -252,21 +252,21 @@ ALTER SEQUENCE public.templates_id_seq OWNED BY public.templates.id;
 -- Name: blocks id; Type: DEFAULT; Schema: public; Owner: mcp_user
 --
 
-ALTER TABLE ONLY public.blocks ALTER COLUMN id SET DEFAULT nextval('public.blocks_id_seq'::regclass);
+ALTER TABLE ONLY public.object_properties ALTER COLUMN id SET DEFAULT nextval('public.object_template_properties_id_seq'::regclass);
 
 
 --
 -- Name: properties id; Type: DEFAULT; Schema: public; Owner: mcp_user
 --
 
-ALTER TABLE ONLY public.properties ALTER COLUMN id SET DEFAULT nextval('public.properties_id_seq'::regclass);
+ALTER TABLE ONLY public.template_properties ALTER COLUMN id SET DEFAULT nextval('public.template_properties_id_seq'::regclass);
 
 
 --
 -- Name: tasks id; Type: DEFAULT; Schema: public; Owner: mcp_user
 --
 
-ALTER TABLE ONLY public.tasks ALTER COLUMN id SET DEFAULT nextval('public.tasks_id_seq'::regclass);
+ALTER TABLE ONLY public.objects ALTER COLUMN id SET DEFAULT nextval('public.objects_id_seq'::regclass);
 
 
 --
@@ -277,19 +277,19 @@ ALTER TABLE ONLY public.templates ALTER COLUMN id SET DEFAULT nextval('public.te
 
 
 --
--- Name: blocks blocks_pkey; Type: CONSTRAINT; Schema: public; Owner: mcp_user
+-- Name: blocks object_template_properties_pkey; Type: CONSTRAINT; Schema: public; Owner: mcp_user
 --
 
-ALTER TABLE ONLY public.blocks
-    ADD CONSTRAINT blocks_pkey PRIMARY KEY (id);
+ALTER TABLE ONLY public.object_properties
+    ADD CONSTRAINT object_template_properties_pkey PRIMARY KEY (id);
 
 
 --
--- Name: blocks blocks_task_id_property_id_key; Type: CONSTRAINT; Schema: public; Owner: mcp_user
+-- Name: blocks object_properties_object_id_property_id_key; Type: CONSTRAINT; Schema: public; Owner: mcp_user
 --
 
-ALTER TABLE ONLY public.blocks
-    ADD CONSTRAINT blocks_task_id_property_id_key UNIQUE (task_id, property_id);
+ALTER TABLE ONLY public.object_properties
+    ADD CONSTRAINT object_properties_object_id_property_id_key UNIQUE (task_id, property_id);
 
 
 --
@@ -301,27 +301,27 @@ ALTER TABLE ONLY public.global_state
 
 
 --
--- Name: properties properties_pkey; Type: CONSTRAINT; Schema: public; Owner: mcp_user
+-- Name: properties template_properties_pkey; Type: CONSTRAINT; Schema: public; Owner: mcp_user
 --
 
-ALTER TABLE ONLY public.properties
-    ADD CONSTRAINT properties_pkey PRIMARY KEY (id);
-
-
---
--- Name: properties properties_template_id_key_key; Type: CONSTRAINT; Schema: public; Owner: mcp_user
---
-
-ALTER TABLE ONLY public.properties
-    ADD CONSTRAINT properties_template_id_key_key UNIQUE (template_id, key);
+ALTER TABLE ONLY public.template_properties
+    ADD CONSTRAINT template_properties_pkey PRIMARY KEY (id);
 
 
 --
--- Name: tasks tasks_pkey; Type: CONSTRAINT; Schema: public; Owner: mcp_user
+-- Name: properties template_properties_template_id_key_key; Type: CONSTRAINT; Schema: public; Owner: mcp_user
 --
 
-ALTER TABLE ONLY public.tasks
-    ADD CONSTRAINT tasks_pkey PRIMARY KEY (id);
+ALTER TABLE ONLY public.template_properties
+    ADD CONSTRAINT template_properties_template_id_key_key UNIQUE (template_id, key);
+
+
+--
+-- Name: tasks objects_pkey; Type: CONSTRAINT; Schema: public; Owner: mcp_user
+--
+
+ALTER TABLE ONLY public.objects
+    ADD CONSTRAINT objects_pkey PRIMARY KEY (id);
 
 
 --
@@ -333,24 +333,24 @@ ALTER TABLE ONLY public.templates
 
 
 --
--- Name: idx_blocks_position; Type: INDEX; Schema: public; Owner: mcp_user
+-- Name: idx_object_properties_position; Type: INDEX; Schema: public; Owner: mcp_user
 --
 
-CREATE INDEX idx_blocks_position ON public.blocks USING btree (task_id, "position");
-
-
---
--- Name: idx_blocks_property_id; Type: INDEX; Schema: public; Owner: mcp_user
---
-
-CREATE INDEX idx_blocks_property_id ON public.blocks USING btree (property_id);
+CREATE INDEX idx_object_properties_position ON public.object_properties USING btree (task_id, "position");
 
 
 --
--- Name: idx_blocks_task_id; Type: INDEX; Schema: public; Owner: mcp_user
+-- Name: idx_object_properties_property_id; Type: INDEX; Schema: public; Owner: mcp_user
 --
 
-CREATE INDEX idx_blocks_task_id ON public.blocks USING btree (task_id);
+CREATE INDEX idx_object_properties_property_id ON public.object_properties USING btree (property_id);
+
+
+--
+-- Name: idx_object_properties_object_id; Type: INDEX; Schema: public; Owner: mcp_user
+--
+
+CREATE INDEX idx_object_properties_object_id ON public.object_properties USING btree (task_id);
 
 
 --
@@ -361,24 +361,24 @@ CREATE INDEX idx_global_state_key ON public.global_state USING btree (key);
 
 
 --
--- Name: idx_tasks_parent_id; Type: INDEX; Schema: public; Owner: mcp_user
+-- Name: idx_objects_parent_id; Type: INDEX; Schema: public; Owner: mcp_user
 --
 
-CREATE INDEX idx_tasks_parent_id ON public.tasks USING btree (parent_id);
-
-
---
--- Name: idx_tasks_user_id; Type: INDEX; Schema: public; Owner: mcp_user
---
-
-CREATE INDEX idx_tasks_user_id ON public.tasks USING btree (user_id);
+CREATE INDEX idx_objects_parent_id ON public.objects USING btree (parent_id);
 
 
 --
--- Name: blocks update_blocks_updated_at; Type: TRIGGER; Schema: public; Owner: mcp_user
+-- Name: idx_objects_user_id; Type: INDEX; Schema: public; Owner: mcp_user
 --
 
-CREATE TRIGGER update_blocks_updated_at BEFORE UPDATE ON public.blocks FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+CREATE INDEX idx_objects_user_id ON public.objects USING btree (user_id);
+
+
+--
+-- Name: blocks update_object_properties_updated_at; Type: TRIGGER; Schema: public; Owner: mcp_user
+--
+
+CREATE TRIGGER update_object_properties_updated_at BEFORE UPDATE ON public.object_properties FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
 
 --
@@ -389,57 +389,57 @@ CREATE TRIGGER update_global_state_updated_at BEFORE UPDATE ON public.global_sta
 
 
 --
--- Name: properties update_properties_updated_at; Type: TRIGGER; Schema: public; Owner: mcp_user
+-- Name: properties update_template_properties_updated_at; Type: TRIGGER; Schema: public; Owner: mcp_user
 --
 
-CREATE TRIGGER update_properties_updated_at BEFORE UPDATE ON public.properties FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
-
-
---
--- Name: tasks update_tasks_updated_at; Type: TRIGGER; Schema: public; Owner: mcp_user
---
-
-CREATE TRIGGER update_tasks_updated_at BEFORE UPDATE ON public.tasks FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+CREATE TRIGGER update_template_properties_updated_at BEFORE UPDATE ON public.template_properties FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
 
 --
--- Name: blocks blocks_property_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: mcp_user
+-- Name: tasks update_objects_updated_at; Type: TRIGGER; Schema: public; Owner: mcp_user
 --
 
-ALTER TABLE ONLY public.blocks
-    ADD CONSTRAINT blocks_property_id_fkey FOREIGN KEY (property_id) REFERENCES public.properties(id) ON DELETE CASCADE;
-
-
---
--- Name: blocks blocks_task_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: mcp_user
---
-
-ALTER TABLE ONLY public.blocks
-    ADD CONSTRAINT blocks_task_id_fkey FOREIGN KEY (task_id) REFERENCES public.tasks(id) ON DELETE CASCADE;
+CREATE TRIGGER update_objects_updated_at BEFORE UPDATE ON public.objects FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
 
 --
--- Name: properties properties_template_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: mcp_user
+-- Name: blocks object_properties_property_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: mcp_user
 --
 
-ALTER TABLE ONLY public.properties
-    ADD CONSTRAINT properties_template_id_fkey FOREIGN KEY (template_id) REFERENCES public.templates(id) ON DELETE CASCADE;
-
-
---
--- Name: tasks tasks_parent_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: mcp_user
---
-
-ALTER TABLE ONLY public.tasks
-    ADD CONSTRAINT tasks_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.tasks(id) ON DELETE CASCADE;
+ALTER TABLE ONLY public.object_properties
+    ADD CONSTRAINT object_properties_property_id_fkey FOREIGN KEY (property_id) REFERENCES public.template_properties(id) ON DELETE CASCADE;
 
 
 --
--- Name: tasks tasks_template_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: mcp_user
+-- Name: blocks object_properties_object_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: mcp_user
 --
 
-ALTER TABLE ONLY public.tasks
-    ADD CONSTRAINT tasks_template_id_fkey FOREIGN KEY (template_id) REFERENCES public.templates(id) ON DELETE RESTRICT;
+ALTER TABLE ONLY public.object_properties
+    ADD CONSTRAINT object_properties_object_id_fkey FOREIGN KEY (task_id) REFERENCES public.objects(id) ON DELETE CASCADE;
+
+
+--
+-- Name: properties template_properties_template_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: mcp_user
+--
+
+ALTER TABLE ONLY public.template_properties
+    ADD CONSTRAINT template_properties_template_id_fkey FOREIGN KEY (template_id) REFERENCES public.templates(id) ON DELETE CASCADE;
+
+
+--
+-- Name: tasks objects_parent_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: mcp_user
+--
+
+ALTER TABLE ONLY public.objects
+    ADD CONSTRAINT objects_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.objects(id) ON DELETE CASCADE;
+
+
+--
+-- Name: tasks objects_template_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: mcp_user
+--
+
+ALTER TABLE ONLY public.objects
+    ADD CONSTRAINT objects_template_id_fkey FOREIGN KEY (template_id) REFERENCES public.templates(id) ON DELETE RESTRICT;
 
 
 --

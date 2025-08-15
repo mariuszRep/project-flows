@@ -12,7 +12,7 @@ BEGIN
         'operation', TG_OP,
         'timestamp', CURRENT_TIMESTAMP,
         'template_id', CASE 
-            WHEN TG_TABLE_NAME = 'properties' THEN COALESCE(NEW.template_id, OLD.template_id)
+            WHEN TG_TABLE_NAME = 'template_properties' THEN COALESCE(NEW.template_id, OLD.template_id)
             WHEN TG_TABLE_NAME = 'templates' THEN COALESCE(NEW.id, OLD.id)
             ELSE NULL
         END,
@@ -29,10 +29,10 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Create triggers for properties table
-DROP TRIGGER IF EXISTS properties_notify_change ON properties;
-CREATE TRIGGER properties_notify_change
-    AFTER INSERT OR UPDATE OR DELETE ON properties
+-- Create triggers for template_properties table
+DROP TRIGGER IF EXISTS template_properties_notify_change ON template_properties;
+CREATE TRIGGER template_properties_notify_change
+    AFTER INSERT OR UPDATE OR DELETE ON template_properties
     FOR EACH ROW EXECUTE FUNCTION notify_schema_change();
 
 -- Create triggers for templates table
@@ -42,6 +42,6 @@ CREATE TRIGGER templates_notify_change
     FOR EACH ROW EXECUTE FUNCTION notify_schema_change();
 
 -- Add comments for documentation
-COMMENT ON FUNCTION notify_schema_change() IS 'Trigger function that sends PostgreSQL notifications when schema-related tables (properties, templates) are modified. Used for real-time schema cache invalidation.';
-COMMENT ON TRIGGER properties_notify_change ON properties IS 'Notifies schema changes when properties are modified';
+COMMENT ON FUNCTION notify_schema_change() IS 'Trigger function that sends PostgreSQL notifications when schema-related tables (template_properties, templates) are modified. Used for real-time schema cache invalidation.';
+COMMENT ON TRIGGER template_properties_notify_change ON template_properties IS 'Notifies schema changes when template_properties are modified';
 COMMENT ON TRIGGER templates_notify_change ON templates IS 'Notifies schema changes when templates are modified';

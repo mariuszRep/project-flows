@@ -35,7 +35,7 @@ async function runMigration() {
     const result = await client.query(`
       SELECT trigger_name, event_manipulation, event_object_table 
       FROM information_schema.triggers 
-      WHERE trigger_name IN ('properties_notify_change', 'templates_notify_change')
+      WHERE trigger_name IN ('template_properties_notify_change', 'templates_notify_change')
       ORDER BY trigger_name
     `);
 
