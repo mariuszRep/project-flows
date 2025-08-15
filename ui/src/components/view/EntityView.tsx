@@ -339,18 +339,7 @@ const EntityView: React.FC<EntityViewProps> = ({
                   {getPropertiesToRender().map((propertyName) => (
                     <div 
                       key={propertyName}
-                      className="relative -mx-4 px-4 py-2 rounded"
-                      style={{
-                        border: '1px solid transparent',
-                        transition: 'border-color 0.2s ease',
-                      }}
-                      onMouseEnter={(e) => {
-                        const textColor = window.getComputedStyle(e.currentTarget).color;
-                        e.currentTarget.style.borderColor = textColor;
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.borderColor = 'transparent';
-                      }}
+                      className="relative -mx-4 px-4 py-2 border border-transparent hover:border-border rounded-xl transition-colors duration-200"
                     >
                       <h3 className="text-sm font-semibold mb-2">{propertyName}</h3>
                       <div className="prose dark:prose-invert max-w-none">
