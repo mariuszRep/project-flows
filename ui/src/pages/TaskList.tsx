@@ -203,9 +203,6 @@ const DraftTasks = () => {
     });
   };
 
-  const handleSelectAll = () => {
-    setSelectedStages(stages.map(s => s.key));
-  };
 
   const handleClearAll = () => {
     setSelectedStages(['draft', 'backlog', 'doing', 'review', 'completed']); // Reset to all stages
@@ -530,9 +527,6 @@ const DraftTasks = () => {
               </div>
             </div>
             <div className="flex gap-2">
-              <Button variant="ghost" size="sm" onClick={handleSelectAll}>
-                Select All
-              </Button>
               <Button variant="ghost" size="sm" onClick={handleClearAll}>
                 Reset
               </Button>
