@@ -3,7 +3,13 @@ import MarkdownRenderer from '@/components/ui/MarkdownRenderer';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { X, Edit, Calendar } from 'lucide-react';
+import { 
+  DropdownMenu, 
+  DropdownMenuContent, 
+  DropdownMenuItem, 
+  DropdownMenuTrigger 
+} from '@/components/ui/dropdown-menu';
+import { X, Edit, Calendar, MoreHorizontal, ArrowRight, Trash2 } from 'lucide-react';
 import { useMCP } from '@/contexts/MCPContext';
 
 /**
@@ -22,6 +28,10 @@ interface EntityViewProps {
   onEdit: () => void;
   /** Optional template ID override. If not provided, will be derived from entity data or defaults */
   templateId?: number;
+  /** Optional callback for task stage updates */
+  onTaskUpdate?: (taskId: number, newStage: string) => void;
+  /** Optional callback for entity deletion */
+  onDelete?: (entityId: number, entityTitle: string) => void;
 }
 
 interface Entity {
@@ -97,7 +107,9 @@ const EntityView: React.FC<EntityViewProps> = ({
   isOpen,
   onClose,
   onEdit,
-  templateId: propTemplateId
+  templateId: propTemplateId,
+  onTaskUpdate,
+  onDelete
 }) => {
   const { callTool, isConnected } = useMCP();
   const [isLoading, setIsLoading] = useState(false);
@@ -263,6 +275,19 @@ const EntityView: React.FC<EntityViewProps> = ({
     });
   };
 
+  const handleStageMove = (newStage: string) => {
+    if (onTaskUpdate && entity) {
+      onTaskUpdate(entity.id, newStage);
+    }
+  };
+
+  const handleDelete = () => {
+    if (onDelete && entity) {
+      const entityTitle = getEntityTitle();
+      onDelete(entity.id, entityTitle);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 overflow-y-auto p-4">
       <Card className="w-full max-w-3xl mx-auto">
@@ -274,6 +299,51 @@ const EntityView: React.FC<EntityViewProps> = ({
             <Button variant="outline" size="icon" onClick={onEdit}>
               <Edit className="h-4 w-4" />
             </Button>
+            {(onTaskUpdate || onDelete) && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="icon">
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {entityType === 'task' && entity && onTaskUpdate && (
+                    <>
+                      {entity.stage !== 'doing' && (
+                        <DropdownMenuItem onClick={() => handleStageMove('doing')}>
+                          <ArrowRight className="h-4 w-4 mr-2" />
+                          Move to Doing
+                        </DropdownMenuItem>
+                      )}
+                      {entity.stage !== 'review' && (
+                        <DropdownMenuItem onClick={() => handleStageMove('review')}>
+                          <ArrowRight className="h-4 w-4 mr-2" />
+                          Move to Review
+                        </DropdownMenuItem>
+                      )}
+                      {entity.stage !== 'completed' && (
+                        <DropdownMenuItem onClick={() => handleStageMove('completed')}>
+                          <ArrowRight className="h-4 w-4 mr-2" />
+                          Move to Completed
+                        </DropdownMenuItem>
+                      )}
+                      {entity.stage !== 'backlog' && (
+                        <DropdownMenuItem onClick={() => handleStageMove('backlog')}>
+                          <ArrowRight className="h-4 w-4 mr-2" />
+                          Move to Backlog
+                        </DropdownMenuItem>
+                      )}
+                    </>
+                  )}
+                  {onDelete && (
+                    <DropdownMenuItem onClick={handleDelete} className="text-red-600">
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Delete
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
             <Button variant="outline" size="icon" onClick={onClose}>
               <X className="h-4 w-4" />
             </Button>

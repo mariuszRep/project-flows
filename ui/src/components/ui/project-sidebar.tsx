@@ -186,10 +186,10 @@ export function ProjectSidebar({
       {/* All Tasks Option */}
       <div className="mb-2">
         <Button
-          variant={selectedProjectId === null ? 'secondary' : 'ghost'}
+          variant="default"
           size="sm"
           onClick={handleAllTasksClick}
-          className="w-full justify-start hover:bg-secondary hover:text-secondary-foreground"
+          className={`w-full justify-start ${selectedProjectId === null ? 'bg-border' : ''}`}
         >
           <FolderOpen className="h-4 w-4 mr-2" />
           All Tasks
@@ -211,22 +211,22 @@ export function ProjectSidebar({
           {projects.map((project) => (
             <div key={project.id} className="relative group">
               <Button
-                variant={selectedProjectId === project.id ? 'secondary' : 'ghost'}
+                variant="default"
                 size="sm"
                 onClick={() => handleProjectClick(project.id)}
-                className="w-full justify-start pr-8 hover:bg-secondary hover:text-secondary-foreground"
+                className={`w-full justify-start pr-8 ${selectedProjectId === project.id ? 'bg-border' : ''}`}
               >
                 <Folder className="h-4 w-4 mr-2 flex-shrink-0" />
                 <span className="truncate flex-1 text-left">{project.name}</span>
               </Button>
               <Button
-                variant="ghost"
+                variant="primary"
                 size="icon"
                 onClick={(e) => {
                   e.stopPropagation();
                   onEditProject(project);
                 }}
-                className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 rounded-md opacity-0 group-hover:opacity-100 transition-opacity hover:bg-background/80"
+                className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
                 title="Edit Project"
               >
                 <Edit2 className="h-3 w-3" />

@@ -1,14 +1,6 @@
 import React, { useState } from 'react';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { 
-  DropdownMenu, 
-  DropdownMenuContent, 
-  DropdownMenuItem, 
-  DropdownMenuTrigger 
-} from '@/components/ui/dropdown-menu';
-import { MoreHorizontal, Edit, Trash2, ArrowRight } from 'lucide-react';
 import { Task, TaskStage } from '@/types/task';
 import { Project } from '@/types/project';
 
@@ -94,52 +86,6 @@ export const TaskCard: React.FC<TaskCardProps> = ({
               <span className="text-muted-foreground">#{task.id}</span> {task.title}
             </CardTitle>
           </div>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                disabled={isMoving}
-              >
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={handleEdit}>
-                <Edit className="h-4 w-4 mr-2" />
-                Edit
-              </DropdownMenuItem>
-              {task.stage !== 'doing' && (
-                <DropdownMenuItem onClick={() => handleStageMove('doing')}>
-                  <ArrowRight className="h-4 w-4 mr-2" />
-                  Move to Doing
-                </DropdownMenuItem>
-              )}
-              {task.stage !== 'review' && (
-                <DropdownMenuItem onClick={() => handleStageMove('review')}>
-                  <ArrowRight className="h-4 w-4 mr-2" />
-                  Move to Review
-                </DropdownMenuItem>
-              )}
-              {task.stage !== 'completed' && (
-                <DropdownMenuItem onClick={() => handleStageMove('completed')}>
-                  <ArrowRight className="h-4 w-4 mr-2" />
-                  Move to Completed
-                </DropdownMenuItem>
-              )}
-              {task.stage !== 'backlog' && (
-                <DropdownMenuItem onClick={() => handleStageMove('backlog')}>
-                  <ArrowRight className="h-4 w-4 mr-2" />
-                  Move to Backlog
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuItem onClick={handleDelete} className="text-red-600">
-                <Trash2 className="h-4 w-4 mr-2" />
-                Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
         </div>
       </CardHeader>
       

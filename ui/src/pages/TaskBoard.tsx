@@ -449,6 +449,8 @@ export default function Board() {
           isOpen={!!viewingTaskId}
           onClose={() => setViewingTaskId(null)}
           onEdit={handleSwitchToEdit}
+          onTaskUpdate={handleTaskUpdate}
+          onDelete={handleTaskDelete}
         />
         
         <ProjectView

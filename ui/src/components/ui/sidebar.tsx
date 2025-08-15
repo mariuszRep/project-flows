@@ -52,11 +52,11 @@ export function Sidebar({
       <div className="px-3 mb-3">
         <Button
           variant="primary"
-          className={`relative ${isCollapsed ? 'h-9 w-9 p-0 rounded-full flex items-center justify-center' : 'h-9 pl-9 pr-3'} text-sm`}
+          className={`relative ${isCollapsed ? 'h-9 w-9 p-0 rounded-full flex items-center justify-center' : 'w-full justify-start h-9 pl-3 pr-3'} text-sm`}
           onClick={onSettingsClick}
         >
           <Settings 
-            className={`h-[1.2rem] w-[1.2rem] ${isCollapsed ? '' : 'absolute left-2.5'}`}
+            className={`h-[1.2rem] w-[1.2rem] ${isCollapsed ? '' : 'mr-2'}`}
           />
           {!isCollapsed && <span>Settings</span>}
         </Button>

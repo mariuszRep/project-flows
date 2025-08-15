@@ -13,6 +13,10 @@ interface TaskViewProps {
   onClose: () => void;
   /** Callback when the edit button is clicked */
   onEdit: () => void;
+  /** Optional callback for task stage updates */
+  onTaskUpdate?: (taskId: number, newStage: string) => void;
+  /** Optional callback for task deletion */
+  onDelete?: (taskId: number, taskTitle: string) => void;
 }
 
 /**
@@ -43,7 +47,9 @@ const TaskView: React.FC<TaskViewProps> = ({
   taskId,
   isOpen,
   onClose,
-  onEdit
+  onEdit,
+  onTaskUpdate,
+  onDelete
 }) => {
   return (
     <EntityView
@@ -53,6 +59,8 @@ const TaskView: React.FC<TaskViewProps> = ({
       onClose={onClose}
       onEdit={onEdit}
       templateId={1}
+      onTaskUpdate={onTaskUpdate}
+      onDelete={onDelete}
     />
   );
 };

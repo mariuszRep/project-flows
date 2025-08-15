@@ -593,25 +593,6 @@ const DraftTasks = () => {
                           )}
                         </div>
                       </div>
-                      <div className="flex gap-2 flex-shrink-0">
-                        <Button 
-                          size="sm" 
-                          variant="outline"
-                          onClick={() => handleEditTask(task.id)}
-                        >
-                          <Edit className="h-3 w-3 mr-1" />
-                          Edit
-                        </Button>
-                        {canMoveForward && (
-                          <Button 
-                            size="sm"
-                            onClick={() => handleMoveTask(task.id, nextStage)}
-                          >
-                            <ArrowRight className="h-3 w-3 mr-1" />
-                            To {stages.find(s => s.key === nextStage)?.title}
-                          </Button>
-                        )}
-                      </div>
                     </CardContent>
                   </Card>
                 );
@@ -668,6 +649,8 @@ const DraftTasks = () => {
           isOpen={!!viewingTaskId}
           onClose={() => setViewingTaskId(null)}
           onEdit={handleSwitchToEdit}
+          onTaskUpdate={handleMoveTask}
+          onDelete={handleTaskDelete}
         />
         
         <ProjectView
