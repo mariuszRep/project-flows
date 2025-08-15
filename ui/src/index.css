@@ -9,7 +9,7 @@
     --radius-m: 12px;
     --radius-s: 6px;
 
-    --border-size: 0px;
+    --border-size: 1px;
 
     /* Light Mode Colors */
     --background: 0 0% 95%;
@@ -102,7 +102,7 @@
 @layer components {
   /* Shared UI Elements (Buttons, Inputs, Cards) */
   .shared-ui {
-    @apply rounded-[var(--radius-s)] border border-border ;
+    @apply border border-border ;
     @apply px-3 py-2 text-sm font-medium
   }
 
