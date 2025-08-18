@@ -30,7 +30,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-mcp_user}:${POSTGRES_PASSWORD:-mcp_password}@postgres:5432/${POSTGRES_DB:-mcp_tasks}
       NODE_ENV: ${NODE_ENV:-development}
     ports:
-      - "3000:3000"
+      - "3001:3001"
     depends_on:
       postgres:
         condition: service_healthy
