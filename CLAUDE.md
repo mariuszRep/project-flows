@@ -126,6 +126,20 @@ Retrieves complete task data by numeric ID. Returns structured markdown format.
 3. **UI development**: Run `cd ui && npm run dev` for frontend work
 4. **Full system**: Use `make up` to run everything containerized
 
+## UI Development Guidelines
+
+### Markdown Rendering
+- **Always use MarkdownRenderer** for task descriptions and content fields in cards and lists
+- **Wrap with prose classes**: Use `prose dark:prose-invert max-w-none` for consistent typography
+- **Preserve line clamping**: Apply `line-clamp-N` to parent container, not MarkdownRenderer
+- **Compact spacing**: Use `prose-p:mb-0 prose-headings:mb-0 prose-headings:mt-0 prose-lists:mb-0` for tight layouts
+- **Example usage**:
+  ```tsx
+  <div className="line-clamp-3 prose dark:prose-invert max-w-none prose-p:mb-0">
+    <MarkdownRenderer content={task.body} />
+  </div>
+  ```
+
 ## Environment Configuration
 
 ### Required Environment Variables
