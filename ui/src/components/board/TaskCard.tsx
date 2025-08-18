@@ -3,6 +3,7 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/componen
 import { Badge } from '@/components/ui/badge';
 import { Task, TaskStage } from '@/types/task';
 import { Project } from '@/types/project';
+import MarkdownRenderer from '@/components/ui/MarkdownRenderer';
 
 interface TaskCardProps {
   task: Task;
@@ -91,9 +92,9 @@ export const TaskCard: React.FC<TaskCardProps> = ({
       
       {task.body && (
         <CardContent className="pt-0 pb-3">
-          <p className="text-sm text-muted-foreground line-clamp-3">
-            {task.body}
-          </p>
+          <div className="text-sm text-muted-foreground line-clamp-3 prose dark:prose-invert max-w-none prose-p:mb-0 prose-headings:mb-0 prose-headings:mt-0 prose-lists:mb-0">
+            <MarkdownRenderer content={task.body} />
+          </div>
         </CardContent>
       )}
       

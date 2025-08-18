@@ -11,7 +11,7 @@ const STORAGE_KEY = 'mcp-connection-settings';
 const CURRENT_VERSION = 1;
 
 const DEFAULT_SETTINGS: ConnectionSettings = {
-  serverUrl: 'http://localhost:3001/sse',
+  serverUrl: import.meta.env.VITE_MCP_SERVER_URL || 'http://localhost:3001/sse',
   autoConnect: true,
   maxRetryAttempts: 5,
   retryBaseDelay: 1000,

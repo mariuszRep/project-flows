@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { HeaderAndSidebarLayout } from '@/components/layout/HeaderAndSidebarLayout';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { SlidableTaskCard } from '@/components/ui/slidable-task-card';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useMCP } from '@/contexts/MCPContext';
@@ -310,6 +311,12 @@ const DraftTasks = () => {
     return currentIndex < stageOrder.length - 1 ? stageOrder[currentIndex + 1] : currentStage;
   };
 
+  const getPreviousStage = (currentStage: TaskStage): TaskStage => {
+    const stageOrder: TaskStage[] = ['draft', 'backlog', 'doing', 'review', 'completed'];
+    const currentIndex = stageOrder.indexOf(currentStage);
+    return currentIndex > 0 ? stageOrder[currentIndex - 1] : currentStage;
+  };
+
   const getStageColor = (stage: TaskStage) => {
     return stages.find(s => s.key === stage)?.color || 'bg-gray-100 text-gray-800';
   };
@@ -560,35 +567,17 @@ const DraftTasks = () => {
             </div>
             <div className="space-y-3 w-full">
               {filteredTasks.map((task) => {
-                const nextStage = getNextStage(task.stage);
-                const canMoveForward = nextStage !== task.stage;
-                
                 return (
-                  <Card 
-                    key={task.id} 
-                    className="card-hover w-full cursor-pointer" 
+                  <SlidableTaskCard
+                    key={task.id}
+                    task={task}
+                    onStageChange={handleMoveTask}
                     onDoubleClick={() => handleTaskView(task.id)}
-                  >
-                    <CardContent className="p-4 w-full">
-                      <div className="flex items-center justify-between w-full">
-                        <div className="flex-1 min-w-0 pr-4">
-                          <div className="flex items-center gap-3 mb-2">
-                            <CardTitle className="text-lg font-semibold truncate">
-                              <span className="text-muted-foreground">#{task.id}</span> {task.title}
-                            </CardTitle>
-                            <Badge variant="secondary" className={`flex-shrink-0 ${getStageColor(task.stage)}`}>
-                              {stages.find(s => s.key === task.stage)?.title}
-                            </Badge>
-                          </div>
-                          {task.body && (
-                            <CardDescription className="line-clamp-2 text-sm">
-                              {task.body}
-                            </CardDescription>
-                          )}
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
+                    getStageColor={getStageColor}
+                    stages={stages}
+                    getPreviousStage={getPreviousStage}
+                    getNextStage={getNextStage}
+                  />
                 );
               })}
             </div>
