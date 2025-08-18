@@ -3,6 +3,7 @@
 /mcp/node_modules
 /ui/node_modules
 /database/node_modules
+/backups
 
 # Build artifacts
 /mcp/dist
