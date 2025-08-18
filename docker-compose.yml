@@ -42,7 +42,11 @@ services:
     build:
       context: ./ui
       dockerfile: Dockerfile
+      args:
+        - VITE_MCP_SERVER_URL=http://localhost:3001/sse
     container_name: ui
+    environment:
+      - VITE_MCP_SERVER_URL=http://localhost:3001/sse
     ports:
       - "80:80"
     depends_on:
