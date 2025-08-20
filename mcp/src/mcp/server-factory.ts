@@ -8,6 +8,7 @@ import DatabaseService from "../database.js";
 import { createTaskTools } from "../tools/task-tools.js";
 import { createPropertyTools } from "../tools/property-tools.js";
 import { createProjectTools } from "../tools/project-tools.js";
+import { createWorkflowTools } from "../tools/workflow-tools.js";
 import pg from 'pg';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -294,6 +295,8 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
     projectTools
   );
 
+  const workflowTools = createWorkflowTools(sharedDbService, clientId, taskTools, projectTools);
+
   // Set up tool list handler
   server.setRequestHandler(ListToolsRequestSchema, async (request) => {
     // Detect context from request if available (future enhancement)
@@ -363,6 +366,7 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
         ...taskTools.getToolDefinitions(taskSchemaProperties),
         ...propertyTools.getToolDefinitions(),
         ...projectTools.getToolDefinitions(projectSchemaProperties),
+        ...workflowTools.getToolDefinitions(),
       ],
     };
   });
@@ -384,6 +388,11 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
     // Handle project tools
     if (projectTools.canHandle(name)) {
       return await projectTools.handle(name, toolArgs);
+    }
+
+    // Handle workflow tools
+    if (workflowTools.canHandle(name)) {
+      return await workflowTools.handle(name, toolArgs);
     }
 
     throw new Error(`Unknown tool: ${name}`);
