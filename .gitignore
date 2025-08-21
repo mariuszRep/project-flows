@@ -35,4 +35,6 @@ Thumbs.db
 
 # Claude-specific
 .claude/
-CLAUDE.md
+
+# Windsurf-specific
+.windsurf/
