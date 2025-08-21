@@ -15,6 +15,7 @@ import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { Plus, X, Filter } from 'lucide-react';
 import { useMCP } from '@/contexts/MCPContext';
 import { useProject } from '@/contexts/ProjectContext';
+import { useChangeEvents } from '@/hooks/useChangeEvents';
 
 export default function Board() {
   const navigate = useNavigate();
@@ -185,6 +186,19 @@ export default function Board() {
     }
   };
 
+  // Set up change event listeners for real-time updates
+  const { callToolWithEvent } = useChangeEvents({
+    onTaskChanged: () => {
+      console.log('Task changed event received, refreshing tasks');
+      fetchTasks();
+    },
+    onProjectChanged: () => {
+      console.log('Project changed event received, refreshing tasks');
+      fetchTasks();
+    }
+  });
+
+  // Initial fetch when component mounts or dependencies change
   useEffect(() => {
     if (!isConnected) {
       // Clear tasks when disconnected
@@ -197,7 +211,7 @@ export default function Board() {
   }, [isConnected, tools, selectedProjectId]);
 
   const handleTaskUpdate = async (taskId?: number, newStage?: string) => {
-    if (!isConnected || !callTool) {
+    if (!isConnected || !callToolWithEvent) {
       console.log('MCP not connected, skipping task update');
       return;
     }
@@ -210,7 +224,8 @@ export default function Board() {
       );
       
       if (updateTool && taskId && newStage) {
-        await callTool(updateTool.name, {
+        // Use callToolWithEvent to trigger events after successful update
+        await callToolWithEvent(updateTool.name, {
           task_id: taskId,
           stage: newStage
         });
@@ -219,8 +234,7 @@ export default function Board() {
         console.log('Update tool not available or missing parameters');
       }
       
-      // Refresh tasks after update
-      await fetchTasks();
+      // No need to manually refresh - the event system will handle it
     } catch (err) {
       console.error('Error updating task:', err);
       setError(err instanceof Error ? err.message : 'Failed to update task');
@@ -236,7 +250,7 @@ export default function Board() {
   };
 
   const confirmTaskDelete = async () => {
-    if (!isConnected || !callTool || !deleteDialog.taskId) {
+    if (!isConnected || !callToolWithEvent || !deleteDialog.taskId) {
       console.log('MCP not connected or no task ID, skipping delete');
       setDeleteDialog({ isOpen: false, taskId: null, taskTitle: '' });
       return;
@@ -246,7 +260,8 @@ export default function Board() {
       const deleteTool = tools.find(tool => tool.name === 'delete_task');
       
       if (deleteTool) {
-        const result = await callTool('delete_task', {
+        // Use callToolWithEvent to trigger events after successful deletion
+        const result = await callToolWithEvent('delete_task', {
           task_id: deleteDialog.taskId
         });
         
@@ -255,8 +270,7 @@ export default function Board() {
         // Remove task from local state immediately for better UX
         setTasks(prevTasks => prevTasks.filter(task => task.id !== deleteDialog.taskId));
         
-        // Refresh tasks from server to ensure consistency
-        await fetchTasks();
+        // No need to manually refresh - the event system will handle it
       } else {
         console.log('Delete tool not available');
         setError('Delete functionality is not available');
@@ -300,6 +314,7 @@ export default function Board() {
     console.log('Task created/updated successfully:', task);
     setShowAddTaskForm(false);
     setEditingTaskId(null);
+    // No need to manually refresh - the event system will handle it
   };
 
   const handleProjectSuccess = async (project: Project) => {
@@ -307,10 +322,9 @@ export default function Board() {
     setShowCreateProjectForm(false);
     setEditingProjectId(null);
     setError(null);
-    // Refresh projects
-    await fetchProjects();
     // Trigger sidebar refresh
     setSidebarRefreshTrigger(prev => prev + 1);
+    // No need to manually refresh - the event system will handle it
   };
 
   const handleProjectCancel = () => {
@@ -332,7 +346,7 @@ export default function Board() {
   };
 
   const handleProjectDelete = async (projectId: number, projectTitle: string) => {
-    if (!isConnected || !callTool) {
+    if (!isConnected || !callToolWithEvent) {
       console.log('MCP not connected, skipping project delete');
       return;
     }
@@ -341,7 +355,8 @@ export default function Board() {
       const deleteTool = tools.find(tool => tool.name === 'delete_task');
       
       if (deleteTool) {
-        const result = await callTool('delete_task', {
+        // Use callToolWithEvent to trigger events after successful deletion
+        const result = await callToolWithEvent('delete_task', {
           task_id: projectId
         });
         
@@ -356,10 +371,10 @@ export default function Board() {
           await handleProjectSelect(null);
         }
         
-        // Refresh projects
-        await fetchProjects();
         // Trigger sidebar refresh
         setSidebarRefreshTrigger(prev => prev + 1);
+        
+        // No need to manually refresh - the event system will handle it
       } else {
         console.log('Delete tool not available');
         setError('Delete functionality is not available');

@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { Project } from '@/types/project';
 import { useMCP } from './MCPContext';
 import { projectStorageService } from '@/services/projectStorageService';
+import { useChangeEvents } from '@/hooks/useChangeEvents';
 
 interface ProjectContextType {
   projects: Project[];
@@ -36,6 +37,19 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
   const [isLoadingProjects, setIsLoadingProjects] = useState(false);
   const [projectError, setProjectError] = useState<string | null>(null);
   const [isOfflineMode, setIsOfflineMode] = useState(false);
+  
+  // Set up change event listeners for real-time updates
+  const { callToolWithEvent } = useChangeEvents({
+    onProjectChanged: () => {
+      console.log('Project changed event received in ProjectContext, refreshing projects');
+      fetchProjects();
+    },
+    onTaskChanged: () => {
+      // Tasks can be projects in our system, so refresh on task changes too
+      console.log('Task changed event received in ProjectContext, refreshing projects');
+      fetchProjects();
+    }
+  });
 
   // Fetch projects from MCP tools
   const fetchProjects = async () => {
@@ -91,13 +105,14 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
 
   // Create a new project
   const createProject = async (projectData: { name: string; description?: string; color?: string }): Promise<Project | null> => {
-    if (!isConnected || !callTool) {
+    if (!isConnected || !callToolWithEvent) {
       setProjectError('MCP not connected');
       return null;
     }
 
     try {
-      const result = await callTool('create_project', {
+      // Use callToolWithEvent to trigger events after successful creation
+      const result = await callToolWithEvent('create_project', {
         Title: projectData.name,
         Description: projectData.description
       });
@@ -109,8 +124,7 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
           // Parse JSON response to get the actual project ID
           const jsonResponse = JSON.parse(responseText);
           
-          // Refresh projects list to get the new project
-          await fetchProjects();
+          // No need to manually refresh - the event system will handle it
           
           // Return project object with real ID from response
           return {
@@ -125,8 +139,7 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
           };
         } catch (parseError) {
           console.error('Error parsing create_project response:', parseError);
-          // Fallback to refresh and return mock object
-          await fetchProjects();
+          // No need to manually refresh - the event system will handle it
           
           return {
             id: Date.now(),
@@ -150,7 +163,7 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
 
   // Update an existing project
   const updateProject = async (projectId: number, updates: { name?: string; description?: string; color?: string }): Promise<boolean> => {
-    if (!isConnected || !callTool) {
+    if (!isConnected || !callToolWithEvent) {
       setProjectError('MCP not connected');
       return false;
     }
@@ -163,22 +176,21 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
       if (updates.description) updateData.Description = updates.description;
       // Note: color is not supported in the new template-based system
       
-      const result = await callTool('update_project', updateData);
+      // Use callToolWithEvent to trigger events after successful update
+      const result = await callToolWithEvent('update_project', updateData);
 
       if (result && result.content && result.content[0]) {
         try {
           const jsonResponse = JSON.parse(result.content[0].text);
           if (jsonResponse.success) {
-            // Refresh projects list to get updated data
-            await fetchProjects();
+            // No need to manually refresh - the event system will handle it
             return true;
           }
         } catch (parseError) {
           console.error('Error parsing update_project response:', parseError);
         }
         
-        // Refresh projects list anyway in case of parsing issues
-        await fetchProjects();
+        // No need to manually refresh - the event system will handle it
         return true;
       }
     } catch (err) {
@@ -191,13 +203,14 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
 
   // Delete a project
   const deleteProject = async (projectId: number): Promise<boolean> => {
-    if (!isConnected || !callTool) {
+    if (!isConnected || !callToolWithEvent) {
       setProjectError('MCP not connected');
       return false;
     }
 
     try {
-      const result = await callTool('delete_project', {
+      // Use callToolWithEvent to trigger events after successful deletion
+      const result = await callToolWithEvent('delete_project', {
         project_id: projectId
       });
 
@@ -210,20 +223,19 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
               setSelectedProjectId(null);
             }
             
-            // Refresh projects list
-            await fetchProjects();
+            // No need to manually refresh - the event system will handle it
             return true;
           }
         } catch (parseError) {
           console.error('Error parsing delete_project response:', parseError);
         }
         
-        // If parsing fails, assume success and refresh anyway
+        // If parsing fails, assume success
         if (selectedProjectId === projectId) {
           setSelectedProjectId(null);
         }
         
-        await fetchProjects();
+        // No need to manually refresh - the event system will handle it
         return true;
       }
     } catch (err) {
@@ -239,14 +251,15 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
     // Always update local state first for immediate UI feedback
     setSelectedProjectId(projectId);
     
-    if (!isConnected || !callTool) {
+    if (!isConnected || !callToolWithEvent) {
       // In offline mode, just update local state
       setProjectError(null); // Clear any previous errors
       return false; // Return false to indicate MCP sync failed but local update succeeded
     }
 
     try {
-      const result = await callTool('select_project', {
+      // Use callToolWithEvent to trigger events after successful selection
+      const result = await callToolWithEvent('select_project', {
         project_id: projectId
       });
 

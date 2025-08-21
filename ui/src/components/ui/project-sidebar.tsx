@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Plus, Folder, FolderOpen, Edit2 } from 'lucide-react';
 import { Project } from '@/types/project';
 import { useMCP } from '@/contexts/MCPContext';
+import { useChangeEvents } from '@/hooks/useChangeEvents';
 
 interface ProjectSidebarProps {
   isCollapsed: boolean;
@@ -24,6 +25,19 @@ export function ProjectSidebar({
   const { callTool, isConnected, tools } = useMCP();
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Set up change event listeners for real-time updates
+  const { } = useChangeEvents({
+    onProjectChanged: () => {
+      console.log('Project changed event received in ProjectSidebar, refreshing projects');
+      fetchProjects();
+    },
+    onTaskChanged: () => {
+      // Tasks can be projects in our system, so refresh on task changes too
+      console.log('Task changed event received in ProjectSidebar, refreshing projects');
+      fetchProjects();
+    }
+  });
 
   // Fetch projects from MCP tools
   const fetchProjects = async () => {
@@ -89,9 +103,6 @@ export function ProjectSidebar({
     }
   }, [refreshTrigger, isConnected, tools]);
 
-  const getProjectColor = (color: string) => {
-    return `border-l border-l-[${color}]`;
-  };
 
   const handleProjectClick = (projectId: number) => {
     if (selectedProjectId === projectId) {

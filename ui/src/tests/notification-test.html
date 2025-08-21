@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MCP Notification Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        h1, h2 {
+            color: #333;
+        }
+        .container {
+            display: flex;
+            gap: 20px;
+        }
+        .panel {
+            flex: 1;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        .log-panel {
+            background-color: #f5f5f5;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+            height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        .log-entry {
+            margin: 5px 0;
+            padding: 5px;
+            border-bottom: 1px solid #eee;
+        }
+        .log-entry.event {
+            background-color: #e6f7ff;
+        }
+        .log-entry.error {
+            background-color: #fff1f0;
+            color: #f5222d;
+        }
+        .log-entry.success {
+            background-color: #f6ffed;
+            color: #52c41a;
+        }
+        button {
+            background-color: #1890ff;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        button:hover {
+            background-color: #40a9ff;
+        }
+        input, select {
+            padding: 8px;
+            border: 1px solid #d9d9d9;
+            border-radius: 4px;
+            margin-bottom: 10px;
+            width: 100%;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+    <h1>MCP Notification Test</h1>
+    
+    <div class="container">
+        <div class="panel">
+            <h2>Connection</h2>
+            <div class="form-group">
+                <label for="serverUrl">MCP Server URL:</label>
+                <input type="text" id="serverUrl" value="http://localhost:3000/mcp">
+            </div>
+            <button id="connectBtn">Connect</button>
+            <button id="disconnectBtn">Disconnect</button>
+            <div id="connectionStatus">Status: Disconnected</div>
+        </div>
+        
+        <div class="panel">
+            <h2>Task Operations</h2>
+            <div class="form-group">
+                <label for="taskId">Task ID:</label>
+                <input type="number" id="taskId" placeholder="Task ID for operations">
+            </div>
+            <div class="form-group">
+                <label for="taskTitle">Task Title:</label>
+                <input type="text" id="taskTitle" placeholder="New task title">
+            </div>
+            <button id="createTaskBtn">Create Task</button>
+            <button id="updateTaskBtn">Update Task</button>
+            <button id="deleteTaskBtn">Delete Task</button>
+        </div>
+        
+        <div class="panel">
+            <h2>Project Operations</h2>
+            <div class="form-group">
+                <label for="projectId">Project ID:</label>
+                <input type="number" id="projectId" placeholder="Project ID for operations">
+            </div>
+            <div class="form-group">
+                <label for="projectTitle">Project Title:</label>
+                <input type="text" id="projectTitle" placeholder="New project title">
+            </div>
+            <button id="createProjectBtn">Create Project</button>
+            <button id="updateProjectBtn">Update Project</button>
+            <button id="deleteProjectBtn">Delete Project</button>
+        </div>
+    </div>
+    
+    <h2>Event Log</h2>
+    <div class="log-panel" id="logPanel"></div>
+    
+    <script>
+        // Notification Service
+        class NotificationService {
+            constructor() {
+                this.eventSource = null;
+                this.serverUrl = '';
+                this.listeners = new Map();
+            }
+            
+            connect(serverUrl) {
+                this.disconnect();
+                this.serverUrl = serverUrl;
+                
+                const notificationUrl = new URL(serverUrl);
+                notificationUrl.pathname = '/notifications';
+                notificationUrl.searchParams.set('client', 'ui-notification-test');
+                
+                log(`Connecting to notification stream at ${notificationUrl.toString()}`);
+                
+                this.eventSource = new EventSource(notificationUrl.toString());
+                
+                this.eventSource.onopen = (event) => {
+                    log('Notification stream connected', 'success');
+                    updateConnectionStatus('Connected to notifications');
+                };
+                
+                this.eventSource.onerror = (event) => {
+                    log('Notification stream error', 'error');
+                    updateConnectionStatus('Notification connection error');
+                };
+                
+                this.eventSource.addEventListener('state_change', (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        log(`Received state_change: ${JSON.stringify(data)}`, 'event');
+                        
+                        if (data.key === 'data_changed') {
+                            const change = data.value;
+                            this.emit(`${change.object_type}_changed`, change);
+                            this.emit('data_changed', change);
+                        }
+                    } catch (error) {
+                        log(`Error parsing state_change: ${error}`, 'error');
+                    }
+                });
+                
+                this.eventSource.addEventListener('connected', (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        log(`Connected to notification server: ${JSON.stringify(data)}`, 'success');
+                    } catch (error) {
+                        log(`Error parsing connected event: ${error}`, 'error');
+                    }
+                });
+                
+                this.eventSource.addEventListener('ping', (event) => {
+                    log('Received server ping', 'event');
+                });
+            }
+            
+            disconnect() {
+                if (this.eventSource) {
+                    this.eventSource.close();
+                    this.eventSource = null;
+                    log('Disconnected from notification stream');
+                    updateConnectionStatus('Disconnected');
+                }
+            }
+            
+            on(event, callback) {
+                if (!this.listeners.has(event)) {
+                    this.listeners.set(event, []);
+                }
+                this.listeners.get(event).push(callback);
+            }
+            
+            off(event, callback) {
+                if (!this.listeners.has(event)) return;
+                
+                const callbacks = this.listeners.get(event);
+                const index = callbacks.indexOf(callback);
+                
+                if (index !== -1) {
+                    callbacks.splice(index, 1);
+                }
+            }
+            
+            emit(event, data) {
+                if (!this.listeners.has(event)) return;
+                
+                for (const callback of this.listeners.get(event)) {
+                    try {
+                        callback(data);
+                    } catch (error) {
+                        log(`Error in event listener for ${event}: ${error}`, 'error');
+                    }
+                }
+            }
+        }
+        
+        // MCP Client
+        class MCPClient {
+            constructor() {
+                this.client = null;
+                this.serverUrl = '';
+            }
+            
+            async connect(serverUrl) {
+                this.serverUrl = serverUrl;
+                
+                try {
+                    log(`Connecting to MCP server at ${serverUrl}...`);
+                    updateConnectionStatus('Connecting...');
+                    
+                    const response = await fetch(`${serverUrl}/tools`, {
+                        method: 'GET',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP error ${response.status}`);
+                    }
+                    
+                    const data = await response.json();
+                    log(`Connected to MCP server. Available tools: ${data.tools.length}`, 'success');
+                    updateConnectionStatus('Connected');
+                    return true;
+                } catch (error) {
+                    log(`Connection error: ${error.message}`, 'error');
+                    updateConnectionStatus(`Connection failed: ${error.message}`);
+                    return false;
+                }
+            }
+            
+            async callTool(name, args) {
+                if (!this.serverUrl) {
+                    throw new Error('Not connected to MCP server');
+                }
+                
+                try {
+                    log(`Calling tool ${name} with args: ${JSON.stringify(args)}`);
+                    
+                    const response = await fetch(`${serverUrl}/tools/call`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            name,
+                            arguments: args,
+                        }),
+                    });
+                    
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        throw new Error(`HTTP error ${response.status}: ${errorText}`);
+                    }
+                    
+                    const result = await response.json();
+                    log(`Tool call result: ${JSON.stringify(result)}`, 'success');
+                    return result;
+                } catch (error) {
+                    log(`Tool call error: ${error.message}`, 'error');
+                    throw error;
+                }
+            }
+        }
+        
+        // Utility functions
+        function log(message, type = '') {
+            const logPanel = document.getElementById('logPanel');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logPanel.appendChild(entry);
+            logPanel.scrollTop = logPanel.scrollHeight;
+        }
+        
+        function updateConnectionStatus(status) {
+            document.getElementById('connectionStatus').textContent = `Status: ${status}`;
+        }
+        
+        // Initialize services
+        const notificationService = new NotificationService();
+        const mcpClient = new MCPClient();
+        let serverUrl = document.getElementById('serverUrl').value;
+        
+        // Set up event listeners
+        notificationService.on('task_changed', (data) => {
+            log(`Task changed event: ${JSON.stringify(data)}`, 'event');
+        });
+        
+        notificationService.on('project_changed', (data) => {
+            log(`Project changed event: ${JSON.stringify(data)}`, 'event');
+        });
+        
+        notificationService.on('data_changed', (data) => {
+            log(`Data changed event: ${JSON.stringify(data)}`, 'event');
+        });
+        
+        // DOM event listeners
+        document.getElementById('connectBtn').addEventListener('click', async () => {
+            serverUrl = document.getElementById('serverUrl').value;
+            const connected = await mcpClient.connect(serverUrl);
+            if (connected) {
+                notificationService.connect(serverUrl);
+            }
+        });
+        
+        document.getElementById('disconnectBtn').addEventListener('click', () => {
+            notificationService.disconnect();
+            updateConnectionStatus('Disconnected');
+        });
+        
+        document.getElementById('createTaskBtn').addEventListener('click', async () => {
+            try {
+                const title = document.getElementById('taskTitle').value;
+                if (!title) {
+                    log('Task title is required', 'error');
+                    return;
+                }
+                
+                await mcpClient.callTool('mcp0_create_task', {
+                    Title: title,
+                    Description: 'Task created from notification test',
+                });
+                
+                log(`Task "${title}" created successfully`, 'success');
+            } catch (error) {
+                log(`Failed to create task: ${error.message}`, 'error');
+            }
+        });
+        
+        document.getElementById('updateTaskBtn').addEventListener('click', async () => {
+            try {
+                const taskId = parseInt(document.getElementById('taskId').value);
+                const title = document.getElementById('taskTitle').value;
+                
+                if (!taskId) {
+                    log('Task ID is required', 'error');
+                    return;
+                }
+                
+                if (!title) {
+                    log('Task title is required', 'error');
+                    return;
+                }
+                
+                await mcpClient.callTool('mcp0_update_task', {
+                    task_id: taskId,
+                    Title: title,
+                });
+                
+                log(`Task ${taskId} updated successfully`, 'success');
+            } catch (error) {
+                log(`Failed to update task: ${error.message}`, 'error');
+            }
+        });
+        
+        document.getElementById('deleteTaskBtn').addEventListener('click', async () => {
+            try {
+                const taskId = parseInt(document.getElementById('taskId').value);
+                
+                if (!taskId) {
+                    log('Task ID is required', 'error');
+                    return;
+                }
+                
+                await mcpClient.callTool('mcp0_delete_task', {
+                    task_id: taskId,
+                });
+                
+                log(`Task ${taskId} deleted successfully`, 'success');
+            } catch (error) {
+                log(`Failed to delete task: ${error.message}`, 'error');
+            }
+        });
+        
+        document.getElementById('createProjectBtn').addEventListener('click', async () => {
+            try {
+                const title = document.getElementById('projectTitle').value;
+                
+                if (!title) {
+                    log('Project title is required', 'error');
+                    return;
+                }
+                
+                await mcpClient.callTool('mcp0_create_project', {
+                    Title: title,
+                    Description: 'Project created from notification test',
+                });
+                
+                log(`Project "${title}" created successfully`, 'success');
+            } catch (error) {
+                log(`Failed to create project: ${error.message}`, 'error');
+            }
+        });
+        
+        document.getElementById('updateProjectBtn').addEventListener('click', async () => {
+            try {
+                const projectId = parseInt(document.getElementById('projectId').value);
+                const title = document.getElementById('projectTitle').value;
+                
+                if (!projectId) {
+                    log('Project ID is required', 'error');
+                    return;
+                }
+                
+                if (!title) {
+                    log('Project title is required', 'error');
+                    return;
+                }
+                
+                await mcpClient.callTool('mcp0_update_project', {
+                    project_id: projectId,
+                    Title: title,
+                });
+                
+                log(`Project ${projectId} updated successfully`, 'success');
+            } catch (error) {
+                log(`Failed to update project: ${error.message}`, 'error');
+            }
+        });
+        
+        document.getElementById('deleteProjectBtn').addEventListener('click', async () => {
+            try {
+                const projectId = parseInt(document.getElementById('projectId').value);
+                
+                if (!projectId) {
+                    log('Project ID is required', 'error');
+                    return;
+                }
+                
+                await mcpClient.callTool('mcp0_delete_project', {
+                    project_id: projectId,
+                });
+                
+                log(`Project ${projectId} deleted successfully`, 'success');
+            } catch (error) {
+                log(`Failed to delete project: ${error.message}`, 'error');
+            }
+        });
+    </script>
+</body>
+</html>

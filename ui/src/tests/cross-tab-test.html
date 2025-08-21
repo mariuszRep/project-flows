@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cross-Tab Event Test</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      line-height: 1.6;
+    }
+    h1 {
+      color: #333;
+      border-bottom: 1px solid #eee;
+      padding-bottom: 10px;
+    }
+    .card {
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 15px;
+      margin-bottom: 20px;
+      background-color: #f9f9f9;
+    }
+    button {
+      background-color: #4CAF50;
+      border: none;
+      color: white;
+      padding: 10px 15px;
+      text-align: center;
+      text-decoration: none;
+      display: inline-block;
+      font-size: 16px;
+      margin: 4px 2px;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    button:hover {
+      background-color: #45a049;
+    }
+    #eventLog {
+      height: 200px;
+      overflow-y: auto;
+      border: 1px solid #ddd;
+      padding: 10px;
+      background-color: #fff;
+      margin-top: 20px;
+    }
+    .event {
+      margin-bottom: 5px;
+      padding: 5px;
+      border-bottom: 1px solid #eee;
+    }
+    .event-task {
+      color: #2196F3;
+    }
+    .event-project {
+      color: #FF9800;
+    }
+    .event-data {
+      color: #9C27B0;
+    }
+  </style>
+</head>
+<body>
+  <h1>Cross-Tab Event Test</h1>
+  
+  <div class="card">
+    <h2>Tab ID: <span id="tabId"></span></h2>
+    <p>Open this page in multiple tabs to test cross-tab communication.</p>
+  </div>
+  
+  <div class="card">
+    <h2>Send Events</h2>
+    <button id="sendTaskEvent">Send Task Changed Event</button>
+    <button id="sendProjectEvent">Send Project Changed Event</button>
+    <button id="sendDataEvent">Send Data Changed Event</button>
+  </div>
+  
+  <div class="card">
+    <h2>Event Log</h2>
+    <div id="eventLog"></div>
+  </div>
+
+  <script>
+    // Generate a unique ID for this tab
+    const tabId = Math.random().toString(36).substring(2, 10);
+    document.getElementById('tabId').textContent = tabId;
+    
+    // Initialize BroadcastChannel
+    const channel = new BroadcastChannel('task_updates');
+    
+    // Log function
+    function logEvent(message, type) {
+      const eventLog = document.getElementById('eventLog');
+      const event = document.createElement('div');
+      event.className = `event event-${type || 'info'}`;
+      
+      const timestamp = new Date().toLocaleTimeString();
+      event.textContent = `[${timestamp}] ${message}`;
+      
+      eventLog.appendChild(event);
+      eventLog.scrollTop = eventLog.scrollHeight;
+    }
+    
+    // Listen for events
+    channel.addEventListener('message', (event) => {
+      const { type, source } = event.data;
+      logEvent(`Received ${type} event from tab ${source}`, type.split('_')[0]);
+    });
+    
+    // Send event function
+    function sendEvent(type) {
+      const eventData = {
+        type,
+        source: tabId,
+        timestamp: Date.now()
+      };
+      
+      channel.postMessage(eventData);
+      logEvent(`Sent ${type} event from this tab`, type.split('_')[0]);
+    }
+    
+    // Button event listeners
+    document.getElementById('sendTaskEvent').addEventListener('click', () => {
+      sendEvent('task_changed');
+    });
+    
+    document.getElementById('sendProjectEvent').addEventListener('click', () => {
+      sendEvent('project_changed');
+    });
+    
+    document.getElementById('sendDataEvent').addEventListener('click', () => {
+      sendEvent('data_changed');
+    });
+    
+    // Log when page loads
+    logEvent(`Tab ${tabId} initialized`);
+  </script>
+</body>
+</html>

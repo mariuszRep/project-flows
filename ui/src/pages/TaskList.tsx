@@ -10,6 +10,7 @@ import { useMCP } from '@/contexts/MCPContext';
 import { useProject } from '@/contexts/ProjectContext';
 import { Task, TaskStage } from '@/types/task';
 import { Project } from '@/types/project';
+import { useChangeEvents } from '@/hooks/useChangeEvents';
 import { MCPDisconnectedState } from '@/components/ui/empty-state';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { ProjectSidebar } from '@/components/ui/project-sidebar';
@@ -182,6 +183,19 @@ const DraftTasks = () => {
     }
   };
 
+  // Set up change event listeners for real-time updates
+  const { callToolWithEvent } = useChangeEvents({
+    onTaskChanged: () => {
+      console.log('Task changed event received, refreshing tasks');
+      fetchAllTasks();
+    },
+    onProjectChanged: () => {
+      console.log('Project changed event received, refreshing tasks');
+      fetchAllTasks();
+    }
+  });
+
+  // Initial fetch when component mounts or dependencies change
   useEffect(() => {
     fetchAllTasks();
   }, [isConnected, tools, selectedProjectId]);
@@ -247,7 +261,7 @@ const DraftTasks = () => {
   };
 
   const confirmTaskDelete = async () => {
-    if (!isConnected || !callTool || !deleteDialog.taskId) {
+    if (!isConnected || !callToolWithEvent || !deleteDialog.taskId) {
       console.log('MCP not connected or no task ID, skipping delete');
       setDeleteDialog({ isOpen: false, taskId: null, taskTitle: '' });
       return;
@@ -257,7 +271,8 @@ const DraftTasks = () => {
       const deleteTool = tools.find(tool => tool.name === 'delete_task');
       
       if (deleteTool) {
-        const result = await callTool('delete_task', {
+        // Use callToolWithEvent to trigger events after successful deletion
+        const result = await callToolWithEvent('delete_task', {
           task_id: deleteDialog.taskId
         });
         
@@ -271,8 +286,7 @@ const DraftTasks = () => {
           setEditingTaskId(null);
         }
         
-        // Refresh tasks from server to ensure consistency
-        await fetchAllTasks();
+        // No need to manually refresh - the event system will handle it
       } else {
         console.log('Delete tool not available');
         setError('Delete functionality is not available');
@@ -294,10 +308,10 @@ const DraftTasks = () => {
   const handleMoveTask = async (taskId: number, newStage: TaskStage) => {
     try {
       const updateTaskTool = tools.find(tool => tool.name === 'update_task');
-      if (updateTaskTool && isConnected && callTool) {
-        await callTool('update_task', { task_id: taskId, stage: newStage });
-        // Refresh the tasks list
-        await fetchAllTasks();
+      if (updateTaskTool && isConnected && callToolWithEvent) {
+        // Use callToolWithEvent to trigger events after successful update
+        await callToolWithEvent('update_task', { task_id: taskId, stage: newStage });
+        // No need to manually refresh - the event system will handle it
       }
     } catch (err) {
       console.error('Error moving task:', err);
@@ -382,7 +396,7 @@ const DraftTasks = () => {
   };
 
   const handleProjectDelete = async (projectId: number, projectTitle: string) => {
-    if (!isConnected || !callTool) {
+    if (!isConnected || !callToolWithEvent) {
       console.log('MCP not connected, skipping project delete');
       return;
     }
@@ -391,7 +405,8 @@ const DraftTasks = () => {
       const deleteTool = tools.find(tool => tool.name === 'delete_task');
       
       if (deleteTool) {
-        const result = await callTool('delete_task', {
+        // Use callToolWithEvent to trigger events after successful deletion
+        const result = await callToolWithEvent('delete_task', {
           task_id: projectId
         });
         
@@ -406,13 +421,10 @@ const DraftTasks = () => {
           await handleProjectSelect(null);
         }
         
-        // Refresh projects
-        await fetchProjects();
         // Trigger sidebar refresh
         setSidebarRefreshTrigger(prev => prev + 1);
         
-        // Refresh tasks since project deletion might affect task display
-        await fetchAllTasks();
+        // No need to manually refresh - the event system will handle it
       } else {
         console.log('Delete tool not available');
         setError('Delete functionality is not available');
