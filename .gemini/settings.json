@@ -1,0 +1,7 @@
+{
+    "mcpServers": {
+      "project-flows": {
+        "url": "http://localhost:3001/sse?clientId=gemini-cli"
+      }
+    }
+}

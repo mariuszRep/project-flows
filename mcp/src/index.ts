@@ -11,6 +11,7 @@ import DatabaseService from "./database.js";
 import { createExpressApp } from "./server/express-server.js";
 import { ConnectionManager } from "./server/connection-manager.js";
 import { createMcpServer } from "./mcp/server-factory.js";
+import { createNotificationHandler } from "./server/notification-handler.js";
 
 // Initialize shared database service for all connections
 const sharedDbService = new DatabaseService();
@@ -34,6 +35,12 @@ app.get("/sse", async (req: any, res: any) => {
 // POST endpoint for MCP messages
 app.post("/messages", async (req: any, res: any) => {
   await connectionManager.handlePostMessage(req, res);
+});
+
+// SSE endpoint for notifications only (separate from MCP)
+const notificationHandler = createNotificationHandler();
+app.get("/notifications", async (req: any, res: any) => {
+  await notificationHandler.handleConnection(req, res);
 });
 
 async function main() {
