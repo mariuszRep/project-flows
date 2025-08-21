@@ -36,5 +36,8 @@ Thumbs.db
 # Claude-specific
 .claude/
 
+# Gemini-specific
+.gemini/
+
 # Windsurf-specific
 .windsurf/
