@@ -3,6 +3,8 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { connectionService, ConnectionState, ConnectionProgress } from '../services/connectionService';
 import { useConnectionPersistence } from '../hooks/useConnectionPersistence';
+import { changeEventService } from '../services/changeEventService';
+import { notificationService } from '../services/notificationService';
 
 interface Tool {
   name: string;
@@ -139,6 +141,19 @@ export const MCPProvider: React.FC<MCPProviderProps> = ({ children }) => {
 
     try {
       const result = await state.client.callTool({ name, arguments: args });
+      
+      // Emit appropriate events based on the tool called for direct MCP tool calls
+      // This ensures that even direct MCP tool calls (not through useChangeEvents) trigger UI updates
+      if (name.includes('task') && (name.includes('create') || name.includes('update') || name.includes('delete'))) {
+        console.log('MCP task operation completed, emitting task_changed event');
+        changeEventService.emit('task_changed');
+        changeEventService.emit('data_changed');
+      } else if (name.includes('project') && (name.includes('create') || name.includes('update') || name.includes('delete'))) {
+        console.log('MCP project operation completed, emitting project_changed event');
+        changeEventService.emit('project_changed');
+        changeEventService.emit('data_changed');
+      }
+      
       return result;
     } catch (error) {
       console.error('Tool call failed:', error);
@@ -153,6 +168,22 @@ export const MCPProvider: React.FC<MCPProviderProps> = ({ children }) => {
       connect();
     }
   }, [settings.autoConnect, state.isConnected, state.connectionState, connect]);
+  
+  // Connect to notification service when MCP client is connected
+  useEffect(() => {
+    if (!state.isConnected || !settings.serverUrl) return;
+    
+    // Extract base URL from MCP server URL (remove /sse endpoint)
+    const baseServerUrl = settings.serverUrl.replace(/\/sse$/, '');
+    
+    // Connect to notification service
+    notificationService.connect(baseServerUrl);
+    
+    // Cleanup function
+    return () => {
+      notificationService.disconnect();
+    };
+  }, [state.isConnected, settings.serverUrl]);
 
   // Cleanup on unmount
   useEffect(() => {
