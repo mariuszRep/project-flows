@@ -597,8 +597,8 @@ export class TaskTools {
       return false;
     }
 
-    // Find all checkbox patterns: [ ] or [x] (case insensitive)
-    const checkboxPattern = /\[[\s\-\.]?\]|\[[xX]\]/g;
+    // Find all checkbox patterns: - [ ] or - [x] (case insensitive)
+    const checkboxPattern = /- \[ \]|- \[[xX]\]/g;
     const checkboxes = itemsContent.match(checkboxPattern);
     
     if (!checkboxes || checkboxes.length === 0) {
@@ -607,7 +607,7 @@ export class TaskTools {
     }
 
     // Check if all checkboxes are completed (marked with x or X)
-    const completedPattern = /\[[xX]\]/;
+    const completedPattern = /- \[[xX]\]/;
     return checkboxes.every(checkbox => completedPattern.test(checkbox));
   }
 
