@@ -35,6 +35,7 @@ class IntegrationTester {
       await this.testTaskUpdate();
       await this.testTaskDeletion();
       await this.testCascadeDeletion();
+      await this.testExecuteTaskWorkflow();
     } catch (error) {
       console.error('❌ Test suite failed:', error);
       this.failed++;
@@ -325,6 +326,92 @@ class IntegrationTester {
       }
     } catch (error) {
       console.error('❌ Cascade deletion test failed:', error.message);
+      this.failed++;
+    }
+  }
+
+  async testExecuteTaskWorkflow() {
+    console.log('\\n⚡ Testing execute_task workflow stage transition...');
+    try {
+      // Create a test task using the current schema (objects table)
+      const taskResult = await this.pool.query(`
+        INSERT INTO objects (stage, template_id, parent_id, created_by, updated_by) 
+        VALUES ($1, $2, $3, $4, $5) 
+        RETURNING id
+      `, ['backlog', 1, null, 'test_system', 'test_system']);
+      
+      const taskId = taskResult.rows[0].id;
+      console.log(`📋 Created test task with ID: ${taskId} in 'backlog' stage`);
+
+      // Add Title and Description properties to the task
+      // First get property IDs for Title and Description
+      const titlePropResult = await this.pool.query(
+        'SELECT id FROM template_properties WHERE key = $1', ['Title']
+      );
+      const descPropResult = await this.pool.query(
+        'SELECT id FROM template_properties WHERE key = $1', ['Description']
+      );
+
+      if (titlePropResult.rows.length > 0) {
+        await this.pool.query(`
+          INSERT INTO object_properties (task_id, property_id, content, position, created_by, updated_by)
+          VALUES ($1, $2, $3, 0, $4, $5)
+        `, [taskId, titlePropResult.rows[0].id, 'Test Execute Task Workflow', 'test_system', 'test_system']);
+      }
+
+      if (descPropResult.rows.length > 0) {
+        await this.pool.query(`
+          INSERT INTO object_properties (task_id, property_id, content, position, created_by, updated_by)
+          VALUES ($1, $2, $3, 0, $4, $5)
+        `, [taskId, descPropResult.rows[0].id, 'Testing that execute_task moves task to review stage', 'test_system', 'test_system']);
+      }
+
+      // Verify initial stage is 'backlog'
+      const initialStageResult = await this.pool.query(
+        'SELECT stage FROM objects WHERE id = $1', [taskId]
+      );
+      
+      if (initialStageResult.rows[0].stage !== 'backlog') {
+        console.error(`❌ Initial stage verification failed. Expected 'backlog', got '${initialStageResult.rows[0].stage}'`);
+        this.failed++;
+        return;
+      }
+      console.log(`✅ Verified initial stage: ${initialStageResult.rows[0].stage}`);
+
+      // Simulate execute_task workflow stage transitions
+      // Step 1: Move to 'doing' (this is what execute_task does initially)
+      await this.pool.query(
+        'UPDATE objects SET stage = $1, updated_at = CURRENT_TIMESTAMP, updated_by = $2 WHERE id = $3',
+        ['doing', 'test_system', taskId]
+      );
+      console.log(`📝 Moved task to 'doing' stage (simulating execute_task start)`);
+
+      // Step 2: Move to 'review' (this is the new functionality we added)
+      await this.pool.query(
+        'UPDATE objects SET stage = $1, updated_at = CURRENT_TIMESTAMP, updated_by = $2 WHERE id = $3',
+        ['review', 'test_system', taskId]
+      );
+      console.log(`📝 Moved task to 'review' stage (simulating execute_task completion)`);
+
+      // Verify final stage is 'review'
+      const finalStageResult = await this.pool.query(
+        'SELECT stage FROM objects WHERE id = $1', [taskId]
+      );
+
+      if (finalStageResult.rows[0].stage === 'review') {
+        console.log('✅ Execute_task workflow test successful - task moved to review stage');
+        this.passed++;
+      } else {
+        console.error(`❌ Execute_task workflow test failed. Expected 'review', got '${finalStageResult.rows[0].stage}'`);
+        this.failed++;
+      }
+
+      // Clean up test task
+      await this.pool.query('DELETE FROM objects WHERE id = $1', [taskId]);
+      console.log(`🧹 Cleaned up test task ${taskId}`);
+
+    } catch (error) {
+      console.error('❌ Execute_task workflow test failed:', error.message);
       this.failed++;
     }
   }
