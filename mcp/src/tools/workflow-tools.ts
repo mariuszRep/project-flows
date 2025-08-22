@@ -122,15 +122,6 @@ export class WorkflowTools {
     // Step 5: Generate execution context for implementation
     const executionContext = this.generateExecutionContext(taskContext, projectContext);
 
-    // Step 6: Move task to 'review' stage as final step of execution
-    try {
-      await this.taskTools.handle('update_task', { task_id: taskId, stage: 'review' });
-      console.log(`Task ${taskId} moved to 'review' stage - execution complete`);
-    } catch (error) {
-      console.error('Error updating task status to review:', error);
-      // Don't fail the entire operation - log the error but continue
-    }
-
     return {
       content: [
         {
