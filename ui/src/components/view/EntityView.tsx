@@ -9,8 +9,9 @@ import {
   DropdownMenuItem, 
   DropdownMenuTrigger 
 } from '@/components/ui/dropdown-menu';
-import { X, Edit, Calendar, MoreHorizontal, ArrowRight, Trash2 } from 'lucide-react';
+import { X, Edit, Calendar, MoreHorizontal, ArrowRight, Trash2, Copy } from 'lucide-react';
 import { useMCP } from '@/contexts/MCPContext';
+import { useToast } from '@/hooks/use-toast';
 
 /**
  * Props interface for EntityView component
@@ -112,6 +113,7 @@ const EntityView: React.FC<EntityViewProps> = ({
   onDelete
 }) => {
   const { callTool, isConnected } = useMCP();
+  const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [entity, setEntity] = useState<Entity | null>(null);
@@ -288,6 +290,43 @@ const EntityView: React.FC<EntityViewProps> = ({
     }
   };
 
+  const handleCopyExecuteCommand = async () => {
+    const command = `execute task ${entityId}`;
+    
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(command);
+        toast({
+          title: "Copied!",
+          description: `"${command}" copied to clipboard`,
+        });
+      } else {
+        // Fallback for browsers without clipboard API
+        const textArea = document.createElement('textarea');
+        textArea.value = command;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand('copy');
+        textArea.remove();
+        toast({
+          title: "Copied!",
+          description: `"${command}" copied to clipboard`,
+        });
+      }
+    } catch (err) {
+      console.error('Failed to copy to clipboard:', err);
+      toast({
+        title: "Copy failed",
+        description: "Failed to copy to clipboard",
+        variant: "destructive",
+      });
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 overflow-y-auto p-4">
       <Card className="w-full max-w-3xl mx-auto">
@@ -299,6 +338,17 @@ const EntityView: React.FC<EntityViewProps> = ({
             <Button variant="outline" size="icon" onClick={onEdit}>
               <Edit className="h-4 w-4" />
             </Button>
+            {entityType === 'task' && (
+              <Button 
+                variant="outline" 
+                size="icon" 
+                onClick={handleCopyExecuteCommand}
+                title="Copy execute task command"
+                aria-label="Copy execute task command"
+              >
+                <Copy className="h-4 w-4" />
+              </Button>
+            )}
             {(onTaskUpdate || onDelete) && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
