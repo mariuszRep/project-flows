@@ -112,8 +112,8 @@ export default function Board() {
                   body: taskData.description || taskData.Description || taskData.Summary || '',
                   stage: taskData.stage as 'draft' | 'backlog' | 'doing' | 'review' | 'completed',
                   project_id: taskData.parent_id || taskData.project_id,
-                  created_at: taskData.created_at || new Date().toISOString(),
-                  updated_at: taskData.updated_at || new Date().toISOString(),
+                  created_at: taskData.created_at || null,
+                  updated_at: taskData.updated_at || null,
                   created_by: taskData.created_by || 'user@example.com',
                   updated_by: taskData.updated_by || 'user@example.com',
                   // Store original block-based properties for compatibility

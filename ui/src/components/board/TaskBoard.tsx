@@ -3,6 +3,7 @@ import { DragDropContext, Droppable, DropResult } from 'react-beautiful-dnd';
 import { TaskColumn } from './TaskColumn';
 import { Task, TaskStage } from '@/types/task';
 import { Project } from '@/types/project';
+import { parseTaskDate } from '@/lib/utils';
 
 interface TaskBoardProps {
   tasks: Task[];
@@ -29,7 +30,27 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({
   ];
 
   const getTasksByStage = (stage: TaskStage) => {
-    return tasks.filter(task => task.stage === stage);
+    return tasks
+      .filter(task => task.stage === stage)
+      .sort((a, b) => {
+        // Try to use timestamps first, but fall back to ID if timestamps are missing or invalid
+        const aHasValidTime = a.updated_at || a.created_at;
+        const bHasValidTime = b.updated_at || b.created_at;
+        
+        if (aHasValidTime && bHasValidTime) {
+          // Both have timestamps - sort by date
+          const dateA = parseTaskDate(a.updated_at || a.created_at);
+          const dateB = parseTaskDate(b.updated_at || b.created_at);
+          
+          // If dates are not epoch (meaning they were parsed successfully), use them
+          if (dateA.getTime() !== 0 && dateB.getTime() !== 0) {
+            return dateB.getTime() - dateA.getTime();
+          }
+        }
+        
+        // Fall back to ID-based sorting (higher ID = more recent)
+        return b.id - a.id;
+      });
   };
 
   const handleDragEnd = async (result: DropResult) => {
