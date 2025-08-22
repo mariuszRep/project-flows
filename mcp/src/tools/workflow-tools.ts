@@ -122,14 +122,13 @@ export class WorkflowTools {
     // Step 5: Generate execution context for implementation
     const executionContext = this.generateExecutionContext(taskContext, projectContext);
 
-    // Step 6: Update task status to 'review' after successful execution context generation
+    // Step 6: Move task to 'review' stage as final step of execution
     try {
       await this.taskTools.handle('update_task', { task_id: taskId, stage: 'review' });
-      console.log(`Task ${taskId} status updated to 'review' after successful execution`);
+      console.log(`Task ${taskId} moved to 'review' stage - execution complete`);
     } catch (error) {
       console.error('Error updating task status to review:', error);
       // Don't fail the entire operation - log the error but continue
-      // The execution context is still valid even if stage update fails
     }
 
     return {
@@ -204,8 +203,8 @@ export class WorkflowTools {
         "1. When all implementation steps are complete:",
         "2. Update all remaining checkboxes to [x] in the Items section", 
         "3. Use update_task tool to save final progress",
-        "4. Task status has been automatically updated to 'review'",
-        "5. Task is now ready for code review and testing"
+        "4. The system will automatically detect completion and move task to 'review'",
+        "5. Task will then be ready for code review and testing"
       ],
       next_steps: "All context loaded. Begin planning and implementation now."
     };
