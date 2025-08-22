@@ -25,17 +25,33 @@ export class WorkflowTools {
           required: ["task_id"],
         },
       } as Tool,
+      {
+        name: "initiate_project",
+        description: "Analyze a project's full context and dynamically create appropriate tasks based on the analysis. This tool intelligently breaks down projects into actionable tasks without hardcoded assumptions.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_id: {
+              type: "number",
+              description: "The numeric ID of the project to analyze and create tasks for"
+            }
+          },
+          required: ["project_id"],
+        },
+      } as Tool,
     ];
   }
 
   canHandle(toolName: string): boolean {
-    return ["execute_task"].includes(toolName);
+    return ["execute_task", "initiate_project"].includes(toolName);
   }
 
   async handle(name: string, toolArgs?: Record<string, any>) {
     switch (name) {
       case "execute_task":
         return await this.handleExecuteTask(toolArgs);
+      case "initiate_project":
+        return await this.handleInitiateProject(toolArgs);
       default:
         throw new Error(`Unknown workflow tool: ${name}`);
     }
@@ -184,6 +200,285 @@ export class WorkflowTools {
         ],
       };
     }
+  }
+
+  private async handleInitiateProject(toolArgs?: Record<string, any>) {
+    const projectId = toolArgs?.project_id;
+    
+    // Validate project ID
+    if (!projectId || typeof projectId !== 'number' || projectId < 1) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: "Error: Valid numeric project_id is required for project initiation.",
+          } as TextContent,
+        ],
+      };
+    }
+
+    try {
+      console.log(`🚀 Starting project initiation workflow for project ${projectId}`);
+      
+      // Step 1: Load project context using get_project tool
+      const projectResponse = await this.projectTools.handle('get_project', { project_id: projectId });
+      const projectContextText = projectResponse.content[0].text;
+      
+      let projectContext;
+      try {
+        projectContext = JSON.parse(projectContextText);
+        console.log(`📁 Retrieved project: "${projectContext.blocks?.Title || 'Untitled'}"`);
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: Failed to parse project context: ${error}`,
+            } as TextContent,
+          ],
+        };
+      }
+
+      // Step 2: Check for existing tasks to avoid duplicates
+      let existingTasks = [];
+      try {
+        const tasksResponse = await this.taskTools.handle('list_tasks', { project_id: projectId });
+        const tasksText = tasksResponse.content[0].text;
+        const tasksData = JSON.parse(tasksText);
+        existingTasks = tasksData.tasks || [];
+        console.log(`📋 Found ${existingTasks.length} existing tasks for project ${projectId}`);
+      } catch (error) {
+        console.warn('Warning: Could not check existing tasks:', error);
+        // Continue without existing task data
+      }
+
+      // Step 3: Analyze project context holistically
+      const analysis = this.analyzeProjectContext(projectContext, existingTasks);
+      console.log(`🔍 Analysis complete: ${analysis.suggestedTasks.length} tasks recommended`);
+
+      // Step 4: Create tasks based on analysis
+      const createdTasks = [];
+      for (const taskSuggestion of analysis.suggestedTasks) {
+        try {
+          const createResponse = await this.taskTools.handle('create_task', {
+            Title: taskSuggestion.title,
+            Description: taskSuggestion.description,
+            parent_id: projectId
+          });
+          
+          const createText = createResponse.content[0].text;
+          
+          // Try to parse as JSON first (new format)
+          let createdTaskId = null;
+          try {
+            const jsonResponse = JSON.parse(createText);
+            if (jsonResponse.success && jsonResponse.task_id) {
+              createdTaskId = jsonResponse.task_id;
+            }
+          } catch {
+            // Fallback to old markdown format parsing
+            const taskMatch = createText.match(/\*\*Task ID:\*\* (\d+)/);
+            createdTaskId = taskMatch ? parseInt(taskMatch[1]) : null;
+          }
+          
+          createdTasks.push({
+            id: createdTaskId,
+            title: taskSuggestion.title,
+            rationale: taskSuggestion.rationale
+          });
+          
+          console.log(`✅ Created task ${createdTaskId}: "${taskSuggestion.title}"`);
+        } catch (error) {
+          console.error(`❌ Failed to create task "${taskSuggestion.title}":`, error);
+          createdTasks.push({
+            id: null,
+            title: taskSuggestion.title,
+            error: (error as Error).message
+          });
+        }
+      }
+
+      // Step 5: Return structured summary
+      const summary = {
+        project_id: projectId,
+        project_title: projectContext.blocks?.Title || 'Untitled Project',
+        analysis: {
+          context_analyzed: analysis.contextAnalyzed,
+          key_insights: analysis.keyInsights,
+          existing_tasks: existingTasks.length,
+          recommended_tasks: analysis.suggestedTasks.length
+        },
+        created_tasks: createdTasks,
+        success: true,
+        created_count: createdTasks.filter(task => task.id !== null).length,
+        failed_count: createdTasks.filter(task => task.id === null).length
+      };
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(summary, null, 2),
+          } as TextContent,
+        ],
+      };
+      
+    } catch (error) {
+      console.error(`❌ Project initiation failed for project ${projectId}:`, error);
+      
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              success: false,
+              project_id: projectId,
+              error: (error as Error).message || "Unknown error during project initiation"
+            }, null, 2),
+          } as TextContent,
+        ],
+      };
+    }
+  }
+
+  /**
+   * Analyze project context holistically without predefined categories
+   * Dynamically determines appropriate tasks based on project properties
+   */
+  private analyzeProjectContext(projectContext: any, existingTasks: any[]): { 
+    contextAnalyzed: string[],
+    keyInsights: string[],
+    suggestedTasks: Array<{ title: string, description: string, rationale: string }>
+  } {
+    const analysis = {
+      contextAnalyzed: [] as string[],
+      keyInsights: [] as string[],
+      suggestedTasks: [] as Array<{ title: string, description: string, rationale: string }>
+    };
+
+    const blocks = projectContext.blocks || {};
+    const existingTaskTitles = existingTasks.map(task => task.blocks?.Title || '').filter(Boolean);
+
+    // Analyze all available project properties dynamically
+    Object.keys(blocks).forEach(key => {
+      if (key !== 'Title' && blocks[key] && typeof blocks[key] === 'string' && blocks[key].trim()) {
+        analysis.contextAnalyzed.push(key);
+      }
+    });
+
+    // Extract key insights from project context
+    if (blocks.Description) {
+      analysis.keyInsights.push(`Core Purpose: ${blocks.Description.substring(0, 100)}${blocks.Description.length > 100 ? '...' : ''}`);
+    }
+
+    if (blocks.Stack) {
+      const stackMatch = blocks.Stack.match(/(React|Vue|Angular|Node|Express|Django|Flask|Rails|Laravel|Spring|\.NET)/gi);
+      if (stackMatch) {
+        analysis.keyInsights.push(`Technology Stack: ${stackMatch.slice(0, 3).join(', ')}`);
+      }
+    }
+
+    if (blocks.Features) {
+      const featureCount = blocks.Features.split(/[•\-\n]/).filter((line: string) => line.trim()).length;
+      analysis.keyInsights.push(`Feature Complexity: ${featureCount} main features identified`);
+    }
+
+    // Generate task suggestions based on project structure
+    const suggestions = this.generateTaskSuggestions(blocks, existingTaskTitles);
+    analysis.suggestedTasks = suggestions;
+
+    return analysis;
+  }
+
+  /**
+   * Generate task suggestions based on project blocks without hardcoded assumptions
+   */
+  private generateTaskSuggestions(
+    blocks: any, 
+    existingTaskTitles: string[]
+  ): Array<{ title: string, description: string, rationale: string }> {
+    const suggestions: Array<{ title: string, description: string, rationale: string }> = [];
+    
+    // Helper function to check if a task already exists
+    const taskExists = (title: string) => 
+      existingTaskTitles.some(existing => 
+        existing.toLowerCase().includes(title.toLowerCase()) || 
+        title.toLowerCase().includes(existing.toLowerCase())
+      );
+
+    // Environment Setup Tasks
+    if (blocks.Stack && !taskExists('Environment Setup')) {
+      suggestions.push({
+        title: 'Setup Development Environment',
+        description: `Problem: Development environment needs to be configured for the project.\nSolution: Set up development environment based on the specified technology stack.\nSuccess Criteria: (1) All dependencies installed and configured. (2) Development server running successfully. (3) Build process working.\nImpact: Enables development team to start implementation work.`,
+        rationale: 'Stack information provided indicates need for environment configuration'
+      });
+    }
+
+    // Project Structure Tasks
+    if (blocks.Structure && !taskExists('Project Structure')) {
+      suggestions.push({
+        title: 'Implement Project Structure',
+        description: `Problem: Project needs organized file and folder structure.\nSolution: Create the defined project structure with proper organization.\nSuccess Criteria: (1) All directories created as specified. (2) Initial files in place. (3) Structure follows best practices.\nImpact: Provides foundation for organized development.`,
+        rationale: 'Project structure is defined and needs implementation'
+      });
+    }
+
+    // Architecture Tasks
+    if (blocks.Architectural && !taskExists('Architecture')) {
+      suggestions.push({
+        title: 'Implement Core Architecture',
+        description: `Problem: Core application architecture needs implementation.\nSolution: Build the foundational architecture as specified in the architectural design.\nSuccess Criteria: (1) Architecture patterns implemented. (2) Core components functional. (3) Integration points established.\nImpact: Provides solid foundation for feature development.`,
+        rationale: 'Architectural design is specified and requires implementation'
+      });
+    }
+
+    // Feature Implementation Tasks
+    if (blocks.Features) {
+      const features = blocks.Features.split(/[•\-\n]/)
+        .map((f: string) => f.trim())
+        .filter((f: string) => f.length > 10); // Reasonable feature length
+      
+      features.slice(0, 3).forEach((feature: string) => {
+        const featureName = feature.substring(0, 50).replace(/[^\w\s]/g, '').trim();
+        if (featureName && !taskExists(featureName)) {
+          suggestions.push({
+            title: `Implement ${featureName}`,
+            description: `Problem: ${featureName} functionality needs to be developed.\nSolution: Implement the ${featureName} feature as specified in project requirements.\nSuccess Criteria: (1) Feature fully functional. (2) Meets specified requirements. (3) Properly integrated with system.\nImpact: Delivers core functionality to users.`,
+            rationale: `Feature identified in project requirements: "${feature}"`
+          });
+        }
+      });
+    }
+
+    // User Management Tasks (if personas indicate user interaction)
+    if (blocks.Personas && blocks.Personas.toLowerCase().includes('user') && !taskExists('User')) {
+      suggestions.push({
+        title: 'Implement User Management System',
+        description: `Problem: System needs user management capabilities based on identified personas.\nSolution: Build user management system supporting the defined user personas.\nSuccess Criteria: (1) User registration and authentication working. (2) Role-based access implemented. (3) User experience optimized for personas.\nImpact: Enables users to interact with the system securely.`,
+        rationale: 'User personas defined indicating need for user management'
+      });
+    }
+
+    // Testing and Quality Assurance
+    if ((blocks.Stack || blocks.Features) && !taskExists('Testing')) {
+      suggestions.push({
+        title: 'Implement Testing Strategy',
+        description: `Problem: Application needs comprehensive testing to ensure quality.\nSolution: Implement testing strategy with unit tests, integration tests, and quality assurance measures.\nSuccess Criteria: (1) Test coverage above 80%. (2) All critical paths tested. (3) CI/CD pipeline includes testing.\nImpact: Ensures application reliability and maintainability.`,
+        rationale: 'Complex project with multiple components requires testing strategy'
+      });
+    }
+
+    // Documentation Tasks
+    if (Object.keys(blocks).length > 2 && !taskExists('Documentation')) {
+      suggestions.push({
+        title: 'Create Project Documentation',
+        description: `Problem: Project needs comprehensive documentation for maintenance and onboarding.\nSolution: Create detailed documentation covering setup, architecture, and usage.\nSuccess Criteria: (1) Setup instructions clear and complete. (2) Architecture documented. (3) API/usage documentation available.\nImpact: Facilitates team collaboration and future maintenance.`,
+        rationale: 'Complex project structure indicates need for comprehensive documentation'
+      });
+    }
+
+    return suggestions.slice(0, 6); // Limit to 6 suggestions to avoid overwhelming
   }
 
   /**

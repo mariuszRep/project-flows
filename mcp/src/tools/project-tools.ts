@@ -234,12 +234,12 @@ export class ProjectTools {
     // Build JSON response with structured data
     const jsonResponse = {
       success: true,
-      task_id: taskId,
+      project_id: taskId,  // Fix: Return the newly created project ID, not task_id
       type: typeDisplay.toLowerCase(),
       title: title,
       description: description,
-      project_id: projectId,
-      project_name: projectInfo,
+      parent_id: projectId,  // Fix: Rename to parent_id for clarity
+      parent_name: projectInfo,  // Fix: Rename to parent_name for clarity
       template_id: templateId,
       stage: taskData.stage || 'draft',
       // Add all dynamic properties
@@ -381,7 +381,7 @@ export class ProjectTools {
     
     const jsonResponse = {
       success: true,
-      task_id: projectId,
+      project_id: projectId,  // Fix: Use project_id instead of task_id
       message: hasContentUpdates 
         ? `Project ${projectId} updated successfully`
         : `Project ${projectId} - no fields supplied for update`,
@@ -613,7 +613,7 @@ export class ProjectTools {
       if (deleted) {
         const jsonResponse = {
           success: true,
-          task_id: projectId,
+          project_id: projectId,  // Fix: Use project_id instead of task_id
           message: `Project with ID ${projectId} has been successfully deleted.`
         };
         
@@ -628,7 +628,7 @@ export class ProjectTools {
       } else {
         const jsonResponse = {
           success: false,
-          task_id: projectId,
+          project_id: projectId,  // Fix: Use project_id instead of task_id
           error: `Failed to delete project with ID ${projectId}.`
         };
         
@@ -645,7 +645,7 @@ export class ProjectTools {
       console.error('Error deleting project:', error);
       const jsonResponse = {
         success: false,
-        task_id: projectId,
+        project_id: projectId,  // Fix: Use project_id instead of task_id
         error: "Failed to delete project from database."
       };
       
