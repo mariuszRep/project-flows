@@ -14,6 +14,7 @@ import { useChangeEvents } from '@/hooks/useChangeEvents';
 import { MCPDisconnectedState } from '@/components/ui/empty-state';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { ProjectSidebar } from '@/components/ui/project-sidebar';
+import { parseTaskDate } from '@/lib/utils';
 // import ProjectEditForm from '@/components/forms/ProjectEditForm'; // Replaced by UnifiedForm
 import { FileText, Plus, Edit, ArrowRight, Filter } from 'lucide-react';
 import UnifiedForm from '@/components/forms/UnifiedForm';
@@ -71,10 +72,30 @@ const DraftTasks = () => {
   ];
 
   // Get filtered tasks based on selected stages (project filtering handled by server)
-  const filteredTasks = allTasks.filter(task => {
-    const stageMatch = selectedStages.includes(task.stage);
-    return stageMatch;
-  });
+  const filteredTasks = allTasks
+    .filter(task => {
+      const stageMatch = selectedStages.includes(task.stage);
+      return stageMatch;
+    })
+    .sort((a, b) => {
+      // Try to use timestamps first, but fall back to ID if timestamps are missing or invalid
+      const aHasValidTime = a.updated_at || a.created_at;
+      const bHasValidTime = b.updated_at || b.created_at;
+      
+      if (aHasValidTime && bHasValidTime) {
+        // Both have timestamps - sort by date
+        const dateA = parseTaskDate(a.updated_at || a.created_at);
+        const dateB = parseTaskDate(b.updated_at || b.created_at);
+        
+        // If dates are not epoch (meaning they were parsed successfully), use them
+        if (dateA.getTime() !== 0 && dateB.getTime() !== 0) {
+          return dateB.getTime() - dateA.getTime();
+        }
+      }
+      
+      // Fall back to ID-based sorting (higher ID = more recent)
+      return b.id - a.id;
+    });
 
   // Fetch all tasks from MCP
   const fetchAllTasks = async () => {
@@ -124,8 +145,8 @@ const DraftTasks = () => {
                   body: taskData.description || taskData.Description || taskData.Summary || '',
                   stage: taskData.stage as TaskStage,
                   project_id: taskData.parent_id || taskData.project_id,
-                  created_at: taskData.created_at || new Date().toISOString(),
-                  updated_at: taskData.updated_at || new Date().toISOString(),
+                  created_at: taskData.created_at || null,
+                  updated_at: taskData.updated_at || null,
                   created_by: taskData.created_by || 'user@example.com',
                   updated_by: taskData.updated_by || 'user@example.com'
                 }));

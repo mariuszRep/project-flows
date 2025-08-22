@@ -328,7 +328,7 @@ const EntityView: React.FC<EntityViewProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 overflow-y-auto p-4">
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 overflow-y-auto p-4">
       <Card className="w-full max-w-3xl mx-auto">
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>

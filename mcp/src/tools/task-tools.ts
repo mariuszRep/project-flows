@@ -443,10 +443,15 @@ export class TaskTools {
         type: task.template_id === 2 ? 'Project' : 'Task',
         parent_id: task.parent_id,
         parent_name: task.parent_id ? (taskMap.get(task.parent_id) || `Unknown (${task.parent_id})`) : null,
+        // Include timestamp fields for sorting
+        created_at: task.created_at,
+        updated_at: task.updated_at,
+        created_by: task.created_by,
+        updated_by: task.updated_by,
         // Include any additional properties
         ...Object.fromEntries(
           Object.entries(task).filter(([key, value]) => 
-            !['id', 'Title', 'Description', 'Summary', 'stage', 'template_id', 'parent_id'].includes(key) &&
+            !['id', 'Title', 'Description', 'stage', 'template_id', 'parent_id', 'created_at', 'updated_at', 'created_by', 'updated_by'].includes(key) &&
             value
           )
         )

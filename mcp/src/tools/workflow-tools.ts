@@ -103,14 +103,29 @@ export class WorkflowTools {
       };
     }
 
-    // Step 4: Generate execution context with branch creation guidance
-    // Orders steps as: plan → branch creation (task-{task_id}) → implement → checkboxes → save → review
+    // Step 4: Check if branch creation is needed before proceeding
+    const branchInfo = this.checkCurrentBranchInfo();
+    
+    if (branchInfo.requiresBranch) {
+      // Return branch creation instructions and exit early
+      const branchCreationContext = this.generateBranchCreationContext(taskContext, branchInfo);
+      return {
+        content: [
+          {
+            type: "text",
+            text: branchCreationContext,
+          } as TextContent,
+        ],
+      };
+    }
+
+    // Step 5: Generate execution context for implementation
     const executionContext = this.generateExecutionContext(taskContext, projectContext);
 
-    // Step 5: Update task status to 'review' upon successful execution context generation
+    // Step 6: Update task status to 'review' after successful execution context generation
     try {
       await this.taskTools.handle('update_task', { task_id: taskId, stage: 'review' });
-      console.log(`Task ${taskId} status updated to 'review' upon successful execute_task completion`);
+      console.log(`Task ${taskId} status updated to 'review' after successful execution`);
     } catch (error) {
       console.error('Error updating task status to review:', error);
       // Don't fail the entire operation - log the error but continue
@@ -128,60 +143,71 @@ export class WorkflowTools {
   }
 
   /**
-   * Generate execution context with structured workflow guidance
-   * Orders execution steps as: plan → branch creation (task-{task_id}) → implement → checkboxes → save → review
-   * Provides branch creation guidance without server-side shell execution for safety
+   * Generate branch creation context when user needs to create a new branch
    */
-  private generateExecutionContext(task: any, projectContext: any): string {
+  private generateBranchCreationContext(task: any, branchInfo: any): string {
     const branchName = this.generateBranchName(task.id);
-    const currentBranchInfo = this.checkCurrentBranchInfo();
     
     const context = {
       task_id: task.id,
-      status: currentBranchInfo.requiresBranch ? "Branch creation required" : "Task updated to 'doing' - ready for execution",
-      current_branch: currentBranchInfo.currentBranch,
+      status: "Branch creation required",
+      current_branch: branchInfo.currentBranch,
       suggested_branch_name: branchName,
       task_title: task.blocks?.Title || `Task ${task.id}`,
-      warning: currentBranchInfo.requiresBranch ? `You are currently on '${currentBranchInfo.currentBranch}' branch. Working directly on this branch may commit changes to main/master.` : undefined,
-      instructions: currentBranchInfo.requiresBranch ? [
+      warning: `You are currently on '${branchInfo.currentBranch}' branch. Working directly on this branch may commit changes to main/master.`,
+      instructions: [
         "1. **IMPORTANT**: Create a new Git branch before executing this task",
         `2. Run the following command to create and switch to a new branch:`,
         `   git checkout -b ${branchName}`,
         "3. Alternative: Modify the branch name if needed (follow Git naming conventions)",
         "4. Once the branch is created successfully, re-run execute_task to continue",
         "5. All task work will be isolated in the new branch for safe development"
-      ] : [
-        "1. Analyze the loaded task and project context",
-        "2. Plan your implementation approach based on the requirements", 
-        "3. Execute the plan step by step",
-        "4. CRITICAL: Update Items section checkboxes as you complete each step",
-        "5. Use update_task tool to save progress in real-time",
-        "6. Update task status to 'review' when implementation is complete"
       ],
       branch_naming_guidelines: [
         "- Branch names follow the format: task-{task_id}",
         "- Simple, consistent naming for easy identification",
         `- Example: ${branchName}, task-42, etc.`
       ],
-      execution_instructions: !currentBranchInfo.requiresBranch ? [
+      task_context: task,
+      next_steps: "After creating the branch, execute this task again to proceed with implementation"
+    };
+
+    return JSON.stringify(context, null, 2);
+  }
+
+  /**
+   * Generate execution context for implementation when branch is ready
+   * Focus on implementation, progress tracking, and completion guidance
+   */
+  private generateExecutionContext(task: any, projectContext: any): string {
+    const context = {
+      task_id: task.id,
+      status: "Task updated to 'doing' - ready for execution",
+      task_title: task.blocks?.Title || `Task ${task.id}`,
+      instructions: [
         "1. Analyze the loaded task and project context",
-        "2. Plan your implementation approach based on the requirements",
-        "3. Create/switch to feature branch (format: task-{task_id}) if not already done",
-        "4. Execute the plan step by step", 
-        "5. CRITICAL: Update Items section checkboxes as you complete each step",
-        "6. Use update_task tool to save progress in real-time",
-        "7. Update task status to 'review' when implementation is complete"
-      ] : undefined,
+        "2. Plan your implementation approach based on the requirements", 
+        "3. Execute the plan step by step",
+        "4. CRITICAL: Update Items section checkboxes as you complete each step",
+        "5. Use update_task tool to save progress in real-time",
+        "6. Task will automatically transition to 'review' status upon completion"
+      ],
       task_context: task,
       project_context: projectContext,
-      progress_tracking_requirements: !currentBranchInfo.requiresBranch ? {
+      progress_tracking_requirements: {
         mandatory: "You MUST update Items section checkboxes as work progresses",
         format: "Change [ ] to [x] immediately after completing each step",
         tool: "Use update_task tool to save checkbox progress", 
         purpose: "Provides visibility for multi-agent coordination and handoffs"
-      } : undefined,
-      next_steps: currentBranchInfo.requiresBranch ? "After creating the branch, execute this task again to proceed with implementation" : "All context loaded. Begin planning and implementation now.",
-      ready: currentBranchInfo.requiresBranch ? undefined : "All context loaded. Begin planning and implementation now."
+      },
+      completion_instructions: [
+        "1. When all implementation steps are complete:",
+        "2. Update all remaining checkboxes to [x] in the Items section", 
+        "3. Use update_task tool to save final progress",
+        "4. Task status has been automatically updated to 'review'",
+        "5. Task is now ready for code review and testing"
+      ],
+      next_steps: "All context loaded. Begin planning and implementation now."
     };
 
     return JSON.stringify(context, null, 2);
@@ -197,19 +223,24 @@ export class WorkflowTools {
 
   /**
    * Check current branch information to determine if branch creation is needed
-   * Note: This method does not execute shell commands - it provides guidance-only context
-   * In a real implementation, this would check git status, but for MCP server safety,
-   * we assume users are on main/master unless proven otherwise
+   * For MCP server context safety, we use environment-based branch detection
    */
   private checkCurrentBranchInfo(): { currentBranch: string; requiresBranch: boolean } {
-    // For safety in MCP server context, assume user is on main branch and needs to create feature branch
-    // This is guidance-only - no actual git commands are executed
-    const assumedCurrentBranch = "main";
+    // Try to detect current branch from environment or assume main
+    // In practice, this would be determined by the client environment
+    let currentBranch = "main";
+    
+    // Check if we can detect current branch from process environment
+    if (process.env.GIT_BRANCH) {
+      currentBranch = process.env.GIT_BRANCH;
+    }
+    
     const mainBranches = ["main", "master", "develop", "dev"];
+    const requiresBranch = mainBranches.includes(currentBranch);
     
     return {
-      currentBranch: assumedCurrentBranch,
-      requiresBranch: mainBranches.includes(assumedCurrentBranch)
+      currentBranch,
+      requiresBranch
     };
   }
 }

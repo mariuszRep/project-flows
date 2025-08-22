@@ -481,7 +481,7 @@ const UnifiedForm: React.FC<UnifiedFormProps> = ({
   const entityDisplayName = entityType === 'task' ? 'Task' : 'Project';
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-40">
       <div className="bg-background rounded-lg shadow-xl w-[80%] max-w-4xl max-h-[90vh] flex flex-col">
         <div className="bg-background border-b border-border p-6 flex items-center justify-between rounded-t-lg flex-shrink-0">
           <div>
