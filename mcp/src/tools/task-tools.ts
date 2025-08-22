@@ -340,6 +340,26 @@ export class TaskTools {
 
     // Build JSON response with updated fields
     const updatedFields: Record<string, any> = {};
+
+    // Check for automatic completion detection
+    // Only check if task is in 'doing' stage and Items field was updated
+    if (existingTask.stage === 'doing' && toolArgs?.Items) {
+      const isCompleted = this.isTaskCompleted(toolArgs.Items);
+      
+      if (isCompleted) {
+        try {
+          // Automatically move task to 'review' stage
+          await this.sharedDbService.updateTask(taskId, { stage: 'review' as TaskStage }, this.clientId);
+          console.log(`Task ${taskId} automatically moved to 'review' - all checkboxes completed`);
+          
+          // Update the response to indicate the automatic transition
+          updatedFields['stage'] = 'review';
+        } catch (error) {
+          console.error('Error auto-transitioning task to review:', error);
+          // Don't fail the update - log the error but continue
+        }
+      }
+    }
     
     // Include provided core fields
     if (toolArgs?.Title) {
@@ -566,6 +586,29 @@ export class TaskTools {
         } as TextContent,
       ],
     };
+  }
+
+  /**
+   * Check if all checkboxes in Items section are completed
+   * Returns true if all [ ] are changed to [x], false otherwise
+   */
+  private isTaskCompleted(itemsContent: string): boolean {
+    if (!itemsContent || typeof itemsContent !== 'string') {
+      return false;
+    }
+
+    // Find all checkbox patterns: [ ] or [x] (case insensitive)
+    const checkboxPattern = /\[[\s\-\.]?\]|\[[xX]\]/g;
+    const checkboxes = itemsContent.match(checkboxPattern);
+    
+    if (!checkboxes || checkboxes.length === 0) {
+      // No checkboxes found - consider task not completable via checkboxes
+      return false;
+    }
+
+    // Check if all checkboxes are completed (marked with x or X)
+    const completedPattern = /\[[xX]\]/;
+    return checkboxes.every(checkbox => completedPattern.test(checkbox));
   }
 
   private async handleDeleteTask(toolArgs?: Record<string, any>) {
