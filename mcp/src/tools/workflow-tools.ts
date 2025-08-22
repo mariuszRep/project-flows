@@ -107,6 +107,16 @@ export class WorkflowTools {
     // Orders steps as: plan → branch creation (task-{task_id}) → implement → checkboxes → save → review
     const executionContext = this.generateExecutionContext(taskContext, projectContext);
 
+    // Step 5: Update task status to 'review' upon successful execution context generation
+    try {
+      await this.taskTools.handle('update_task', { task_id: taskId, stage: 'review' });
+      console.log(`Task ${taskId} status updated to 'review' upon successful execute_task completion`);
+    } catch (error) {
+      console.error('Error updating task status to review:', error);
+      // Don't fail the entire operation - log the error but continue
+      // The execution context is still valid even if stage update fails
+    }
+
     return {
       content: [
         {

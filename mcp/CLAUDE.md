@@ -230,6 +230,51 @@ Retrieves a complete task by its numeric ID. Returns all stored task data in the
 - **Missing task**: Returns `Error: Task with ID [id] not found.`
 - **Invalid ID**: Returns `Error: Valid numeric task_id is required for retrieval.`
 
+### execute_task
+Orchestrates task execution by loading task and project context, then providing guided execution with real-time progress tracking. **Important**: This tool automatically moves the task stage from 'backlog' → 'doing' → 'review' upon successful completion.
+
+#### Basic usage:
+```json
+{
+  "name": "execute_task",
+  "arguments": {
+    "task_id": 1
+  }
+}
+```
+
+#### Task ID validation:
+- ✅ Valid: `{"task_id": 1}` (numeric ID ≥ 1)
+- ❌ Invalid: `{}` (missing task_id)
+- ❌ Invalid: `{"task_id": "1"}` (string ID)
+- ❌ Invalid: `{"task_id": 0}` (ID must be ≥ 1)
+
+#### Workflow behavior:
+1. **Context Loading**: Loads task and project context from database
+2. **Stage Transition**: Moves task from current stage to 'doing'
+3. **Execution Guidance**: Returns structured execution context with branch creation guidance
+4. **Completion**: Automatically moves task to 'review' stage upon successful execution
+5. **Notifications**: Emits database change notifications for real-time UI updates
+
+#### Output format:
+Returns JSON with execution context including:
+- `task_id`: The task being executed
+- `status`: Current execution status
+- `task_context`: Complete task data with all properties
+- `project_context`: Parent project data (if applicable)
+- `instructions`: Step-by-step execution guidance
+- `branch_naming_guidelines`: Git branch naming conventions
+
+#### Stage transitions:
+- **Initial**: Any stage → 'doing' (when execution starts)
+- **Final**: 'doing' → 'review' (when execution completes successfully)
+- **Error handling**: If stage update fails, execution context is still returned with logged error
+
+#### Error handling:
+- **Missing task**: Returns `Error: Task with ID [id] not found.`
+- **Invalid ID**: Returns `Error: Valid numeric task_id is required for execution.`
+- **Stage update failure**: Logs error but continues with execution context
+
 ## Build Process
 
 The project uses TypeScript compilation:
