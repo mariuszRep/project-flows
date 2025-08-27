@@ -422,10 +422,9 @@ export class WorkflowTools {
         max_tasks: maxTasks,
         analysis_prompt: analysisPrompt,
         instructions: [
-          "The calling agent should now analyze this project and create appropriate tasks.",
+          "Analyze this project in full detail and create appropriate tasks so that the project can be completed successfully.",
           "Use the provided project context and available properties to determine task structure.",
           `Create tasks using the create_task tool with parent_id: ${projectId}`,
-          "Tasks should be created in 'backlog' stage by default.",
           "Consider the analysis depth and max_tasks parameters for scope."
         ],
         available_task_properties: taskProperties.map((prop: any) => prop.key),
