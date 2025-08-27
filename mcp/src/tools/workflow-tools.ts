@@ -466,7 +466,24 @@ export class WorkflowTools {
       }
     });
     
-    // Build prompt with dynamic properties
+    // Group task properties by type for better analysis
+    const taskPropertyDetails = taskProperties.map(prop => ({
+      key: prop.key,
+      type: prop.type,
+      description: prop.description,
+      required: prop.fixed || false
+    }));
+
+    // Categorize task properties for better analysis
+    const contentProperties = taskPropertyDetails.filter(p => 
+      ['text', 'markdown', 'string'].includes(p.type.toLowerCase()));
+    const structuralProperties = taskPropertyDetails.filter(p => 
+      ['list', 'array', 'object'].includes(p.type.toLowerCase()));
+    const metadataProperties = taskPropertyDetails.filter(p => 
+      !contentProperties.some(cp => cp.key === p.key) && 
+      !structuralProperties.some(sp => sp.key === p.key));
+    
+    // Build prompt with dynamic properties and detailed task property information
     return `
 Analyze the following project and determine appropriate tasks to create:
 
@@ -478,6 +495,18 @@ Analysis Depth: ${analysisDepth}
 Available Task Properties:
 ${JSON.stringify(taskPropertyKeys, null, 2)}
 
+Task Property Details:
+${JSON.stringify(taskPropertyDetails, null, 2)}
+
+Content Properties (for task descriptions, notes, etc.):
+${JSON.stringify(contentProperties.map(p => p.key), null, 2)}
+
+Structural Properties (for checklists, structured data):
+${JSON.stringify(structuralProperties.map(p => p.key), null, 2)}
+
+Metadata Properties:
+${JSON.stringify(metadataProperties.map(p => p.key), null, 2)}
+
 Please provide a structured analysis with the following:
 1. Overall project complexity assessment
 2. Recommended task breakdown structure
@@ -485,9 +514,12 @@ Please provide a structured analysis with the following:
    - Title
    - Description
    - Items (checklist)
-   - Any other relevant properties from the available task properties
+   ${taskPropertyKeys.filter(key => key !== 'Title' && key !== 'Description' && key !== 'Items')
+     .map(key => `   - ${key}`).join('\n')}
 4. Recommended task relationships (parent-child)
 5. Suggested task count based on project complexity
+
+Important: For each task, ensure you populate all required properties and follow the property types.
 `;
   }
 
