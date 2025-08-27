@@ -234,12 +234,12 @@ export class ProjectTools {
     // Build JSON response with structured data
     const jsonResponse = {
       success: true,
-      task_id: taskId,
+      project_id: taskId,
       type: typeDisplay.toLowerCase(),
       title: title,
       description: description,
-      project_id: projectId,
-      project_name: projectInfo,
+      parent_id: projectId,
+      parent_name: projectInfo,
       template_id: templateId,
       stage: taskData.stage || 'draft',
       // Add all dynamic properties
