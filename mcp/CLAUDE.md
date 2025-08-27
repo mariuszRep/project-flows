@@ -54,10 +54,12 @@ npm run clean
 
 ## Key Implementation Details
 
-- The server provides three tools:
+- The server provides five tools:
   - `create_task`: Creates a new task plan (requires Title and Summary, accepts dynamic properties)
   - `update_task`: Updates an existing task plan (all fields optional, validates dependencies)
   - `get_item`: Retrieves a complete task by numeric ID
+  - `execute_task`: Orchestrates task execution with real-time progress tracking
+  - `initiate_project`: Analyzes a project and automatically generates appropriate tasks
 - Dynamic properties are loaded from `schema_properties.json` with execution order and dependency management
 - Properties include Research (depends on Summary) and Items (depends on Summary and Research)
 - Output is formatted as structured markdown with sections for each property
@@ -274,6 +276,102 @@ Returns JSON with execution context including:
 - **Missing task**: Returns `Error: Task with ID [id] not found.`
 - **Invalid ID**: Returns `Error: Valid numeric task_id is required for execution.`
 - **Stage update failure**: Logs error but continues with execution context
+
+### initiate_project
+Analyzes a project and automatically generates appropriate tasks based on project context and complexity. This tool dynamically determines task structure without hardcoded properties, making it adaptable to different project types and requirements.
+
+#### Basic usage:
+```json
+{
+  "name": "initiate_project",
+  "arguments": {
+    "project_id": 1
+  }
+}
+```
+
+#### Advanced usage with options:
+```json
+{
+  "name": "initiate_project",
+  "arguments": {
+    "project_id": 1,
+    "analysis_depth": "comprehensive",
+    "max_tasks": 10
+  }
+}
+```
+
+#### Parameter validation:
+- ✅ Valid: `{"project_id": 1}` (numeric ID ≥ 1)
+- ✅ Valid: `{"project_id": 1, "analysis_depth": "standard"}` (with optional depth)
+- ✅ Valid: `{"project_id": 1, "max_tasks": 5}` (with task limit)
+- ❌ Invalid: `{}` (missing project_id)
+- ❌ Invalid: `{"project_id": "1"}` (string ID)
+- ❌ Invalid: `{"project_id": 0}` (ID must be ≥ 1)
+
+#### Analysis depth options:
+- **`basic`**: Minimal task breakdown, focuses on core functionality
+- **`standard`** (default): Balanced approach with moderate task detail
+- **`comprehensive`**: Detailed task breakdown with extensive planning
+
+#### Workflow behavior:
+1. **Project Loading**: Retrieves project context using `get_project` tool
+2. **Schema Discovery**: Dynamically loads project and task property schemas using `list_properties`
+3. **Analysis Generation**: Creates analysis prompt based on available properties
+4. **Task Generation**: Determines appropriate tasks based on project complexity
+5. **Task Creation**: Creates tasks using `create_task` tool with proper relationships
+6. **Report Generation**: Returns comprehensive analysis report with created tasks
+
+#### Output format:
+Returns JSON with analysis results including:
+```json
+{
+  "project": {
+    "id": 1,
+    "title": "Project Title"
+  },
+  "analysis": {
+    "depth": "standard",
+    "taskCount": 5,
+    "completionStatus": "success"
+  },
+  "tasks": [
+    {
+      "id": 10,
+      "title": "Task Title",
+      "stage": "backlog"
+    }
+  ],
+  "summary": "Successfully initiated project and created 5 tasks."
+}
+```
+
+#### Dynamic property handling:
+- Automatically discovers available project and task properties from database schema
+- Filters properties based on schema availability to avoid hardcoded assumptions
+- Generates analysis prompts using only available properties
+- Creates tasks with properties that exist in the current schema
+
+#### Error handling:
+- **Missing project**: Returns `{"error": "Project with ID [id] not found."}`
+- **Invalid ID**: Returns `{"error": "Valid numeric project_id is required for analysis."}`
+- **Schema loading failure**: Returns `{"error": "Failed to load project/task property schema."}`
+- **Task creation failure**: Continues with remaining tasks, logs individual failures
+
+#### Integration with existing tools:
+- Uses `get_project` to retrieve project context
+- Uses `list_properties` to discover available schemas dynamically
+- Uses `create_task` to generate tasks with proper parent relationships
+- All created tasks are automatically set to 'backlog' stage
+- Tasks inherit project ID as parent_id for proper hierarchy
+
+#### Best practices:
+- Run this tool after creating a new project to automatically populate it with tasks
+- Use `analysis_depth: "comprehensive"` for complex projects requiring detailed planning
+- Use `max_tasks` parameter to limit task generation for large projects
+- Generated tasks can be further refined using `update_task` after creation
+- Use `execute_task` on generated tasks to begin implementation workflow
 
 ## Build Process
 
