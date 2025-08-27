@@ -412,51 +412,31 @@ export class WorkflowTools {
         analysisDepth
       );
       
-      // Step 5: Send analysis prompt to the agent for processing
-      const analysisResult = await this.sendToAgent(analysisPrompt);
-      
-      // Step 6: Parse analysis result to determine task structure
-      const taskStructure = this.parseAnalysisResult(analysisResult);
-      
-      // Step 7: Determine appropriate number of tasks if not specified
-      const taskCount = maxTasks || this.determineTaskCount(
-        projectContext,
-        taskStructure,
-        analysisDepth
-      );
-      
-      // Step 8: Create tasks using create_task tool
-      const createdTasks = await this.createTasksFromAnalysis(
-        taskStructure,
-        projectId,
-        taskCount,
-        taskProperties
-      );
-      
-      // Step 9: Generate analysis report
-      const analysisReport = {
-        project: {
-          id: projectId,
-          title: projectContext.blocks?.Title || "Untitled Project"
-        },
-        analysis: {
-          depth: analysisDepth,
-          taskCount: createdTasks.length,
-          completionStatus: "success"
-        },
-        tasks: createdTasks.map(task => ({
-          id: task.id,
-          title: task.blocks?.Title || "Untitled Task",
-          stage: task.stage || "backlog"
-        })),
-        summary: `Successfully initiated project and created ${createdTasks.length} tasks.`
+      // Step 5: Return analysis context for the calling agent to process
+      const analysisContext = {
+        project_id: projectId,
+        project_context: projectContext,
+        project_properties: projectProperties,
+        task_properties: taskProperties,
+        analysis_depth: analysisDepth,
+        max_tasks: maxTasks,
+        analysis_prompt: analysisPrompt,
+        instructions: [
+          "The calling agent should now analyze this project and create appropriate tasks.",
+          "Use the provided project context and available properties to determine task structure.",
+          `Create tasks using the create_task tool with parent_id: ${projectId}`,
+          "Tasks should be created in 'backlog' stage by default.",
+          "Consider the analysis depth and max_tasks parameters for scope."
+        ],
+        available_task_properties: taskProperties.map((prop: any) => prop.key),
+        next_steps: "Analyze the project and create tasks using create_task tool for each required task."
       };
       
       return {
         content: [
           {
             type: "text",
-            text: JSON.stringify(analysisReport, null, 2),
+            text: JSON.stringify(analysisContext, null, 2),
           } as TextContent,
         ],
       };
@@ -514,24 +494,17 @@ Please provide a structured analysis with the following:
 
   /**
    * Helper method to send analysis prompt to the agent
+   * The agent using this tool will perform the analysis and return structured tasks
    */
   private async sendToAgent(prompt: string): Promise<any> {
-    // This would integrate with the agent system
-    // For now, we'll return a placeholder response based on the prompt content
-    console.log(`Sending analysis prompt to agent: ${prompt.substring(0, 100)}...`);
+    console.log(`🤖 Requesting analysis from calling agent for project initiation`);
     
-    // In a real implementation, this would send the prompt to the agent
-    // and receive a structured analysis response
+    // The calling agent (Claude) should analyze the project and return structured tasks
+    // This method should trigger the agent to perform analysis and return tasks in the expected format
     
-    // TODO: Implement actual agent integration
-    return {
-      complexity: "medium",
-      recommendedTaskCount: 8,
-      tasks: [
-        // This would be populated by the agent's analysis
-        // Structure will be determined by the agent based on project context
-      ]
-    };
+    // Return the analysis prompt for the agent to process
+    // The agent will need to analyze and return a structured response with tasks
+    throw new Error(`AGENT_ANALYSIS_REQUIRED: ${prompt}`);
   }
 
   /**
