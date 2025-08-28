@@ -103,7 +103,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({
               <div
                 ref={provided.innerRef}
                 {...provided.droppableProps}
-                className={`rounded-lg border-2 border-dashed p-4 min-h-[500px] flex flex-col ${stage.color} ${
+                className={`rounded-[var(--radius-m)] border border-dashed p-3 min-h-[500px] flex flex-col ${stage.color} ${
                   snapshot.isDraggingOver ? 'border-primary bg-primary/10' : ''
                 }`}
               >

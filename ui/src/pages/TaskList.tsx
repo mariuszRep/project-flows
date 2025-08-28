@@ -523,7 +523,7 @@ const DraftTasks = () => {
         </div>
 
         {/* Filter Bar */}
-        <div className="w-full bg-surface border border-border rounded-lg py-2 px-3">
+        <div className="w-full bg-surface border border-border rounded-[var(--radius-m)] py-2 px-3">
           <div className="flex items-center justify-between w-full">
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
