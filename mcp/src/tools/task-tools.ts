@@ -542,16 +542,9 @@ export class TaskTools {
       };
     }
 
-    // Get parent task name if task has parent_id (clean format without ID)
-    let parentName = null;
-    if (task.parent_id) {
-      try {
-        const parentTask = await this.sharedDbService.getTask(task.parent_id);
-        parentName = parentTask ? (parentTask.Title || 'Untitled') : 'Unknown';
-      } catch (error) {
-        parentName = 'Unknown';
-      }
-    }
+    // Get parent information from database (already loaded in getTask)
+    const parentName = task.parent_name || null;
+    const parentType = task.parent_type || null;
     
     const templateId = task.template_id || 1;
     
@@ -573,7 +566,7 @@ export class TaskTools {
       stage: task.stage || 'draft',
       template_id: templateId,
       parent_id: task.parent_id,
-      parent_type: 'project',
+      parent_type: parentType,
       parent_name: parentName,
       blocks: blocks
     };

@@ -40,6 +40,8 @@ interface TaskData {
   project_id?: number; // For backward compatibility with UI
   stage?: TaskStage;
   template_id?: number;
+  parent_type?: string;
+  parent_name?: string;
   [key: string]: any;
 }
 
@@ -285,8 +287,25 @@ class DatabaseService {
 
   async getTask(taskId: number): Promise<TaskData | null> {
     try {
-      // Get task core data (id, parent_id, stage, and template_id)
-      const taskQuery = 'SELECT id, parent_id, stage, template_id FROM objects WHERE id = $1';
+      // Get task core data with parent information (id, parent_id, stage, template_id, parent info)
+      const taskQuery = `
+        SELECT 
+          t.id, 
+          t.parent_id, 
+          t.stage, 
+          t.template_id,
+          LOWER(pt.name) as parent_type,
+          COALESCE(
+            (SELECT b.content FROM object_properties b 
+             JOIN template_properties tp ON b.property_id = tp.id 
+             WHERE b.task_id = p.id AND tp.key = 'Title' LIMIT 1),
+            'Untitled'
+          ) as parent_name
+        FROM objects t
+        LEFT JOIN objects p ON t.parent_id = p.id
+        LEFT JOIN templates pt ON p.template_id = pt.id
+        WHERE t.id = $1
+      `;
       const taskResult = await this.pool.query(taskQuery, [taskId]);
       
       if (taskResult.rows.length === 0) {
@@ -312,6 +331,8 @@ class DatabaseService {
         project_id: task.parent_id, // For backward compatibility with UI
         stage: task.stage,
         template_id: task.template_id,
+        parent_type: task.parent_type,
+        parent_name: task.parent_name,
       };
 
       for (const block of blocksResult.rows) {

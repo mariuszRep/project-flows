@@ -8,6 +8,7 @@
 
 INSERT INTO public.templates VALUES (1, 'Task', 'Default template for managing tasks', '2025-07-24T08:49:24.200Z', '2025-07-24T08:49:24.200Z', 'system', 'system');
 INSERT INTO public.templates VALUES (2, 'Project', 'Template for project-type parent tasks', '2025-08-04T10:42:31.309Z', '2025-08-04T10:42:31.309Z', 'system', 'system');
+INSERT INTO public.templates VALUES (3, 'Epic', 'Simplified template for organizing tasks under projects', '2025-08-28T00:00:00.000Z', '2025-08-28T00:00:00.000Z', 'system', 'system');
 
 
 --
@@ -27,6 +28,10 @@ INSERT INTO public.template_properties VALUES (13, 2, 'Architectural', 'string',
 INSERT INTO public.template_properties VALUES (14, 2, 'Structure', 'string', 'Based on the chosen technology stack and architecture, provide a general outline of the project''s file and folder structure. Include the main directories and a brief explanation of their purpose.', '["Architectural"]', 7, false, 'ui-client', 'ui-client', '2025-08-07T09:13:44.710Z', '2025-08-07T09:13:44.710Z');
 INSERT INTO public.template_properties VALUES (20, 1, 'Investigation', 'text', 'Analyze existing codebase only if modifying existing project. Document: **Entry Points:** Main files to modify/create. **Dependencies:** Affected existing components. **Configuration:** Required config/environment changes. **Database Impact:** Schema changes if needed. **Integration Points:** How changes connect to existing systems. Skip if building new standalone feature.', '[]', 4, false, 'claude-desktop', 'claude-desktop', '2025-08-14T10:25:15.114Z', '2025-08-14T13:25:09.565Z');
 INSERT INTO public.template_properties VALUES (21, 1, 'Research', 'text', 'Research implementation options using available web tools. Provide: **Best Practices:** industry standards found through web search. **Technology Options:** Compare libraries/frameworks with pros/cons based on current documentation. **Recommended Approach:** Select one option with justification based on research findings. **Resources:** Include markdown-formatted links to source documentation used for research (e.g., [Library Name](https://example.com/docs)). Use web search tools to gather current information and skip only if using well-established, obvious solutions.', '[]', 3, false, 'claude-desktop', 'claude-desktop', '2025-08-14T10:31:42.892Z', '2025-08-15T08:53:32.493Z');
+INSERT INTO public.template_properties VALUES (22, 3, 'Title', 'text', 'Epic title describing the high-level objective or theme', '[]', 1, false, 'system', 'system', '2025-08-28T00:00:00.000Z', '2025-08-28T00:00:00.000Z');
+INSERT INTO public.template_properties VALUES (23, 3, 'Summary', 'text', 'Brief description of the epic scope and goals', '[]', 2, false, 'system', 'system', '2025-08-28T00:00:00.000Z', '2025-08-28T00:00:00.000Z');
+INSERT INTO public.template_properties VALUES (24, 3, 'Tasks', 'text', 'List of related tasks that comprise this epic', '[]', 3, false, 'system', 'system', '2025-08-28T00:00:00.000Z', '2025-08-28T00:00:00.000Z');
+INSERT INTO public.template_properties VALUES (25, 3, 'Priority', 'text', 'Priority level of this epic (High, Medium, Low)', '[]', 4, false, 'system', 'system', '2025-08-28T00:00:00.000Z', '2025-08-28T00:00:00.000Z');
 
 
 --
@@ -40,7 +45,7 @@ SELECT pg_catalog.setval('public.object_properties_id_seq', 755, true);
 -- Name: template_properties_id_seq; Type: SEQUENCE SET; Schema: public; Owner: mcp_user
 --
 
-SELECT pg_catalog.setval('public.template_properties_id_seq', 21, true);
+SELECT pg_catalog.setval('public.template_properties_id_seq', 25, true);
 
 
 --
@@ -54,7 +59,7 @@ SELECT pg_catalog.setval('public.objects_id_seq', 115, true);
 -- Name: templates_id_seq; Type: SEQUENCE SET; Schema: public; Owner: mcp_user
 --
 
-SELECT pg_catalog.setval('public.templates_id_seq', 2, true);
+SELECT pg_catalog.setval('public.templates_id_seq', 3, true);
 
 
 --

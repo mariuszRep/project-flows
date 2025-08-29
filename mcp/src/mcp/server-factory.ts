@@ -8,6 +8,7 @@ import DatabaseService from "../database.js";
 import { createTaskTools } from "../tools/task-tools.js";
 import { createPropertyTools } from "../tools/property-tools.js";
 import { createProjectTools } from "../tools/project-tools.js";
+import { createObjectTools } from "../tools/object-tools.js";
 import { createWorkflowTools } from "../tools/workflow-tools.js";
 import pg from 'pg';
 
@@ -233,6 +234,56 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
     }
   }
 
+  async function loadEpicSchemaProperties(): Promise<SchemaProperties>;
+  async function loadEpicSchemaProperties(context: ToolContext): Promise<SchemaProperties>;
+  async function loadEpicSchemaProperties(context?: ToolContext): Promise<SchemaProperties> {
+    // Check cache first
+    const cached = getCachedSchema(3, context);
+    if (cached) {
+      return cached;
+    }
+
+    try {
+      // Load epic properties (template_id = 3)
+      const properties = context
+        ? await sharedDbService.getSchemaProperties(3, context)
+        : await sharedDbService.getSchemaProperties(3);
+      
+      // Cache the result
+      setCachedSchema(3, properties, context);
+      
+      return properties;
+    } catch (error) {
+      console.error('Error loading epic schema properties from database:', error);
+      return {};
+    }
+  }
+
+  async function loadGenericSchemaProperties(templateId: number): Promise<SchemaProperties>;
+  async function loadGenericSchemaProperties(templateId: number, context: ToolContext): Promise<SchemaProperties>;
+  async function loadGenericSchemaProperties(templateId: number, context?: ToolContext): Promise<SchemaProperties> {
+    // Check cache first
+    const cached = getCachedSchema(templateId, context);
+    if (cached) {
+      return cached;
+    }
+
+    try {
+      // Load properties for any template_id
+      const properties = context
+        ? await sharedDbService.getSchemaProperties(templateId, context)
+        : await sharedDbService.getSchemaProperties(templateId);
+      
+      // Cache the result
+      setCachedSchema(templateId, properties, context);
+      
+      return properties;
+    } catch (error) {
+      console.error(`Error loading schema properties for template_id ${templateId} from database:`, error);
+      return {};
+    }
+  }
+
   function createExecutionChain(properties: SchemaProperties): ExecutionChainItem[] {
     const sortedProps: ExecutionChainItem[] = [];
     
@@ -286,6 +337,14 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
     validateDependencies
   );
   
+  const objectTools = createObjectTools(
+    sharedDbService,
+    clientId,
+    loadGenericSchemaProperties,
+    createExecutionChain,
+    validateDependencies
+  );
+  
   const taskTools = createTaskTools(
     sharedDbService,
     clientId,
@@ -321,6 +380,11 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
     const projectProperties = context
       ? await loadProjectSchemaProperties(context) 
       : await sharedDbService.getSchemaProperties(2);
+
+    // Get epic properties (template_id = 3) with optional context
+    const epicProperties = context
+      ? await loadEpicSchemaProperties(context)
+      : await sharedDbService.getSchemaProperties(3);
 
     // Clean properties for schema (remove execution metadata and convert types)
     function cleanSchemaProperties(properties: SchemaProperties): Record<string, any> {
@@ -360,12 +424,14 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
 
     const taskSchemaProperties = cleanSchemaProperties(taskProperties);
     const projectSchemaProperties = cleanSchemaProperties(projectProperties);
+    const epicSchemaProperties = cleanSchemaProperties(epicProperties);
 
     return {
       tools: [
         ...taskTools.getToolDefinitions(taskSchemaProperties),
         ...propertyTools.getToolDefinitions(),
         ...projectTools.getToolDefinitions(projectSchemaProperties),
+        ...objectTools.getToolDefinitions(epicSchemaProperties),
         ...workflowTools.getToolDefinitions(),
       ],
     };
@@ -388,6 +454,11 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
     // Handle project tools
     if (projectTools.canHandle(name)) {
       return await projectTools.handle(name, toolArgs);
+    }
+
+    // Handle epic tools
+    if (objectTools.canHandle(name)) {
+      return await objectTools.handle(name, toolArgs);
     }
 
     // Handle workflow tools
