@@ -9,8 +9,9 @@ import { Trash2 } from 'lucide-react';
 import { useMCP } from '@/contexts/MCPContext';
 import { useProject } from '@/contexts/ProjectContext';
 import { TaskStage } from '@/types/task';
+import { EpicStage } from '@/types/epic';
 
-export type EntityType = 'task' | 'project';
+export type EntityType = 'task' | 'project' | 'epic';
 export type FormMode = 'create' | 'edit';
 
 interface UnifiedFormProps {
@@ -18,7 +19,7 @@ interface UnifiedFormProps {
   mode: FormMode;
   entityId?: number;
   templateId?: number;
-  initialStage?: TaskStage;
+  initialStage?: TaskStage | EpicStage;
   onSuccess?: (entity: any) => void;
   onCancel?: () => void;
   onDelete?: (entityId: number, entityTitle: string) => void;
@@ -384,18 +385,25 @@ const UnifiedForm: React.FC<UnifiedFormProps> = ({
           }
         });
         
-        // Add parent_id for tasks (project_id becomes parent_id in the database)
-        if (entityType === 'task' && formData.project_id !== undefined && formData.project_id !== null) {
+        // Add parent_id for tasks and epics (project_id becomes parent_id in the database)
+        if ((entityType === 'task' || entityType === 'epic') && formData.project_id !== undefined && formData.project_id !== null) {
           createData.parent_id = formData.project_id;
         }
         
+        // Add template_id for epic entities
+        if (entityType === 'epic') {
+          createData.template_id = templateId || 3;
+        }
+        
         console.log(`Creating ${entityType} with data:`, createData);
-        const toolName = entityType === 'task' ? 'create_task' : 'create_project';
+        const toolName = entityType === 'task' ? 'create_task' : 
+                        entityType === 'project' ? 'create_project' : 'create_object';
         result = await callTool(toolName, createData);
         
       } else if (mode === 'edit' && entityId) {
         // Update existing entity
-        const paramName = entityType === 'task' ? 'task_id' : 'project_id';
+        const paramName = entityType === 'task' ? 'task_id' : 
+                         entityType === 'project' ? 'project_id' : 'object_id';
         const updateData: Record<string, any> = { [paramName]: entityId };
         
         formFields.forEach(field => {
@@ -405,12 +413,18 @@ const UnifiedForm: React.FC<UnifiedFormProps> = ({
         });
         
         // Add parent_id for tasks (project_id becomes parent_id in the database)
-        if (entityType === 'task' && formData.project_id !== undefined) {
+        if ((entityType === 'task' || entityType === 'epic') && formData.project_id !== undefined) {
           updateData.parent_id = formData.project_id;
         }
         
+        // Add template_id for epic entities
+        if (entityType === 'epic') {
+          updateData.template_id = templateId || 3;
+        }
+        
         console.log(`Updating ${entityType} with data:`, updateData);
-        const toolName = entityType === 'task' ? 'update_task' : 'update_project';
+        const toolName = entityType === 'task' ? 'update_task' : 
+                        entityType === 'project' ? 'update_project' : 'update_object';
         result = await callTool(toolName, updateData);
       }
 
