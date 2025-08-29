@@ -223,27 +223,37 @@ const DraftTasks = () => {
 
   // Fetch all epics from MCP
   const fetchAllEpics = async () => {
+    console.log('fetchAllEpics called - isConnected:', isConnected, 'tools count:', tools.length);
     if (!isConnected || !callTool || tools.length === 0) return;
     
     try {
       // Check if list_objects tool exists
       const listObjectsTool = tools.find(tool => tool.name === 'list_objects');
+      console.log('list_objects tool found:', !!listObjectsTool);
+      console.log('Available tools:', tools.map(t => t.name));
       
       if (listObjectsTool) {
+        console.log('Calling list_objects with template_id=3');
         // Use list_objects with template_id=3 to fetch epics
         const result = await callTool('list_objects', { template_id: 3 });
+        console.log('list_objects result:', result);
         
         if (result && result.content && result.content[0]) {
           const contentText = result.content[0].text;
+          console.log('Content text:', contentText);
           
           if (contentText.trim().startsWith('[') || contentText.trim().startsWith('{')) {
             try {
               const jsonResponse = JSON.parse(contentText);
-              let epicsArray = Array.isArray(jsonResponse) ? jsonResponse : [];
+              console.log('Parsed JSON response:', jsonResponse);
+              let epicsArray = Array.isArray(jsonResponse) ? jsonResponse : jsonResponse.objects || [];
+              console.log('Epics array before filtering:', epicsArray);
               
               // Filter epics by selected project if one is selected
               if (selectedProjectId !== null) {
+                console.log('Filtering epics by project:', selectedProjectId);
                 epicsArray = epicsArray.filter((epic: any) => epic.parent_id === selectedProjectId);
+                console.log('Epics array after filtering:', epicsArray);
               }
               
               const parsedEpics: Epic[] = epicsArray.map((epicData: any) => ({
@@ -263,14 +273,18 @@ const DraftTasks = () => {
                 blocks: epicData.blocks
               }));
               
+              console.log('Parsed epics:', parsedEpics);
               setAllEpics(parsedEpics);
             } catch (e) {
               console.error('Error parsing epics JSON response:', e);
               setAllEpics([]);
             }
           } else {
+            console.log('Response not JSON format, setting empty epics');
             setAllEpics([]);
           }
+        } else {
+          console.log('No result content, setting empty epics');
         }
       } else {
         // list_objects tool not available, epics not supported yet
