@@ -76,8 +76,14 @@ export const UnifiedEntityCard: React.FC<UnifiedEntityCardProps> = ({
   const effectiveStages = stages || defaultStages;
   const effectiveGetStageColor = getStageColor || defaultStageColor;
 
-  // Sliding logic - only enabled for Tasks with stage
-  const canSlide = enableSliding && entity.type === 'Task' && entity.stage && onStageChange && getPreviousStage && getNextStage;
+  // Sliding logic - enabled for any entity that has a stage
+  const canSlide = !!(
+    enableSliding &&
+    entity.stage &&
+    onStageChange &&
+    getPreviousStage &&
+    getNextStage
+  );
 
   const handleStart = (clientX: number) => {
     if (!canSlide || isUpdating) return;

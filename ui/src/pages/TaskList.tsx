@@ -225,12 +225,24 @@ const DraftTasks = () => {
   };
 
   // Set up change event listeners for real-time updates
-  const { callToolWithEvent } = useChangeEvents({
+  // Suppress the immediate refetch after our own optimistic updates
+  const suppressNextRefreshRef = React.useRef(false);
+
+  const { callToolWithEvent, emitTaskChanged, emitProjectChanged, emitDataChanged } = useChangeEvents({
     onTaskChanged: () => {
+      if (suppressNextRefreshRef.current) {
+        // Skip one refresh triggered by our own optimistic update
+        suppressNextRefreshRef.current = false;
+        return;
+      }
       console.log('Task changed event received, refreshing entities');
       fetchAllEntities();
     },
     onProjectChanged: () => {
+      if (suppressNextRefreshRef.current) {
+        suppressNextRefreshRef.current = false;
+        return;
+      }
       console.log('Project changed event received, refreshing entities');
       fetchAllEntities();
     }
@@ -386,26 +398,53 @@ const DraftTasks = () => {
 
   const handleMoveEntity = async (entityId: number, newStage: TaskStage) => {
     try {
-      // Find the entity to get its template_id
-      const entity = allEntities.find(e => e.id === entityId);
+      // Find the entity (search recursively across hierarchy) to get its template_id
+      const entity = findEntityById(allEntities, entityId);
       if (!entity) {
         console.error('Entity not found:', entityId);
         return;
       }
 
+      // 1) Optimistically update local state to avoid flicker
+      const updateStageInTree = (nodes: UnifiedEntity[]): UnifiedEntity[] =>
+        nodes.map(n => {
+          if (n.id === entityId) {
+            return { ...n, stage: newStage };
+          }
+          if (n.children && n.children.length) {
+            return { ...n, children: updateStageInTree(n.children) };
+          }
+          return n;
+        });
+
+      setAllEntities(prev => updateStageInTree(prev));
+
+      // 2) Persist change via MCP, then broadcast to other tabs without forcing a local refetch
       const updateObjectTool = tools.find(tool => tool.name === 'update_object');
       if (updateObjectTool && isConnected && callToolWithEvent) {
-        // Use callToolWithEvent to trigger events after successful update
-        await callToolWithEvent('update_object', { 
+        await callToolWithEvent('update_object', {
           object_id: entityId,
           template_id: entity.template_id,
-          stage: newStage 
+          stage: newStage,
         });
-        // No need to manually refresh - the event system will handle it
+
+        // Mark to suppress the immediately following refresh caused by our own emit
+        suppressNextRefreshRef.current = true;
+
+        // Emit granular change events for cross-tab sync
+        if (entity.type === 'Task') {
+          emitTaskChanged();
+        } else {
+          emitProjectChanged();
+        }
+        // Also emit generic data change to catch any other listeners
+        emitDataChanged();
       }
     } catch (err) {
       console.error('Error moving entity:', err);
       setError(err instanceof Error ? err.message : 'Failed to move entity');
+      // If optimistic update went through but server failed, refresh to reconcile
+      await fetchAllEntities();
     }
   };
 
@@ -686,7 +725,8 @@ const DraftTasks = () => {
                       stages={stages}
                       getPreviousStage={getPreviousStage}
                       getNextStage={getNextStage}
-                      enableSliding={false}
+                      // Enable sliding when the entity has a stage
+                      enableSliding={!!entity.stage}
                       selectedStages={selectedStages}
                       onTaskDoubleClick={handleEntityView}
                     />
@@ -703,7 +743,8 @@ const DraftTasks = () => {
                     stages={stages}
                     getPreviousStage={getPreviousStage}
                     getNextStage={getNextStage}
-                    enableSliding={entity.type === 'Task'}
+                    // Allow sliding for any entity with a stage (tasks always have one)
+                    enableSliding={!!entity.stage}
                   />
                 );
               })}
