@@ -268,8 +268,20 @@ const DraftTasks = () => {
     setEditingTaskId(taskId);
   };
   
+  const findEntityById = (entities: UnifiedEntity[], id: number): UnifiedEntity | undefined => {
+    for (const e of entities) {
+      if (e.id === id) return e;
+      if (e.children && e.children.length) {
+        const found = findEntityById(e.children, id);
+        if (found) return found;
+      }
+    }
+    return undefined;
+  };
+
   const handleEntityView = (entityId: number) => {
-    const entity = allEntities.find(e => e.id === entityId);
+    // Search recursively across the full hierarchy
+    const entity = findEntityById(allEntities, entityId);
     if (entity) {
       console.log(`TaskList DEBUG: Found entity for ID ${entityId}:`, entity);
       console.log(`TaskList DEBUG: Setting viewingEntityType to ${entity.type} and viewingEntityId to ${entityId}`);
