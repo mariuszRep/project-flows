@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { HeaderAndSidebarLayout } from '@/components/layout/HeaderAndSidebarLayout';
 import { Button } from '@/components/ui/button';
 import { UnifiedEntityCard } from '@/components/ui/unified-entity-card';
+import { EnhancedEntityCard } from '@/components/ui/enhanced-entity-card';
 import { Badge } from '@/components/ui/badge';
 import { useMCP } from '@/contexts/MCPContext';
 import { useProject } from '@/contexts/ProjectContext';
@@ -73,8 +74,17 @@ const DraftTasks = () => {
     { key: 'completed', title: 'Completed', color: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' }
   ];
 
+  // Choose base entities: if a single project is selected, display its children instead of the project card
+  const baseEntities: UnifiedEntity[] = (() => {
+    if (selectedProjectId !== null) {
+      const root = allEntities.find(e => e.id === selectedProjectId);
+      return root?.children || [];
+    }
+    return allEntities;
+  })();
+
   // Get filtered entities based on selected stages and sort chronologically
-  const filteredEntities = allEntities
+  const filteredEntities = baseEntities
     .filter(entity => {
       // For tasks, filter by selected stages. For other entities, show all
       if (entity.type === 'Task' && entity.stage) {
@@ -102,6 +112,34 @@ const DraftTasks = () => {
       return b.id - a.id;
     });
 
+  // Function to build hierarchical structure from flat entity list
+  const buildHierarchy = (entities: UnifiedEntity[]): UnifiedEntity[] => {
+    // Create a map for quick lookup
+    const entityMap = new Map<number, UnifiedEntity>();
+    const result: UnifiedEntity[] = [];
+    
+    // First pass: create a map of all entities with empty children arrays
+    entities.forEach(entity => {
+      entityMap.set(entity.id, { ...entity, children: [] });
+    });
+    
+    // Second pass: build parent-child relationships
+    entities.forEach(entity => {
+      const currentEntity = entityMap.get(entity.id)!;
+      
+      if (entity.parent_id && entityMap.has(entity.parent_id)) {
+        // This entity has a parent - add it to parent's children
+        const parent = entityMap.get(entity.parent_id)!;
+        parent.children!.push(currentEntity);
+      } else {
+        // This entity has no parent or parent not found - add to root level
+        result.push(currentEntity);
+      }
+    });
+    
+    return result;
+  };
+
   // Fetch all entities from MCP using list_objects
   const fetchAllEntities = async () => {
     setIsLoading(true);
@@ -112,38 +150,70 @@ const DraftTasks = () => {
         const listObjectsTool = tools.find(tool => tool.name === 'list_objects');
         
         if (listObjectsTool) {
-          // Build arguments for list_objects, including parent_id if a project is selected
-          const listObjectsArgs: any = {};
+          let allEntities: UnifiedEntity[] = [];
+          
           if (selectedProjectId !== null) {
-            listObjectsArgs.parent_id = selectedProjectId;
-            console.log(`Calling list_objects with parent_id: ${selectedProjectId}`);
+            // When a project is selected, fetch ALL descendants (multi-level)
+            console.log(`Fetching all descendants for project: ${selectedProjectId}`);
+
+            // Get all objects, then filter to the selected project's subtree
+            const allResult = await callTool('list_objects', {});
+            const allContentText = allResult?.content?.[0]?.text || '';
+
+            if (allContentText) {
+              const allJson = JSON.parse(allContentText);
+              const allArray = Array.isArray(allJson) ? allJson : allJson.objects;
+
+              if (Array.isArray(allArray)) {
+                const allMappedEntities = allArray.map(mapToUnifiedEntity);
+
+                // Build adjacency map parent_id -> children ids
+                const childrenByParent = new Map<number, number[]>();
+                for (const e of allMappedEntities) {
+                  if (e.parent_id) {
+                    const list = childrenByParent.get(e.parent_id) || [];
+                    list.push(e.id);
+                    childrenByParent.set(e.parent_id, list);
+                  }
+                }
+
+                // BFS to collect all descendant ids including root project
+                const toVisit: number[] = [selectedProjectId];
+                const includeIds = new Set<number>([selectedProjectId]);
+                while (toVisit.length) {
+                  const cur = toVisit.shift()!;
+                  const kids = childrenByParent.get(cur) || [];
+                  for (const kid of kids) {
+                    if (!includeIds.has(kid)) {
+                      includeIds.add(kid);
+                      toVisit.push(kid);
+                    }
+                  }
+                }
+
+                // Filter to subtree and rebuild hierarchy so parents have children arrays
+                const subtree = allMappedEntities.filter(e => includeIds.has(e.id));
+                allEntities = buildHierarchy(subtree);
+              }
+            }
           } else {
+            // No project selected - get all objects
             console.log('Calling list_objects for all objects');
+            const result = await callTool('list_objects', {});
+            const contentText = result?.content?.[0]?.text || '';
+            
+            if (contentText) {
+              const json = JSON.parse(contentText);
+              const arr = Array.isArray(json) ? json : json.objects;
+              if (Array.isArray(arr)) {
+                const mappedEntities = arr.map(mapToUnifiedEntity);
+                allEntities = buildHierarchy(mappedEntities);
+              }
+            }
           }
           
-          const result = await callTool('list_objects', listObjectsArgs);
-          const contentText = result?.content?.[0]?.text || '';
-          if (!contentText) { 
-            setAllEntities([]); 
-            return; 
-          }
-
-          // Parse JSON response - expect only JSON format from list_objects
-          try {
-            const json = JSON.parse(contentText);
-            const arr = Array.isArray(json) ? json : json.objects;
-            if (Array.isArray(arr)) {
-              const mappedEntities = arr.map(mapToUnifiedEntity);
-              setAllEntities(mappedEntities);
-              return;
-            } else {
-              throw new Error('Invalid JSON format: expected array or object with objects property');
-            }
-          } catch (e) {
-            console.error('Error parsing list_objects JSON:', e);
-            setError('Failed to parse server response. Expected JSON format.');
-            setAllEntities([]);
-          }
+          setAllEntities(allEntities || []);
+          return;
         }
       }
     } catch (err) {
@@ -591,6 +661,26 @@ const DraftTasks = () => {
             </div>
             <div className="space-y-3 w-full">
               {filteredEntities.map((entity) => {
+                const isEpicOrProject = entity.type === 'Epic' || entity.type === 'Project';
+
+                if (isEpicOrProject) {
+                  return (
+                    <EnhancedEntityCard
+                      key={`${entity.type}-${entity.id}`}
+                      entity={entity}
+                      onStageChange={handleMoveEntity}
+                      onDoubleClick={() => handleEntityView(entity.id)}
+                      getStageColor={getStageColor}
+                      stages={stages}
+                      getPreviousStage={getPreviousStage}
+                      getNextStage={getNextStage}
+                      enableSliding={false}
+                      selectedStages={selectedStages}
+                      onTaskDoubleClick={handleEntityView}
+                    />
+                  );
+                }
+
                 return (
                   <UnifiedEntityCard
                     key={`${entity.type}-${entity.id}`}
