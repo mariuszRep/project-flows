@@ -92,11 +92,32 @@ export class ObjectTools {
           required: ["object_id", "template_id"],
         },
       } as Tool,
+      {
+        name: "list_objects",
+        description: "List all objects with their ID, Title, Summary, Stage, Type, and Parent. Shows hierarchical relationships. Optionally filter by stage, type, or project.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            template_id: {
+              type: "number",
+              description: "Optional template ID to filter objects"
+            },
+            parent_id: {
+              type: "number",
+              description: "Optional parent ID to filter child objects"
+            },
+            stage: {
+              type: "string",
+              description: "Optional stage filter: 'draft', 'backlog', 'doing', 'review', or 'completed'"
+            }
+          }
+        },
+      } as Tool,
     ];
   }
 
   canHandle(toolName: string): boolean {
-    return ["create_object", "update_object", "get_object", "delete_object"].includes(toolName);
+    return ["create_object", "update_object", "get_object", "delete_object", "list_objects"].includes(toolName);
   }
 
   async handle(name: string, toolArgs?: Record<string, any>) {
@@ -109,6 +130,8 @@ export class ObjectTools {
         return await this.handleGetObject(toolArgs);
       case "delete_object":
         return await this.handleDeleteObject(toolArgs);
+      case "list_objects":
+        return await this.handleListObjects(toolArgs);
       default:
         throw new Error(`Unknown object tool: ${name}`);
     }
@@ -501,7 +524,7 @@ export class ObjectTools {
     
     // Build blocks object from object properties
     const blocks: Record<string, string> = {};
-    const systemFields = ['id', 'stage', 'template_id', 'parent_id', 'created_at', 'updated_at', 'created_by', 'updated_by'];
+    const systemFields = ['id', 'stage', 'template_id', 'parent_id', 'parent_name', 'created_at', 'updated_at', 'created_by', 'updated_by'];
     
     for (const [key, value] of Object.entries(object)) {
       if (!systemFields.includes(key) && value) {
@@ -635,6 +658,55 @@ export class ObjectTools {
           {
             type: "text",
             text: JSON.stringify(jsonResponse, null, 2),
+          } as TextContent,
+        ],
+      };
+    }
+  }
+
+  private async handleListObjects(toolArgs?: Record<string, any>) {
+    const templateId = toolArgs?.template_id as number | undefined;
+    const parentId = toolArgs?.parent_id as number | undefined;
+    const stage = toolArgs?.stage as TaskStage | undefined;
+
+    try {
+      const objects = await this.sharedDbService.listTasks(stage, parentId, templateId);
+      
+      const formattedObjects = objects.map(object => {
+        const typeDisplay = object.template_id === 1 ? 'Task' : object.template_id === 2 ? 'Project' : 'Epic';
+        return {
+          id: object.id,
+          title: object.Title || 'Untitled',
+          description: object.Description || '',
+          stage: object.stage || 'draft',
+          type: typeDisplay,
+          template_id: object.template_id,
+          parent_id: object.parent_id,
+          created_at: object.created_at,
+          updated_at: object.updated_at,
+        };
+      });
+
+      const jsonResponse = {
+        count: formattedObjects.length,
+        objects: formattedObjects,
+      };
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(jsonResponse, null, 2),
+          } as TextContent,
+        ],
+      };
+    } catch (error) {
+      console.error('Error listing objects:', error);
+      return {
+        content: [
+          {
+            type: "text",
+            text: "Error: Failed to list objects from database.",
           } as TextContent,
         ],
       };
