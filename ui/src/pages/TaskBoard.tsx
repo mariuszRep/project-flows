@@ -50,6 +50,8 @@ export default function Board() {
     taskTitle: '',
   });
 
+  const suppressNextRefreshRef = React.useRef(false);
+
   // Fetch tasks from MCP tools
   const fetchTasks = async () => {
     setIsLoading(true);
@@ -189,10 +191,18 @@ export default function Board() {
   // Set up change event listeners for real-time updates
   const { callToolWithEvent } = useChangeEvents({
     onTaskChanged: () => {
+      if (suppressNextRefreshRef.current) {
+        suppressNextRefreshRef.current = false;
+        return;
+      }
       console.log('Task changed event received, refreshing tasks');
       fetchTasks();
     },
     onProjectChanged: () => {
+      if (suppressNextRefreshRef.current) {
+        suppressNextRefreshRef.current = false;
+        return;
+      }
       console.log('Project changed event received, refreshing tasks');
       fetchTasks();
     }
@@ -224,6 +234,8 @@ export default function Board() {
       );
       
       if (updateTool && taskId && newStage) {
+        // Suppress the refresh from the event
+        suppressNextRefreshRef.current = true;
         // Use callToolWithEvent to trigger events after successful update
         await callToolWithEvent(updateTool.name, {
           task_id: taskId,

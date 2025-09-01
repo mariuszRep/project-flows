@@ -422,23 +422,14 @@ const DraftTasks = () => {
       // 2) Persist change via MCP, then broadcast to other tabs without forcing a local refetch
       const updateObjectTool = tools.find(tool => tool.name === 'update_object');
       if (updateObjectTool && isConnected && callToolWithEvent) {
+        // Mark to suppress the refresh that will be triggered by the notification
+        suppressNextRefreshRef.current = true;
+
         await callToolWithEvent('update_object', {
           object_id: entityId,
           template_id: entity.template_id,
           stage: newStage,
         });
-
-        // Mark to suppress the immediately following refresh caused by our own emit
-        suppressNextRefreshRef.current = true;
-
-        // Emit granular change events for cross-tab sync
-        if (entity.type === 'Task') {
-          emitTaskChanged();
-        } else {
-          emitProjectChanged();
-        }
-        // Also emit generic data change to catch any other listeners
-        emitDataChanged();
       }
     } catch (err) {
       console.error('Error moving entity:', err);
