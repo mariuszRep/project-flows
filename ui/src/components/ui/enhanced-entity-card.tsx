@@ -11,7 +11,7 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
 interface EnhancedEntityCardProps {
   entity: UnifiedEntity;
   onStageChange?: (entityId: number, newStage: TaskStage) => void;
-  onDoubleClick: () => void;
+  onDoubleClick?: (entityId: number) => void;
   getStageColor?: (stage: TaskStage) => string;
   stages?: { key: TaskStage; title: string; color: string }[];
   getPreviousStage?: (currentStage: TaskStage) => TaskStage;
@@ -276,16 +276,9 @@ export const EnhancedEntityCard: React.FC<EnhancedEntityCardProps> = ({
         className={`card-hover w-full select-none ${
           isUpdating ? 'opacity-60' : ''
         } ${isSliding ? 'shadow-lg' : ''} ${getCardVariantClasses()}`}
+        onDoubleClick={() => onDoubleClick && onDoubleClick(entity.id)}
       >
-        <CardContent 
-          className="p-4 w-full cursor-pointer"
-          onClick={showExpandToggle ? (e) => {
-            // Don't expand if clicking on the chevron button
-            if ((e.target as HTMLElement).closest('button')) return;
-            setIsExpanded(!isExpanded);
-          } : undefined}
-          onDoubleClick={onDoubleClick}
-        >
+        <CardContent className="p-4 w-full cursor-pointer">
           <div className="flex items-center justify-between w-full">
             <div className="flex-1 min-w-0 pr-4">
               <div className="flex items-center gap-3 mb-2">

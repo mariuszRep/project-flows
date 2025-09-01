@@ -669,7 +669,7 @@ const DraftTasks = () => {
                       key={`${entity.type}-${entity.id}`}
                       entity={entity}
                       onStageChange={handleMoveEntity}
-                      onDoubleClick={() => handleEntityView(entity.id)}
+                      onDoubleClick={handleEntityView}
                       getStageColor={getStageColor}
                       stages={stages}
                       getPreviousStage={getPreviousStage}
