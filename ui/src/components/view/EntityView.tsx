@@ -210,35 +210,45 @@ const EntityView: React.FC<EntityViewProps> = ({
       }
 
       if (!entityId) {
-        throw new Error(`No ${entityType} ID provided`);
+        throw new Error(`No entity ID provided`);
       }
 
-      // Get entity data based on type
-      const toolName = entityType === 'task' ? 'get_task' : 'get_project';
-      const paramKey = entityType === 'task' ? 'task_id' : 'project_id';
-      
-      const result = await callTool(toolName, {
-        [paramKey]: entityId
+      // Determine template_id first - prioritize propTemplateId over internal templateId
+      let effectiveTemplateId = propTemplateId || templateId;
+      if (!effectiveTemplateId) {
+        // Use fallback based on entityType
+        effectiveTemplateId = entityType === 'task' ? 1 : 2; // Default to project for non-tasks
+      }
+
+      console.log(`EntityView DEBUG: entityType=${entityType}, entityId=${entityId}, templateId=${templateId}, propTemplateId=${propTemplateId}, effectiveTemplateId=${effectiveTemplateId}`);
+
+      // Use unified get_object tool
+      const result = await callTool('get_object', {
+        object_id: entityId,
+        template_id: effectiveTemplateId
       });
       
       if (result && result.content && result.content[0]) {
         try {
+          console.log('EntityView DEBUG: raw result:', result.content[0].text);
           const entityData = JSON.parse(result.content[0].text);
+          console.log('EntityView DEBUG: parsed entityData:', entityData);
           setEntity(entityData);
 
-          // Derive template ID for this entity
+          // Update template ID if the entity data provides one
           const derivedTemplateId = await deriveTemplateId(entityData);
+          console.log('EntityView DEBUG: derivedTemplateId:', derivedTemplateId);
           setTemplateId(derivedTemplateId);
         } catch (e) {
-          console.error(`Error parsing ${entityType} JSON:`, e);
-          setError(`Error parsing ${entityType} data`);
+          console.error(`Error parsing entity JSON:`, e, 'Raw text:', result.content[0].text);
+          setError(`Error parsing entity data`);
         }
       } else {
-        throw new Error(`Failed to fetch ${entityType} details`);
+        throw new Error(`Failed to fetch entity details`);
       }
     } catch (err) {
-      console.error(`Error fetching ${entityType}:`, err);
-      setError(`Error: ${err instanceof Error ? err.message : `Failed to fetch ${entityType} details`}`);
+      console.error(`Error fetching entity:`, err);
+      setError(`Error: ${err instanceof Error ? err.message : `Failed to fetch entity details`}`);
     } finally {
       setIsLoading(false);
     }
@@ -338,7 +348,7 @@ const EntityView: React.FC<EntityViewProps> = ({
             <Button variant="outline" size="icon" onClick={onEdit}>
               <Edit className="h-4 w-4" />
             </Button>
-            {entityType === 'task' && (
+            {(templateId === 1 || entity?.type === 'Task') && (
               <Button 
                 variant="outline" 
                 size="icon" 
@@ -357,7 +367,7 @@ const EntityView: React.FC<EntityViewProps> = ({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  {entityType === 'task' && entity && onTaskUpdate && (
+                  {entity && entity.stage && onTaskUpdate && (
                     <>
                       {entity.stage !== 'doing' && (
                         <DropdownMenuItem onClick={() => handleStageMove('doing')}>
@@ -419,8 +429,20 @@ const EntityView: React.FC<EntityViewProps> = ({
                     <Badge variant="outline" className="text-xs">
                       #{entityId}
                     </Badge>
-                    {/* Stage badge only for tasks */}
-                    {entityType === 'task' && entity.stage && (
+                    {/* Generic type badge based on template_id or entity data */}
+                    <Badge variant="outline" className={`text-xs ${
+                      templateId === 1 || entity.type === 'Task' ? 'bg-blue-50 text-blue-700 dark:bg-blue-900 dark:text-blue-300' :
+                      templateId === 2 || entity.type === 'Project' ? 'bg-green-50 text-green-700 dark:bg-green-900 dark:text-green-300' :
+                      templateId === 3 || entity.type === 'Epic' ? 'bg-purple-50 text-purple-700 dark:bg-purple-900 dark:text-purple-300' :
+                      'bg-gray-50 text-gray-700 dark:bg-gray-900 dark:text-gray-300'
+                    }`}>
+                      {templateId === 1 || entity.type === 'Task' ? 'Task' :
+                       templateId === 2 || entity.type === 'Project' ? 'Project' :
+                       templateId === 3 || entity.type === 'Epic' ? 'Epic' :
+                       'Entity'}
+                    </Badge>
+                    {/* Stage badge for any entity that has a stage */}
+                    {entity.stage && (
                       <Badge 
                         className={`
                           ${entity.stage === 'draft' ? 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200' : ''}
@@ -434,15 +456,9 @@ const EntityView: React.FC<EntityViewProps> = ({
                       </Badge>
                     )}
                     {/* Project badge for tasks */}
-                    {entityType === 'task' && entity.parent_name && (
+                    {(templateId === 1 || entity.type === 'Task') && entity.parent_name && (
                       <Badge variant="outline" className="text-xs">
                         Project: {entity.parent_name}
-                      </Badge>
-                    )}
-                    {/* Entity type badge for projects */}
-                    {entityType === 'project' && (
-                      <Badge variant="outline" className="text-xs bg-green-50 text-green-700 dark:bg-green-900 dark:text-green-300">
-                        Project
                       </Badge>
                     )}
                     {entity.created_at && (

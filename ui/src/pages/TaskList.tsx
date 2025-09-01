@@ -1,22 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { HeaderAndSidebarLayout } from '@/components/layout/HeaderAndSidebarLayout';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { SlidableTaskCard } from '@/components/ui/slidable-task-card';
+import { UnifiedEntityCard } from '@/components/ui/unified-entity-card';
 import { Badge } from '@/components/ui/badge';
-import { Checkbox } from '@/components/ui/checkbox';
 import { useMCP } from '@/contexts/MCPContext';
 import { useProject } from '@/contexts/ProjectContext';
 import { Task, TaskStage } from '@/types/task';
 import { Project } from '@/types/project';
+import { UnifiedEntity, mapToUnifiedEntity } from '@/types/unified-entity';
 import { useChangeEvents } from '@/hooks/useChangeEvents';
 import { MCPDisconnectedState } from '@/components/ui/empty-state';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { ProjectSidebar } from '@/components/ui/project-sidebar';
 import { parseTaskDate } from '@/lib/utils';
-// import ProjectEditForm from '@/components/forms/ProjectEditForm'; // Replaced by UnifiedForm
-import { FileText, Plus, Edit, ArrowRight, Filter } from 'lucide-react';
+import { FileText, Plus, ArrowRight, Filter } from 'lucide-react';
 import UnifiedForm from '@/components/forms/UnifiedForm';
 import TaskView from '@/components/view/TaskView';
 import ProjectView from '@/components/view/ProjectView';
@@ -34,7 +32,7 @@ const DraftTasks = () => {
     getSelectedProject 
   } = useProject();
   
-  const [allTasks, setAllTasks] = useState<Task[]>([]);
+  const [allEntities, setAllEntities] = useState<UnifiedEntity[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showCreateProjectForm, setShowCreateProjectForm] = useState(false);
@@ -45,7 +43,11 @@ const DraftTasks = () => {
   // Filter state - default to all stages selected
   const [selectedStages, setSelectedStages] = useState<TaskStage[]>(['draft', 'backlog', 'doing', 'review', 'completed']);
   
-  // Edit task state
+  // Entity viewing state
+  const [viewingEntityId, setViewingEntityId] = useState<number | null>(null);
+  const [viewingEntityType, setViewingEntityType] = useState<'Task' | 'Project' | 'Epic' | null>(null);
+  
+  // Edit entity state
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
   const [viewingTaskId, setViewingTaskId] = useState<number | null>(null);
   
@@ -71,14 +73,17 @@ const DraftTasks = () => {
     { key: 'completed', title: 'Completed', color: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' }
   ];
 
-  // Get filtered tasks based on selected stages (project filtering handled by server)
-  const filteredTasks = allTasks
-    .filter(task => {
-      const stageMatch = selectedStages.includes(task.stage);
-      return stageMatch;
+  // Get filtered entities based on selected stages and sort chronologically
+  const filteredEntities = allEntities
+    .filter(entity => {
+      // For tasks, filter by selected stages. For other entities, show all
+      if (entity.type === 'Task' && entity.stage) {
+        return selectedStages.includes(entity.stage);
+      }
+      return true; // Show all Projects and Epics
     })
     .sort((a, b) => {
-      // Try to use timestamps first, but fall back to ID if timestamps are missing or invalid
+      // Chronological sorting by updated_at timestamp (most recent first)
       const aHasValidTime = a.updated_at || a.created_at;
       const bHasValidTime = b.updated_at || b.created_at;
       
@@ -97,108 +102,53 @@ const DraftTasks = () => {
       return b.id - a.id;
     });
 
-  // Fetch all tasks from MCP
-  const fetchAllTasks = async () => {
+  // Fetch all entities from MCP using list_objects
+  const fetchAllEntities = async () => {
     setIsLoading(true);
     setError(null);
     
     try {
       if (isConnected && callTool && tools.length > 0) {
-        const listTasksTool = tools.find(tool => tool.name === 'list_tasks');
+        const listObjectsTool = tools.find(tool => tool.name === 'list_objects');
         
-        if (listTasksTool) {
-          // Build arguments for list_tasks, including project_id if a project is selected
-          const listTasksArgs: any = {};
+        if (listObjectsTool) {
+          // Build arguments for list_objects, including parent_id if a project is selected
+          const listObjectsArgs: any = {};
           if (selectedProjectId !== null) {
-            listTasksArgs.project_id = selectedProjectId;
-            console.log(`Calling list_tasks with project_id: ${selectedProjectId}`);
+            listObjectsArgs.parent_id = selectedProjectId;
+            console.log(`Calling list_objects with parent_id: ${selectedProjectId}`);
           } else {
-            console.log('Calling list_tasks for all projects');
+            console.log('Calling list_objects for all objects');
           }
           
-          const result = await callTool('list_tasks', listTasksArgs);
-          
-          if (result && result.content && result.content[0]) {
-            const contentText = result.content[0].text;
-            
-            // Check if response is JSON (object or array)
-            if (contentText.trim().startsWith('{') || contentText.trim().startsWith('[')) {
-              try {
-                const jsonResponse = JSON.parse(contentText);
-                
-                // Handle new JSON response format with { tasks: [...], count: number }
-                let tasksArray;
-                if (jsonResponse.tasks && Array.isArray(jsonResponse.tasks)) {
-                  tasksArray = jsonResponse.tasks;
-                } else if (Array.isArray(jsonResponse)) {
-                  // Handle simple array format as fallback
-                  tasksArray = jsonResponse;
-                } else {
-                  console.warn('Unexpected JSON response format:', jsonResponse);
-                  setAllTasks([]);
-                  return;
-                }
+          const result = await callTool('list_objects', listObjectsArgs);
+          const contentText = result?.content?.[0]?.text || '';
+          if (!contentText) { 
+            setAllEntities([]); 
+            return; 
+          }
 
-                const parsedTasks = tasksArray.map((taskData: any) => ({
-                  id: taskData.id,
-                  title: taskData.title || taskData.Title || 'Untitled Task',
-                  body: taskData.description || taskData.Description || taskData.Summary || '',
-                  stage: taskData.stage as TaskStage,
-                  project_id: taskData.parent_id || taskData.project_id,
-                  created_at: taskData.created_at || null,
-                  updated_at: taskData.updated_at || null,
-                  created_by: taskData.created_by || 'user@example.com',
-                  updated_by: taskData.updated_by || 'user@example.com'
-                }));
-                setAllTasks(parsedTasks);
-              } catch (e) {
-                console.error('Error parsing JSON response:', e);
-                setError('Error parsing task list response');
-                setAllTasks([]);
-              }
-            } else if (contentText.includes('No tasks found')) {
-              setAllTasks([]);
+          // Parse JSON response - expect only JSON format from list_objects
+          try {
+            const json = JSON.parse(contentText);
+            const arr = Array.isArray(json) ? json : json.objects;
+            if (Array.isArray(arr)) {
+              const mappedEntities = arr.map(mapToUnifiedEntity);
+              setAllEntities(mappedEntities);
+              return;
             } else {
-              // Fallback to markdown table parsing for compatibility
-              const lines = contentText.split('\n').filter(line => line.trim());
-              const taskRows = lines.slice(2); // Skip header and separator
-              
-              const parsedTasks = taskRows.map((row, index) => {
-                const columns = row.split('|').map(col => col.trim());
-                // Don't filter out empty columns - keep them to maintain column positions
-                
-                if (columns.length >= 7) { // Need at least 7 elements: ['', id, title, summary, stage, project_name, project_id, '']
-                  const id = parseInt(columns[1]) || index + 1; // Skip first empty element
-                  const title = columns[2] || 'Untitled Task';
-                  const summary = columns[3] || '';
-                  const stage = columns[4] || 'draft';
-                  const projectName = columns[5]; // Project name for display
-                  const projectIdColumn = columns[6]; // Project ID for filtering
-                  const projectId = projectIdColumn === 'None' ? undefined : parseInt(projectIdColumn);
-                  
-                  return {
-                    id,
-                    title,
-                    body: summary,
-                    stage: stage as TaskStage,
-                    project_id: projectId,
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                    created_by: 'user@example.com',
-                    updated_by: 'user@example.com'
-                  };
-                }
-                return null;
-              }).filter(task => task !== null);
-              
-              setAllTasks(parsedTasks);
+              throw new Error('Invalid JSON format: expected array or object with objects property');
             }
+          } catch (e) {
+            console.error('Error parsing list_objects JSON:', e);
+            setError('Failed to parse server response. Expected JSON format.');
+            setAllEntities([]);
           }
         }
       }
     } catch (err) {
-      console.error('Error fetching tasks:', err);
-      setError(err instanceof Error ? err.message : 'Failed to fetch tasks');
+      console.error('Error fetching entities:', err);
+      setError(err instanceof Error ? err.message : 'Failed to fetch entities');
     } finally {
       setIsLoading(false);
     }
@@ -207,18 +157,18 @@ const DraftTasks = () => {
   // Set up change event listeners for real-time updates
   const { callToolWithEvent } = useChangeEvents({
     onTaskChanged: () => {
-      console.log('Task changed event received, refreshing tasks');
-      fetchAllTasks();
+      console.log('Task changed event received, refreshing entities');
+      fetchAllEntities();
     },
     onProjectChanged: () => {
-      console.log('Project changed event received, refreshing tasks');
-      fetchAllTasks();
+      console.log('Project changed event received, refreshing entities');
+      fetchAllEntities();
     }
   });
 
   // Initial fetch when component mounts or dependencies change
   useEffect(() => {
-    fetchAllTasks();
+    fetchAllEntities();
   }, [isConnected, tools, selectedProjectId]);
 
   const handleStageToggle = (stage: TaskStage, ctrlKey: boolean = false) => {
@@ -248,9 +198,27 @@ const DraftTasks = () => {
     setEditingTaskId(taskId);
   };
   
-  const handleTaskView = (taskId: number) => {
-    console.log('View task:', taskId);
-    setViewingTaskId(taskId);
+  const handleEntityView = (entityId: number) => {
+    const entity = allEntities.find(e => e.id === entityId);
+    if (entity) {
+      console.log(`TaskList DEBUG: Found entity for ID ${entityId}:`, entity);
+      console.log(`TaskList DEBUG: Setting viewingEntityType to ${entity.type} and viewingEntityId to ${entityId}`);
+      
+      setViewingEntityId(entityId);
+      setViewingEntityType(entity.type);
+      
+      // For backward compatibility, set specific view states
+      if (entity.type === 'Task') {
+        console.log(`TaskList DEBUG: Setting viewingTaskId to ${entityId}`);
+        setViewingTaskId(entityId);
+      } else if (entity.type === 'Project' || entity.type === 'Epic') {
+        console.log(`TaskList DEBUG: Setting viewingProjectId to ${entityId}, entity type is ${entity.type}`);
+        setViewingProjectId(entityId);
+      }
+    } else {
+      console.error('TaskList ERROR: Entity not found for ID:', entityId);
+      console.log('TaskList DEBUG: Available entities:', allEntities.map(e => ({id: e.id, type: e.type, template_id: e.template_id})));
+    }
   };
   
   const handleSwitchToEdit = () => {
@@ -260,12 +228,12 @@ const DraftTasks = () => {
     }
   };
   
-  const handleEditSuccess = async (task: Task) => {
-    console.log('Task updated successfully:', task);
+  const handleEditSuccess = async (entity: Task | Project) => {
+    console.log('Entity updated successfully:', entity);
     setEditingTaskId(null);
     setError(null);
-    // Refresh tasks after successful update
-    await fetchAllTasks();
+    // Refresh entities after successful update
+    await fetchAllEntities();
   };
   
   const handleEditCancel = () => {
@@ -289,18 +257,26 @@ const DraftTasks = () => {
     }
 
     try {
-      const deleteTool = tools.find(tool => tool.name === 'delete_task');
+      // Find the entity to get its template_id
+      const entity = allEntities.find(e => e.id === deleteDialog.taskId);
+      if (!entity) {
+        console.error('Entity not found:', deleteDialog.taskId);
+        return;
+      }
+
+      const deleteTool = tools.find(tool => tool.name === 'delete_object');
       
       if (deleteTool) {
         // Use callToolWithEvent to trigger events after successful deletion
-        const result = await callToolWithEvent('delete_task', {
-          task_id: deleteDialog.taskId
+        const result = await callToolWithEvent('delete_object', {
+          object_id: deleteDialog.taskId,
+          template_id: entity.template_id
         });
         
         console.log('Delete result:', result);
         
-        // Remove task from local state immediately for better UX
-        setAllTasks(prevTasks => prevTasks.filter(task => task.id !== deleteDialog.taskId));
+        // Remove entity from local state immediately for better UX
+        setAllEntities(prevEntities => prevEntities.filter(entity => entity.id !== deleteDialog.taskId));
         
         // Close edit form if the deleted task was being edited
         if (editingTaskId === deleteDialog.taskId) {
@@ -315,8 +291,8 @@ const DraftTasks = () => {
     } catch (err) {
       console.error('Error deleting task:', err);
       setError(err instanceof Error ? err.message : 'Failed to delete task');
-      // Refresh tasks in case of error to restore correct state
-      await fetchAllTasks();
+      // Refresh entities in case of error to restore correct state
+      await fetchAllEntities();
     } finally {
       setDeleteDialog({ isOpen: false, taskId: null, taskTitle: '' });
     }
@@ -326,17 +302,28 @@ const DraftTasks = () => {
     setDeleteDialog({ isOpen: false, taskId: null, taskTitle: '' });
   };
 
-  const handleMoveTask = async (taskId: number, newStage: TaskStage) => {
+  const handleMoveEntity = async (entityId: number, newStage: TaskStage) => {
     try {
-      const updateTaskTool = tools.find(tool => tool.name === 'update_task');
-      if (updateTaskTool && isConnected && callToolWithEvent) {
+      // Find the entity to get its template_id
+      const entity = allEntities.find(e => e.id === entityId);
+      if (!entity) {
+        console.error('Entity not found:', entityId);
+        return;
+      }
+
+      const updateObjectTool = tools.find(tool => tool.name === 'update_object');
+      if (updateObjectTool && isConnected && callToolWithEvent) {
         // Use callToolWithEvent to trigger events after successful update
-        await callToolWithEvent('update_task', { task_id: taskId, stage: newStage });
+        await callToolWithEvent('update_object', { 
+          object_id: entityId,
+          template_id: entity.template_id,
+          stage: newStage 
+        });
         // No need to manually refresh - the event system will handle it
       }
     } catch (err) {
-      console.error('Error moving task:', err);
-      setError(err instanceof Error ? err.message : 'Failed to move task');
+      console.error('Error moving entity:', err);
+      setError(err instanceof Error ? err.message : 'Failed to move entity');
     }
   };
 
@@ -356,16 +343,16 @@ const DraftTasks = () => {
     return stages.find(s => s.key === stage)?.color || 'bg-gray-100 text-gray-800';
   };
 
-  const EmptyTasksState = () => (
+  const EmptyEntitiesState = () => (
     <div className="text-center py-12">
       <FileText className="mx-auto h-16 w-16 text-muted-foreground mb-4" />
       <h3 className="text-lg font-semibold text-foreground mb-2">
-        No Tasks Found
+        No Items Found
       </h3>
       <p className="text-muted-foreground mb-6 max-w-md mx-auto">
         {selectedStages.length === 1 
-          ? `You don't have any tasks in ${stages.find(s => s.key === selectedStages[0])?.title.toLowerCase()} stage.`
-          : `You don't have any tasks in the selected stages.`
+          ? `No tasks or projects match ${stages.find(s => s.key === selectedStages[0])?.title.toLowerCase()} stage.`
+          : `No tasks or projects match the selected filters.`
         }
       </p>
       <div className="flex gap-3 justify-center">
@@ -423,12 +410,13 @@ const DraftTasks = () => {
     }
 
     try {
-      const deleteTool = tools.find(tool => tool.name === 'delete_task');
+      const deleteTool = tools.find(tool => tool.name === 'delete_object');
       
       if (deleteTool) {
         // Use callToolWithEvent to trigger events after successful deletion
-        const result = await callToolWithEvent('delete_task', {
-          task_id: projectId
+        const result = await callToolWithEvent('delete_object', {
+          object_id: projectId,
+          template_id: 2 // Projects have template_id = 2
         });
         
         console.log('Project delete result:', result);
@@ -460,8 +448,8 @@ const DraftTasks = () => {
     console.log('Task created successfully:', task);
     setShowAddTaskForm(false);
     setError(null);
-    // Refresh tasks
-    await fetchAllTasks();
+    // Refresh entities
+    await fetchAllEntities();
   };
 
   const handleTaskCancel = () => {
@@ -501,12 +489,12 @@ const DraftTasks = () => {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-foreground">
-              {selectedProject ? `${selectedProject.name} - Task Manager` : 'Task Manager'}
+              {selectedProject ? `${selectedProject.name} - Project Manager` : 'Project Manager'}
             </h1>
             <p className="text-sm text-muted-foreground">
               {selectedProject 
-                ? `Filter and manage tasks for ${selectedProject.name} project` 
-                : 'Filter and manage your tasks by stage'
+                ? `Manage tasks, projects, and epics for ${selectedProject.name}` 
+                : 'Manage your tasks, projects, and epics with chronological sorting'
               }
             </p>
           </div>
@@ -558,7 +546,7 @@ const DraftTasks = () => {
                       >
                         {stage.title}
                         <span className="ml-1 text-xs">
-                          ({allTasks.filter(t => t.stage === stage.key).length})
+                          ({allEntities.filter(e => e.type === 'Task' && e.stage === stage.key).length})
                         </span>
                       </Badge>
                     </button>
@@ -584,32 +572,36 @@ const DraftTasks = () => {
           <div className="flex items-center justify-center py-12">
             <div className="text-center">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-              <p className="text-muted-foreground">Loading tasks...</p>
+              <p className="text-muted-foreground">Loading items...</p>
             </div>
           </div>
         ) : !isConnected ? (
           <MCPDisconnectedState />
-        ) : filteredTasks.length === 0 ? (
-          <EmptyTasksState />
+        ) : filteredEntities.length === 0 ? (
+          <EmptyEntitiesState />
         ) : (
           <div className="w-full">
             <div className="flex items-center justify-between mb-4 w-full">
               <h2 className="text-lg font-semibold">
-                {filteredTasks.length} task{filteredTasks.length !== 1 ? 's' : ''} found
+                {filteredEntities.length} item{filteredEntities.length !== 1 ? 's' : ''} found
+                <span className="text-muted-foreground text-sm ml-2">
+                  ({filteredEntities.filter(e => e.type === 'Task').length} tasks, {filteredEntities.filter(e => e.type === 'Project').length} projects, {filteredEntities.filter(e => e.type === 'Epic').length} epics)
+                </span>
               </h2>
             </div>
             <div className="space-y-3 w-full">
-              {filteredTasks.map((task) => {
+              {filteredEntities.map((entity) => {
                 return (
-                  <SlidableTaskCard
-                    key={task.id}
-                    task={task}
-                    onStageChange={handleMoveTask}
-                    onDoubleClick={() => handleTaskView(task.id)}
+                  <UnifiedEntityCard
+                    key={`${entity.type}-${entity.id}`}
+                    entity={entity}
+                    onStageChange={handleMoveEntity}
+                    onDoubleClick={() => handleEntityView(entity.id)}
                     getStageColor={getStageColor}
                     stages={stages}
                     getPreviousStage={getPreviousStage}
                     getNextStage={getNextStage}
+                    enableSliding={entity.type === 'Task'}
                   />
                 );
               })}
@@ -641,9 +633,27 @@ const DraftTasks = () => {
         />
 
         <UnifiedForm
-          entityType="project"
+          entityType={(() => {
+            // For editing, determine entity type from the actual entity data
+            if (editingProjectId) {
+              const entity = allEntities.find(e => e.id === editingProjectId);
+              if (entity?.type === 'Epic') return 'epic';
+              if (entity?.type === 'Project') return 'project';
+            }
+            // Default for create mode
+            return 'project';
+          })()}
           mode={editingProjectId ? 'edit' : 'create'}
           entityId={editingProjectId || undefined}
+          templateId={(() => {
+            // For editing, get template_id from the actual entity data  
+            if (editingProjectId) {
+              const entity = allEntities.find(e => e.id === editingProjectId);
+              return entity?.template_id;
+            }
+            // Default for create mode (Project = template_id 2)
+            return 2;
+          })()}
           onSuccess={handleProjectSuccess}
           onCancel={handleProjectCancel}
           onDelete={handleProjectDelete}
@@ -665,15 +675,25 @@ const DraftTasks = () => {
           isOpen={!!viewingTaskId}
           onClose={() => setViewingTaskId(null)}
           onEdit={handleSwitchToEdit}
-          onTaskUpdate={handleMoveTask}
+          onTaskUpdate={handleMoveEntity}
           onDelete={handleTaskDelete}
         />
         
         <ProjectView
           projectId={viewingProjectId || 0}
           isOpen={!!viewingProjectId}
-          onClose={() => setViewingProjectId(null)}
+          onClose={() => {
+            setViewingProjectId(null);
+            setViewingEntityType(null);
+          }}
           onEdit={handleSwitchToProjectEdit}
+          templateId={(() => {
+            // Get the template_id directly from the entity data instead of relying on state
+            const entity = viewingProjectId ? allEntities.find(e => e.id === viewingProjectId) : null;
+            const templateId = entity?.template_id || (viewingEntityType === 'Epic' ? 3 : 2);
+            console.log(`ProjectView templateId: ${templateId} (entity: ${entity ? `${entity.type} #${entity.id} template_id=${entity.template_id}` : 'not found'}, viewingEntityType: ${viewingEntityType})`);
+            return templateId;
+          })()}
         />
       </div>
     </HeaderAndSidebarLayout>
