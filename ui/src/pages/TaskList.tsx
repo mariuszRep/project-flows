@@ -9,7 +9,6 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { useMCP } from '@/contexts/MCPContext';
 import { useProject } from '@/contexts/ProjectContext';
 import { Task, TaskStage } from '@/types/task';
-import { Epic, EpicStage } from '@/types/epic';
 import { Project } from '@/types/project';
 import { useChangeEvents } from '@/hooks/useChangeEvents';
 import { MCPDisconnectedState } from '@/components/ui/empty-state';
@@ -21,8 +20,6 @@ import { FileText, Plus, Edit, ArrowRight, Filter } from 'lucide-react';
 import UnifiedForm from '@/components/forms/UnifiedForm';
 import TaskView from '@/components/view/TaskView';
 import ProjectView from '@/components/view/ProjectView';
-import EpicView from '@/components/view/EpicView';
-import { EpicCard } from '@/components/ui/epic-card';
 
 const DraftTasks = () => {
   const navigate = useNavigate();
@@ -38,7 +35,6 @@ const DraftTasks = () => {
   } = useProject();
   
   const [allTasks, setAllTasks] = useState<Task[]>([]);
-  const [allEpics, setAllEpics] = useState<Epic[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showCreateProjectForm, setShowCreateProjectForm] = useState(false);
@@ -56,11 +52,6 @@ const DraftTasks = () => {
   // Project view state
   const [viewingProjectId, setViewingProjectId] = useState<number | null>(null);
   
-  // Epic view state
-  const [viewingEpicId, setViewingEpicId] = useState<number | null>(null);
-  const [editingEpicId, setEditingEpicId] = useState<number | null>(null);
-  const [showAddEpicForm, setShowAddEpicForm] = useState(false);
-  
   // Delete task state
   const [deleteDialog, setDeleteDialog] = useState<{
     isOpen: boolean;
@@ -73,14 +64,6 @@ const DraftTasks = () => {
   });
   
   const stages: { key: TaskStage; title: string; color: string }[] = [
-    { key: 'draft', title: 'Draft', color: 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200' },
-    { key: 'backlog', title: 'Backlog', color: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' },
-    { key: 'doing', title: 'Doing', color: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' },
-    { key: 'review', title: 'Review', color: 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200' },
-    { key: 'completed', title: 'Completed', color: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' }
-  ];
-
-  const epicStages: { key: EpicStage; title: string; color: string }[] = [
     { key: 'draft', title: 'Draft', color: 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200' },
     { key: 'backlog', title: 'Backlog', color: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' },
     { key: 'doing', title: 'Doing', color: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' },
@@ -221,101 +204,21 @@ const DraftTasks = () => {
     }
   };
 
-  // Fetch all epics from MCP
-  const fetchAllEpics = async () => {
-    console.log('fetchAllEpics called - isConnected:', isConnected, 'tools count:', tools.length);
-    if (!isConnected || !callTool || tools.length === 0) return;
-    
-    try {
-      // Check if list_objects tool exists
-      const listObjectsTool = tools.find(tool => tool.name === 'list_objects');
-      console.log('list_objects tool found:', !!listObjectsTool);
-      console.log('Available tools:', tools.map(t => t.name));
-      
-      if (listObjectsTool) {
-        console.log('Calling list_objects with template_id=3');
-        // Use list_objects with template_id=3 to fetch epics
-        const result = await callTool('list_objects', { template_id: 3 });
-        console.log('list_objects result:', result);
-        
-        if (result && result.content && result.content[0]) {
-          const contentText = result.content[0].text;
-          console.log('Content text:', contentText);
-          
-          if (contentText.trim().startsWith('[') || contentText.trim().startsWith('{')) {
-            try {
-              const jsonResponse = JSON.parse(contentText);
-              console.log('Parsed JSON response:', jsonResponse);
-              let epicsArray = Array.isArray(jsonResponse) ? jsonResponse : jsonResponse.objects || [];
-              console.log('Epics array before filtering:', epicsArray);
-              
-              // Filter epics by selected project if one is selected
-              if (selectedProjectId !== null) {
-                console.log('Filtering epics by project:', selectedProjectId);
-                epicsArray = epicsArray.filter((epic: any) => epic.parent_id === selectedProjectId);
-                console.log('Epics array after filtering:', epicsArray);
-              }
-              
-              const parsedEpics: Epic[] = epicsArray.map((epicData: any) => ({
-                id: epicData.id,
-                title: epicData.title || epicData.Title || 'Untitled Epic',
-                body: epicData.description || epicData.Description || '',
-                stage: (epicData.stage as EpicStage) || 'draft',
-                project_id: epicData.parent_id,
-                created_at: epicData.created_at || new Date().toISOString(),
-                updated_at: epicData.updated_at || new Date().toISOString(),
-                created_by: epicData.created_by || 'user@example.com',
-                updated_by: epicData.updated_by || 'user@example.com',
-                template_id: 3,
-                parent_id: epicData.parent_id,
-                parent_name: epicData.parent_name,
-                parent_type: epicData.parent_type,
-                blocks: epicData.blocks
-              }));
-              
-              console.log('Parsed epics:', parsedEpics);
-              setAllEpics(parsedEpics);
-            } catch (e) {
-              console.error('Error parsing epics JSON response:', e);
-              setAllEpics([]);
-            }
-          } else {
-            console.log('Response not JSON format, setting empty epics');
-            setAllEpics([]);
-          }
-        } else {
-          console.log('No result content, setting empty epics');
-        }
-      } else {
-        // list_objects tool not available, epics not supported yet
-        console.log('Epic support not available - list_objects tool not found');
-        setAllEpics([]);
-      }
-    } catch (err) {
-      console.error('Error fetching epics:', err);
-      // Don't set error state for epic fetching as it's optional
-      setAllEpics([]);
-    }
-  };
-
   // Set up change event listeners for real-time updates
   const { callToolWithEvent } = useChangeEvents({
     onTaskChanged: () => {
-      console.log('Task changed event received, refreshing tasks and epics');
+      console.log('Task changed event received, refreshing tasks');
       fetchAllTasks();
-      fetchAllEpics();
     },
     onProjectChanged: () => {
-      console.log('Project changed event received, refreshing tasks and epics');
+      console.log('Project changed event received, refreshing tasks');
       fetchAllTasks();
-      fetchAllEpics();
     }
   });
 
   // Initial fetch when component mounts or dependencies change
   useEffect(() => {
     fetchAllTasks();
-    fetchAllEpics();
   }, [isConnected, tools, selectedProjectId]);
 
   const handleStageToggle = (stage: TaskStage, ctrlKey: boolean = false) => {
@@ -449,95 +352,8 @@ const DraftTasks = () => {
     return currentIndex > 0 ? stageOrder[currentIndex - 1] : currentStage;
   };
 
-  const getStageColor = (stage: TaskStage | EpicStage) => {
+  const getStageColor = (stage: TaskStage) => {
     return stages.find(s => s.key === stage)?.color || 'bg-gray-100 text-gray-800';
-  };
-
-  // Epic handlers
-  const handleEpicView = (epicId: number) => {
-    console.log('View epic:', epicId);
-    setViewingEpicId(epicId);
-  };
-
-  const handleSwitchToEpicEdit = () => {
-    if (viewingEpicId) {
-      setEditingEpicId(viewingEpicId);
-      setViewingEpicId(null);
-    }
-  };
-
-  const handleMoveEpic = async (epicId: number, newStage: EpicStage) => {
-    try {
-      if (isConnected && callToolWithEvent) {
-        // Use update_object with template_id=3 for epics
-        await callToolWithEvent('update_object', { 
-          object_id: epicId, 
-          template_id: 3,
-          stage: newStage 
-        });
-      }
-    } catch (err) {
-      console.error('Error moving epic:', err);
-      setError(err instanceof Error ? err.message : 'Failed to move epic');
-    }
-  };
-
-  const handleEpicSuccess = async (epic: Epic) => {
-    console.log('Epic created/updated successfully:', epic);
-    setShowAddEpicForm(false);
-    setEditingEpicId(null);
-    setError(null);
-    await fetchAllEpics();
-  };
-
-  const handleEpicCancel = () => {
-    setShowAddEpicForm(false);
-    setEditingEpicId(null);
-    setError(null);
-  };
-
-  const handleEpicDelete = async (epicId: number, epicTitle: string) => {
-    if (!isConnected || !callToolWithEvent) {
-      console.log('MCP not connected, skipping epic delete');
-      return;
-    }
-
-    try {
-      await callToolWithEvent('delete_object', {
-        object_id: epicId,
-        template_id: 3
-      });
-      
-      // Close forms
-      setEditingEpicId(null);
-      setShowAddEpicForm(false);
-      setViewingEpicId(null);
-      
-      // Refresh epics
-      await fetchAllEpics();
-    } catch (err) {
-      console.error('Error deleting epic:', err);
-      setError(err instanceof Error ? err.message : 'Failed to delete epic');
-    }
-  };
-
-  // Group tasks by epic
-  const groupTasksByEpic = () => {
-    const grouped: { [epicId: number]: Task[], unassigned: Task[] } = { unassigned: [] };
-    
-    filteredTasks.forEach(task => {
-      if (task.parent_id && task.parent_type === 'epic') {
-        const epicId = task.parent_id;
-        if (!grouped[epicId]) {
-          grouped[epicId] = [];
-        }
-        grouped[epicId].push(task);
-      } else {
-        grouped.unassigned.push(task);
-      }
-    });
-    
-    return grouped;
   };
 
   const EmptyTasksState = () => (
@@ -699,10 +515,6 @@ const DraftTasks = () => {
               <ArrowRight className="h-4 w-4 mr-2" />
               View Board
             </Button>
-            <Button variant="outline" onClick={() => setShowAddEpicForm(true)} disabled={!isConnected || !selectedProjectId}>
-              <Plus className="h-4 w-4 mr-2" />
-              Create Epic
-            </Button>
             <Button onClick={() => setShowAddTaskForm(true)} disabled={!isConnected}>
               <Plus className="h-4 w-4 mr-2" />
               Create Task
@@ -783,55 +595,24 @@ const DraftTasks = () => {
           <div className="w-full">
             <div className="flex items-center justify-between mb-4 w-full">
               <h2 className="text-lg font-semibold">
-                {allEpics.length > 0 
-                  ? `${allEpics.length} epic${allEpics.length !== 1 ? 's' : ''} with ${filteredTasks.length} task${filteredTasks.length !== 1 ? 's' : ''}`
-                  : `${filteredTasks.length} task${filteredTasks.length !== 1 ? 's' : ''} found`
-                }
+                {filteredTasks.length} task{filteredTasks.length !== 1 ? 's' : ''} found
               </h2>
             </div>
-            <div className="space-y-4 w-full">
-              {/* Display Epics with their tasks */}
-              {allEpics.map((epic) => {
-                const epicTasks = groupTasksByEpic()[epic.id] || [];
+            <div className="space-y-3 w-full">
+              {filteredTasks.map((task) => {
                 return (
-                  <EpicCard
-                    key={epic.id}
-                    epic={epic}
-                    tasks={epicTasks}
-                    onEpicUpdate={handleMoveEpic}
-                    onTaskUpdate={handleMoveTask}
-                    onEpicDoubleClick={() => handleEpicView(epic.id)}
-                    onTaskDoubleClick={(task) => handleTaskView(task.id)}
-                    activeFilters={new Set(selectedStages)}
+                  <SlidableTaskCard
+                    key={task.id}
+                    task={task}
+                    onStageChange={handleMoveTask}
+                    onDoubleClick={() => handleTaskView(task.id)}
                     getStageColor={getStageColor}
-                    taskStages={stages}
-                    epicStages={epicStages}
-                    getPreviousTaskStage={getPreviousStage}
-                    getNextTaskStage={getNextStage}
+                    stages={stages}
+                    getPreviousStage={getPreviousStage}
+                    getNextStage={getNextStage}
                   />
                 );
               })}
-              
-              {/* Display unassigned tasks (tasks not in any epic) */}
-              {groupTasksByEpic().unassigned.length > 0 && (
-                <div className="space-y-3">
-                  <h3 className="text-lg font-semibold text-muted-foreground">
-                    Unassigned Tasks ({groupTasksByEpic().unassigned.length})
-                  </h3>
-                  {groupTasksByEpic().unassigned.map((task) => (
-                    <SlidableTaskCard
-                      key={task.id}
-                      task={task}
-                      onStageChange={handleMoveTask}
-                      onDoubleClick={() => handleTaskView(task.id)}
-                      getStageColor={getStageColor}
-                      stages={stages}
-                      getPreviousStage={getPreviousStage}
-                      getNextStage={getNextStage}
-                    />
-                  ))}
-                </div>
-              )}
             </div>
           </div>
         )}
@@ -893,37 +674,6 @@ const DraftTasks = () => {
           isOpen={!!viewingProjectId}
           onClose={() => setViewingProjectId(null)}
           onEdit={handleSwitchToProjectEdit}
-        />
-        
-        {/* Epic Forms */}
-        <UnifiedForm
-          entityType="epic"
-          mode="create"
-          templateId={3}
-          initialStage="draft"
-          onSuccess={handleEpicSuccess}
-          onCancel={handleEpicCancel}
-          isOpen={showAddEpicForm}
-        />
-        
-        <UnifiedForm
-          entityType="epic"
-          mode="edit"
-          entityId={editingEpicId || undefined}
-          templateId={3}
-          onSuccess={handleEpicSuccess}
-          onCancel={handleEpicCancel}
-          onDelete={handleEpicDelete}
-          isOpen={!!editingEpicId}
-        />
-        
-        <EpicView
-          epicId={viewingEpicId || 0}
-          isOpen={!!viewingEpicId}
-          onClose={() => setViewingEpicId(null)}
-          onEdit={handleSwitchToEpicEdit}
-          onEpicUpdate={handleMoveEpic}
-          onDelete={handleEpicDelete}
         />
       </div>
     </HeaderAndSidebarLayout>

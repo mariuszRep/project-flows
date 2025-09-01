@@ -102,6 +102,10 @@ export class ObjectTools {
               type: "number",
               description: "Optional template ID to filter objects"
             },
+            parent_id: {
+              type: "number",
+              description: "Optional parent ID to filter child objects"
+            },
             stage: {
               type: "string",
               description: "Optional stage filter: 'draft', 'backlog', 'doing', 'review', or 'completed'"
@@ -520,7 +524,7 @@ export class ObjectTools {
     
     // Build blocks object from object properties
     const blocks: Record<string, string> = {};
-    const systemFields = ['id', 'stage', 'template_id', 'parent_id', 'created_at', 'updated_at', 'created_by', 'updated_by'];
+    const systemFields = ['id', 'stage', 'template_id', 'parent_id', 'parent_name', 'created_at', 'updated_at', 'created_by', 'updated_by'];
     
     for (const [key, value] of Object.entries(object)) {
       if (!systemFields.includes(key) && value) {
@@ -662,10 +666,11 @@ export class ObjectTools {
 
   private async handleListObjects(toolArgs?: Record<string, any>) {
     const templateId = toolArgs?.template_id as number | undefined;
+    const parentId = toolArgs?.parent_id as number | undefined;
     const stage = toolArgs?.stage as TaskStage | undefined;
 
     try {
-      const objects = await this.sharedDbService.listTasks(stage, undefined, templateId);
+      const objects = await this.sharedDbService.listTasks(stage, parentId, templateId);
       
       const formattedObjects = objects.map(object => {
         const typeDisplay = object.template_id === 1 ? 'Task' : object.template_id === 2 ? 'Project' : 'Epic';
@@ -675,6 +680,7 @@ export class ObjectTools {
           description: object.Description || '',
           stage: object.stage || 'draft',
           type: typeDisplay,
+          template_id: object.template_id,
           parent_id: object.parent_id,
           created_at: object.created_at,
           updated_at: object.updated_at,

@@ -17,8 +17,8 @@ import { useToast } from '@/hooks/use-toast';
  * Props interface for EntityView component
  */
 interface EntityViewProps {
-  /** Type of entity to display - either 'task', 'project', or 'epic' */
-  entityType: 'task' | 'project' | 'epic';
+  /** Type of entity to display - either 'task' or 'project' */
+  entityType: 'task' | 'project';
   /** Unique identifier of the entity */
   entityId: number;
   /** Whether the modal is open/visible */
@@ -169,7 +169,7 @@ const EntityView: React.FC<EntityViewProps> = ({
     }
 
     // Final fallback: hardcoded mapping
-    return entityType === 'task' ? 1 : entityType === 'project' ? 2 : 3;
+    return entityType === 'task' ? 1 : 2;
   };
 
   const fetchTemplateProperties = async () => {
@@ -214,17 +214,12 @@ const EntityView: React.FC<EntityViewProps> = ({
       }
 
       // Get entity data based on type
-      const toolName = entityType === 'task' ? 'get_task' : 
-                      entityType === 'project' ? 'get_project' : 'get_object';
-      const paramKey = entityType === 'task' ? 'task_id' : 
-                      entityType === 'project' ? 'project_id' : 'object_id';
+      const toolName = entityType === 'task' ? 'get_task' : 'get_project';
+      const paramKey = entityType === 'task' ? 'task_id' : 'project_id';
       
-      const callParams = { [paramKey]: entityId };
-      if (entityType === 'epic') {
-        callParams.template_id = 3;
-      }
-      
-      const result = await callTool(toolName, callParams);
+      const result = await callTool(toolName, {
+        [paramKey]: entityId
+      });
       
       if (result && result.content && result.content[0]) {
         try {
@@ -362,7 +357,7 @@ const EntityView: React.FC<EntityViewProps> = ({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  {(entityType === 'task' || entityType === 'epic') && entity && onTaskUpdate && (
+                  {entityType === 'task' && entity && onTaskUpdate && (
                     <>
                       {entity.stage !== 'doing' && (
                         <DropdownMenuItem onClick={() => handleStageMove('doing')}>
@@ -424,8 +419,8 @@ const EntityView: React.FC<EntityViewProps> = ({
                     <Badge variant="outline" className="text-xs">
                       #{entityId}
                     </Badge>
-                    {/* Stage badge for tasks and epics */}
-                    {(entityType === 'task' || entityType === 'epic') && entity.stage && (
+                    {/* Stage badge only for tasks */}
+                    {entityType === 'task' && entity.stage && (
                       <Badge 
                         className={`
                           ${entity.stage === 'draft' ? 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200' : ''}
@@ -438,28 +433,16 @@ const EntityView: React.FC<EntityViewProps> = ({
                         {entity.stage.charAt(0).toUpperCase() + entity.stage.slice(1)}
                       </Badge>
                     )}
-                    {/* Project badge for tasks and epics */}
-                    {(entityType === 'task' || entityType === 'epic') && entity.parent_name && (
+                    {/* Project badge for tasks */}
+                    {entityType === 'task' && entity.parent_name && (
                       <Badge variant="outline" className="text-xs">
                         Project: {entity.parent_name}
-                      </Badge>
-                    )}
-                    {/* Epic badge for tasks */}
-                    {entityType === 'task' && entity.parent_type === 'epic' && (
-                      <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 dark:bg-purple-900 dark:text-purple-300">
-                        Epic: {entity.parent_name}
                       </Badge>
                     )}
                     {/* Entity type badge for projects */}
                     {entityType === 'project' && (
                       <Badge variant="outline" className="text-xs bg-green-50 text-green-700 dark:bg-green-900 dark:text-green-300">
                         Project
-                      </Badge>
-                    )}
-                    {/* Entity type badge for epics */}
-                    {entityType === 'epic' && (
-                      <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 dark:bg-purple-900 dark:text-purple-300">
-                        Epic
                       </Badge>
                     )}
                     {entity.created_at && (
