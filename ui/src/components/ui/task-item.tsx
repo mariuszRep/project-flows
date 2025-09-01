@@ -51,7 +51,10 @@ export const TaskItem: React.FC<TaskItemProps> = ({
   return (
     <Card 
       className="card-hover w-full cursor-pointer select-none"
-      onDoubleClick={onDoubleClick}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        onDoubleClick && onDoubleClick();
+      }}
     >
       <CardContent className="p-3 w-full">
         <div className="flex items-center justify-between w-full">
