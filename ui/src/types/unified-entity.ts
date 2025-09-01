@@ -12,6 +12,7 @@ export interface UnifiedEntity {
   updated_at?: string;
   created_by?: string;
   updated_by?: string;
+  children?: UnifiedEntity[];
 }
 
 // Utility function to convert list_objects response to UnifiedEntity
