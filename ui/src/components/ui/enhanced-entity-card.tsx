@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { KeyValuePill } from '@/components/ui/key-value-pill';
 import { Button } from '@/components/ui/button';
 import { TaskStage } from '@/types/task';
 import { UnifiedEntity } from '@/types/unified-entity';
@@ -276,17 +277,16 @@ export const EnhancedEntityCard: React.FC<EnhancedEntityCardProps> = ({
         className={`card-hover w-full select-none ${
           isUpdating ? 'opacity-60' : ''
         } ${isSliding ? 'shadow-lg' : ''} ${getCardVariantClasses()}`}
-        onDoubleClick={() => onDoubleClick && onDoubleClick(entity.id)}
       >
-        <CardContent className="p-4 w-full cursor-pointer">
+        <CardContent 
+          className="p-4 w-full cursor-pointer"
+          onDoubleClick={() => onDoubleClick && onDoubleClick(entity.id)}
+        >
           <div className="flex items-center justify-between w-full">
             <div className="flex-1 min-w-0 pr-4">
               <div className="flex items-center gap-3 mb-2">
                 <div className="flex items-center gap-2">
-                  <span className="text-muted-foreground text-sm">#{entity.id}</span>
-                  <Badge variant="outline" className={`text-xs ${getTypePillColor()}`}>
-                    {entity.type}
-                  </Badge>
+                  <KeyValuePill keyName={entity.type.toLowerCase()} value={`${entity.id}`} size="sm" />
                 </div>
                 {/* Stage badge only shown if entity has a stage */}
                 {entity.stage && (

@@ -4,18 +4,19 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const keyValuePillVariants = cva(
-  "inline-flex items-center rounded-full overflow-hidden shadow-md border border-slate-700/60 group transition-all duration-300 ease-in-out transform hover:scale-105 hover:shadow-xl hover:shadow-cyan-500/20",
+  // Neutral, theme-aware pill that fits shadcn styles
+  "inline-flex items-center rounded-[var(--radius-l)] overflow-hidden border border-emerald-500/70 dark:border-emerald-400/70 shadow-sm transition-all",
   {
     variants: {
       variant: {
         default: "",
         outline: "border-2",
-        subtle: "shadow-sm",
+        subtle: "",
       },
       size: {
-        default: "text-sm",
-        sm: "text-xs",
-        lg: "text-base",
+        default: "text-xs",
+        sm: "text-[11px]",
+        lg: "text-sm",
       },
     },
     defaultVariants: {
@@ -46,10 +47,10 @@ function KeyValuePill({
       aria-label={`${keyName}: ${value}`}
       {...props}
     >
-      <span className="bg-slate-800/50 text-slate-300 font-medium px-4 py-2 transition-colors duration-300 group-hover:bg-slate-700/70">
+      <span className="bg-muted text-emerald-600 dark:text-emerald-400 font-medium px-2 py-0.3">
         {keyName}
       </span>
-      <span className="bg-slate-700 text-cyan-300 font-mono font-semibold px-4 py-2 whitespace-nowrap transition-colors duration-300 group-hover:bg-slate-600">
+      <span className="bg-emerald-500/70 dark:bg-emerald-400/70 text-white dark:text-emerald-950 font-semibold px-2 py-0.3 whitespace-nowrap">
         {value}
       </span>
     </div>
