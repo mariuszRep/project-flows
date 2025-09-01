@@ -10,7 +10,7 @@ import { useMCP } from '@/contexts/MCPContext';
 import { useProject } from '@/contexts/ProjectContext';
 import { TaskStage } from '@/types/task';
 
-export type EntityType = 'task' | 'project';
+export type EntityType = 'task' | 'project' | 'epic';
 export type FormMode = 'create' | 'edit';
 
 interface UnifiedFormProps {
@@ -61,7 +61,11 @@ const UnifiedForm: React.FC<UnifiedFormProps> = ({
   const { selectedProjectId, projects, isLoadingProjects } = useProject();
   
   // Determine template ID based on entity type if not provided
-  const effectiveTemplateId = templateId ?? (entityType === 'task' ? 1 : 2);
+  const effectiveTemplateId = templateId ?? (
+    entityType === 'task' ? 1 : 
+    entityType === 'epic' ? 3 : 
+    2  // project
+  );
   
   const [formFields, setFormFields] = useState<FormField[]>([]);
   const [formData, setFormData] = useState<Record<string, any>>({
@@ -239,12 +243,10 @@ const UnifiedForm: React.FC<UnifiedFormProps> = ({
     setError(null);
 
     try {
-      console.log(`Fetching ${entityType} data for ${entityType}Id:`, entityId);
-      const toolName = entityType === 'task' ? 'get_task' : 'get_project';
-      const paramName = entityType === 'task' ? 'task_id' : 'project_id';
-      const result = await callTool(toolName, { 
-        [paramName]: entityId,
-        ...(entityType === 'task' && { output_format: 'json' })
+      console.log(`Fetching ${entityType} data for entityId:`, entityId);
+      const result = await callTool('get_object', { 
+        object_id: entityId,
+        template_id: effectiveTemplateId
       });
       
       if (result?.content?.[0]?.text) {
@@ -376,8 +378,11 @@ const UnifiedForm: React.FC<UnifiedFormProps> = ({
       let result: any;
       
       if (mode === 'create') {
-        // Create new entity
-        const createData: Record<string, any> = {};
+        // Create new entity using unified create_object
+        const createData: Record<string, any> = {
+          template_id: effectiveTemplateId
+        };
+        
         formFields.forEach(field => {
           if (field.name !== 'stage' && formData[field.name]) {
             createData[field.name] = formData[field.name];
@@ -390,13 +395,14 @@ const UnifiedForm: React.FC<UnifiedFormProps> = ({
         }
         
         console.log(`Creating ${entityType} with data:`, createData);
-        const toolName = entityType === 'task' ? 'create_task' : 'create_project';
-        result = await callTool(toolName, createData);
+        result = await callTool('create_object', createData);
         
       } else if (mode === 'edit' && entityId) {
-        // Update existing entity
-        const paramName = entityType === 'task' ? 'task_id' : 'project_id';
-        const updateData: Record<string, any> = { [paramName]: entityId };
+        // Update existing entity using unified update_object
+        const updateData: Record<string, any> = { 
+          object_id: entityId,
+          template_id: effectiveTemplateId
+        };
         
         formFields.forEach(field => {
           if (formData[field.name] !== undefined) {
@@ -410,8 +416,7 @@ const UnifiedForm: React.FC<UnifiedFormProps> = ({
         }
         
         console.log(`Updating ${entityType} with data:`, updateData);
-        const toolName = entityType === 'task' ? 'update_task' : 'update_project';
-        result = await callTool(toolName, updateData);
+        result = await callTool('update_object', updateData);
       }
 
       if (result?.content) {
@@ -478,7 +483,7 @@ const UnifiedForm: React.FC<UnifiedFormProps> = ({
 
   if (!isOpen) return null;
 
-  const entityDisplayName = entityType === 'task' ? 'Task' : 'Project';
+  const entityDisplayName = entityType === 'task' ? 'Task' : entityType === 'epic' ? 'Epic' : 'Project';
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-40">

@@ -13,6 +13,8 @@ interface ProjectViewProps {
   onClose: () => void;
   /** Callback when the edit button is clicked */
   onEdit: () => void;
+  /** Optional template ID override (2=Project, 3=Epic) */
+  templateId?: number;
 }
 
 /**
@@ -44,7 +46,8 @@ const ProjectView: React.FC<ProjectViewProps> = ({
   projectId,
   isOpen,
   onClose,
-  onEdit
+  onEdit,
+  templateId = 2
 }) => {
   return (
     <EntityView
@@ -53,7 +56,7 @@ const ProjectView: React.FC<ProjectViewProps> = ({
       isOpen={isOpen}
       onClose={onClose}
       onEdit={onEdit}
-      templateId={2}
+      templateId={templateId}
     />
   );
 };

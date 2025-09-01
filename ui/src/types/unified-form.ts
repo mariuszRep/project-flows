@@ -10,7 +10,7 @@ import { TaskStage } from './task';
 /**
  * Represents the type of entity being managed by the form
  */
-export type EntityType = 'task' | 'project';
+export type EntityType = 'task' | 'project' | 'epic';
 
 /**
  * Represents the mode of the form operation
@@ -57,7 +57,7 @@ export interface UnifiedFormProps {
   /** The ID of the entity being edited (only required for edit mode) */
   entityId?: number;
   
-  /** Override template ID (defaults to 1 for tasks, 2 for projects) */
+  /** Override template ID (defaults to 1 for tasks, 2 for projects, 3 for epics) */
   templateId?: number;
   
   /** Initial stage for tasks (only applies to task entities) */
