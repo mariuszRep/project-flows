@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { KeyValuePill } from '@/components/ui/key-value-pill';
 import { TaskStage } from '@/types/task';
 import MarkdownRenderer from '@/components/ui/MarkdownRenderer';
 
@@ -227,18 +228,6 @@ export const UnifiedEntityCard: React.FC<UnifiedEntityCardProps> = ({
     }
   };
 
-  // Get type pill color - Epic and Project use same color for consistency
-  const getTypePillColor = () => {
-    switch (entity.type) {
-      case 'Task':
-        return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200';
-      case 'Project':
-      case 'Epic':
-        return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
-  };
 
   return (
     <div 
@@ -265,10 +254,7 @@ export const UnifiedEntityCard: React.FC<UnifiedEntityCardProps> = ({
             <div className="flex-1 min-w-0 pr-4">
               <div className="flex items-center gap-3 mb-2">
                 <div className="flex items-center gap-2">
-                  <span className="text-muted-foreground text-sm">#{entity.id}</span>
-                  <Badge variant="outline" className={`text-xs ${getTypePillColor()}`}>
-                    {entity.type}
-                  </Badge>
+                  <KeyValuePill keyName={entity.type.toLowerCase()} value={`${entity.id}`} size="sm" />
                 </div>
                 {/* Stage badge only shown if entity has a stage */}
                 {entity.stage && (
