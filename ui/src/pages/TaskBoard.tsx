@@ -251,8 +251,6 @@ export default function Board() {
     try {
       const deleteObjectTool = tools.find(tool => tool.name === 'delete_object') 
         || tools.find(tool => tool.name.endsWith('delete_object') || tool.name.includes('delete_object'));
-      const deleteTaskTool = tools.find(tool => tool.name === 'delete_task')
-        || tools.find(tool => tool.name.endsWith('delete_task') || tool.name.includes('delete_task'));
       
       if (deleteObjectTool) {
         // Preferred: generic delete by object id
@@ -269,23 +267,6 @@ export default function Board() {
         if (viewingTaskId === deleteDialog.taskId) {
           setViewingTaskId(null);
         }
-      } else if (deleteTaskTool) {
-        // Fallback to legacy task-specific delete
-        const result = await callToolWithEvent(deleteTaskTool.name, {
-          task_id: deleteDialog.taskId
-        });
-        
-        console.log('Delete result (delete_task):', result);
-        
-        // Remove task from local state immediately for better UX
-        setTasks(prevTasks => prevTasks.filter(task => task.id !== deleteDialog.taskId));
-
-        // Close any open viewers for this task
-        if (viewingTaskId === deleteDialog.taskId) {
-          setViewingTaskId(null);
-        }
-        
-        // No need to manually refresh - the event system will handle it
       } else {
         console.log('Delete tool not available');
         setError('Delete functionality is not available');
