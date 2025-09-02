@@ -71,7 +71,7 @@ interface Entity {
  * - Consistent UI/UX: Same modal layout, hover effects, and interaction patterns for both entity types
  * 
  * Data Flow:
- * 1. Fetches entity data via get_task or get_project based on entityType
+ * 1. Fetches entity data via get_object based on entityType and template_id
  * 2. Derives template ID from entity data or uses fallback logic
  * 3. Fetches template properties via list_properties for ordering
  * 4. Renders properties excluding meta fields, using MarkdownRenderer

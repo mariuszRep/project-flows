@@ -83,7 +83,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({
     );
 
     try {
-      // Call the MCP update_task tool
+      // Call the MCP update_object tool
       await onTaskUpdate(taskId, newStage);
     } catch (error) {
       console.error('Error moving task:', error);

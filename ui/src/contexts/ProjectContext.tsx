@@ -62,10 +62,10 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
     setProjectError(null);
     
     try {
-      const listProjectsTool = tools.find(tool => tool.name === 'list_projects');
+      const listObjectsTool = tools.find(tool => tool.name === 'list_objects');
       
-      if (listProjectsTool) {
-        const result = await callTool('list_projects', {});
+      if (listObjectsTool) {
+        const result = await callTool('list_objects', { template_id: 2 });
         if (result && result.content && result.content[0]) {
           const contentText = result.content[0].text;
           
@@ -73,12 +73,12 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
             // Parse the JSON response
             const jsonResponse = JSON.parse(contentText);
             
-            if (jsonResponse.tasks && Array.isArray(jsonResponse.tasks)) {
-              const parsedProjects = jsonResponse.tasks.map((task: any) => ({
-                id: task.id,
-                name: task.title || 'Untitled Project',
-                description: task.description || '',
-                color: '#3b82f6', // Default color since projects are now stored as tasks
+            if (jsonResponse.objects && Array.isArray(jsonResponse.objects)) {
+              const parsedProjects = jsonResponse.objects.map((obj: any) => ({
+                id: obj.id,
+                name: obj.Title || 'Untitled Project',
+                description: obj.Description || '',
+                color: '#3b82f6', // Default color since projects are now stored as objects
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
                 created_by: 'user@example.com',
@@ -112,7 +112,8 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
 
     try {
       // Use callToolWithEvent to trigger events after successful creation
-      const result = await callToolWithEvent('create_project', {
+      const result = await callToolWithEvent('create_object', {
+        template_id: 2,
         Title: projectData.name,
         Description: projectData.description
       });
@@ -128,7 +129,7 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
           
           // Return project object with real ID from response
           return {
-            id: jsonResponse.task_id || Date.now(),
+            id: jsonResponse.object_id || Date.now(),
             name: projectData.name,
             description: projectData.description || '',
             color: projectData.color || '#3b82f6',
@@ -138,7 +139,7 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
             updated_by: 'user@example.com'
           };
         } catch (parseError) {
-          console.error('Error parsing create_project response:', parseError);
+          console.error('Error parsing create_object response:', parseError);
           // No need to manually refresh - the event system will handle it
           
           return {
@@ -169,7 +170,7 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
     }
 
     try {
-      const updateData: Record<string, any> = { project_id: projectId };
+      const updateData: Record<string, any> = { object_id: projectId, template_id: 2 };
       
       // Map UI field names to MCP tool field names
       if (updates.name) updateData.Title = updates.name;
@@ -177,7 +178,7 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
       // Note: color is not supported in the new template-based system
       
       // Use callToolWithEvent to trigger events after successful update
-      const result = await callToolWithEvent('update_project', updateData);
+      const result = await callToolWithEvent('update_object', updateData);
 
       if (result && result.content && result.content[0]) {
         try {
@@ -187,7 +188,7 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
             return true;
           }
         } catch (parseError) {
-          console.error('Error parsing update_project response:', parseError);
+          console.error('Error parsing update_object response:', parseError);
         }
         
         // No need to manually refresh - the event system will handle it
@@ -210,8 +211,8 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
 
     try {
       // Use callToolWithEvent to trigger events after successful deletion
-      const result = await callToolWithEvent('delete_project', {
-        project_id: projectId
+      const result = await callToolWithEvent('delete_object', {
+        object_id: projectId
       });
 
       if (result && result.content && result.content[0]) {
@@ -227,7 +228,7 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
             return true;
           }
         } catch (parseError) {
-          console.error('Error parsing delete_project response:', parseError);
+          console.error('Error parsing delete_object response:', parseError);
         }
         
         // If parsing fails, assume success
