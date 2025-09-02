@@ -252,25 +252,29 @@ export const UnifiedEntityCard: React.FC<UnifiedEntityCardProps> = ({
         <CardContent className="p-4 w-full">
           <div className="flex items-center justify-between w-full">
             <div className="flex-1 min-w-0 pr-4">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="flex items-center gap-2">
-                  <KeyValuePill keyName={entity.type.toLowerCase()} value={`${entity.id}`} size="sm" />
-                </div>
-                {/* Stage badge only shown if entity has a stage */}
-                {entity.stage && (
-                  <Badge variant="secondary" className={`flex-shrink-0 ${effectiveGetStageColor(entity.stage)}`}>
-                    {effectiveStages.find(s => s.key === entity.stage)?.title || entity.stage}
-                  </Badge>
-                )}
-              </div>
               <h3 className="text-lg font-semibold truncate mb-2">
                 {entity.title}
               </h3>
               {entity.summary && (
-                <div className="line-clamp-2 text-sm text-muted-foreground prose dark:prose-invert max-w-none prose-p:mb-0 prose-headings:mb-0 prose-headings:mt-0 prose-lists:mb-0">
+                <div className="line-clamp-2 text-sm text-muted-foreground prose dark:prose-invert max-w-none prose-p:mb-0 prose-headings:mb-0 prose-lists:mb-0">
                   <MarkdownRenderer content={entity.summary} />
                 </div>
               )}
+              <div className="flex items-center gap-2 flex-wrap">
+                <KeyValuePill keyName={entity.type} value={`${entity.id}`} size="sm" />
+                {entity.stage && (
+                  <KeyValuePill keyName="Stage" value={effectiveStages.find(s => s.key === entity.stage)?.title || entity.stage} size="sm" />
+                )}
+                {entity.parent_id && (
+                  <KeyValuePill keyName="parent" value={`${entity.parent_id}`} size="sm" />
+                )}
+                {entity.created_at && (
+                  <KeyValuePill keyName="created" value={new Date(entity.created_at).toLocaleDateString()} size="sm" />
+                )}
+                {entity.updated_at && (
+                  <KeyValuePill keyName="updated" value={new Date(entity.updated_at).toLocaleDateString()} size="sm" />
+                )}
+              </div>
             </div>
           </div>
         </CardContent>
