@@ -355,7 +355,8 @@
                     return;
                 }
                 
-                await mcpClient.callTool('mcp0_create_task', {
+                await mcpClient.callTool('create_object', {
+                    template_id: 1,
                     Title: title,
                     Description: 'Task created from notification test',
                 });
@@ -381,8 +382,9 @@
                     return;
                 }
                 
-                await mcpClient.callTool('mcp0_update_task', {
-                    task_id: taskId,
+                await mcpClient.callTool('update_object', {
+                    object_id: taskId,
+                    template_id: 1,
                     Title: title,
                 });
                 
@@ -401,8 +403,8 @@
                     return;
                 }
                 
-                await mcpClient.callTool('mcp0_delete_task', {
-                    task_id: taskId,
+                await mcpClient.callTool('delete_object', {
+                    object_id: taskId,
                 });
                 
                 log(`Task ${taskId} deleted successfully`, 'success');
@@ -420,7 +422,8 @@
                     return;
                 }
                 
-                await mcpClient.callTool('mcp0_create_project', {
+                await mcpClient.callTool('create_object', {
+                    template_id: 2,
                     Title: title,
                     Description: 'Project created from notification test',
                 });
@@ -446,8 +449,9 @@
                     return;
                 }
                 
-                await mcpClient.callTool('mcp0_update_project', {
-                    project_id: projectId,
+                await mcpClient.callTool('update_object', {
+                    object_id: projectId,
+                    template_id: 2,
                     Title: title,
                 });
                 
@@ -466,8 +470,8 @@
                     return;
                 }
                 
-                await mcpClient.callTool('mcp0_delete_project', {
-                    project_id: projectId,
+                await mcpClient.callTool('delete_object', {
+                    object_id: projectId,
                 });
                 
                 log(`Project ${projectId} deleted successfully`, 'success');

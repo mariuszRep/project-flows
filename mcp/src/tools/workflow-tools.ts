@@ -260,7 +260,7 @@ export class WorkflowTools {
         "2. Plan your implementation approach based on the requirements", 
         "3. Execute the plan step by step",
         "4. CRITICAL: Update Items section checkboxes as you complete each step",
-        "5. Use update_task tool to save progress in real-time",
+        "5. Use update_object tool to save progress in real-time",
         "6. Task will automatically transition to 'review' status upon completion"
       ],
       task_context: task,
@@ -283,14 +283,14 @@ export class WorkflowTools {
       progress_tracking_requirements: {
         mandatory: "You MUST update Items section checkboxes as work progresses",
         format: "Change [ ] to [x] immediately after completing each step",
-        tool: "Use update_task tool to save checkbox progress", 
+        tool: "Use update_object tool to save checkbox progress", 
         purpose: "Provides visibility for multi-agent coordination and handoffs",
         auto_transition: "Task will automatically move to 'review' when all checkboxes are completed"
       },
       completion_instructions: [
         "1. When all implementation steps are complete:",
         "2. Update all remaining checkboxes to [x] in the Items section", 
-        "3. Use update_task tool to save final progress",
+        "3. Use update_object tool to save final progress",
         "4. The system will automatically detect completion and move task to 'review'",
         "5. Task will then be ready for code review and testing"
       ],
@@ -426,11 +426,11 @@ export class WorkflowTools {
         instructions: [
           "Analyze this project in full detail and create appropriate tasks so that the project can be completed successfully.",
           "Use the provided project context and available properties to determine task structure.",
-          `Create tasks using the create_task tool with parent_id: ${projectId}`,
+          `Create tasks using the create_object tool with parent_id: ${projectId}`,
           "Consider the analysis depth and max_tasks parameters for scope."
         ],
         available_task_properties: taskProperties.map((prop: any) => prop.key),
-        next_steps: "Analyze the project and create tasks using create_task tool for each required task."
+        next_steps: "Analyze the project and create tasks using create_object tool for each required task."
       };
       
       return {
@@ -575,7 +575,7 @@ Important: For each task, ensure you populate all required properties and follow
   }
 
   /**
-   * Helper method to create tasks from analysis using create_task
+   * Helper method to create tasks from analysis using create_object
    */
   private async createTasksFromAnalysis(
     taskStructure: any[],

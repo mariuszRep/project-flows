@@ -5,9 +5,7 @@ import { readFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import DatabaseService from "../database.js";
-import { createTaskTools } from "../tools/task-tools.js";
 import { createPropertyTools } from "../tools/property-tools.js";
-import { createProjectTools } from "../tools/project-tools.js";
 import { createObjectTools } from "../tools/object-tools.js";
 import { createWorkflowTools } from "../tools/workflow-tools.js";
 import pg from 'pg';
@@ -329,14 +327,6 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
   // Create tool handlers
   const propertyTools = createPropertyTools(sharedDbService, clientId);
   
-  const projectTools = createProjectTools(
-    sharedDbService,
-    clientId,
-    loadProjectSchemaProperties,
-    createExecutionChain,
-    validateDependencies
-  );
-  
   const objectTools = createObjectTools(
     sharedDbService,
     clientId,
@@ -345,16 +335,7 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
     validateDependencies
   );
   
-  const taskTools = createTaskTools(
-    sharedDbService,
-    clientId,
-    loadDynamicSchemaProperties,
-    createExecutionChain,
-    validateDependencies,
-    projectTools
-  );
-
-  const workflowTools = createWorkflowTools(sharedDbService, clientId, taskTools, projectTools, propertyTools);
+  const workflowTools = createWorkflowTools(sharedDbService, clientId, objectTools, objectTools, propertyTools);
 
   // Set up tool list handler
   server.setRequestHandler(ListToolsRequestSchema, async (request) => {
@@ -428,9 +409,7 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
 
     return {
       tools: [
-        ...taskTools.getToolDefinitions(taskSchemaProperties),
         ...propertyTools.getToolDefinitions(),
-        ...projectTools.getToolDefinitions(projectSchemaProperties),
         ...objectTools.getToolDefinitions(epicSchemaProperties),
         ...workflowTools.getToolDefinitions(),
       ],
@@ -441,19 +420,9 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: toolArgs } = request.params;
 
-    // Handle task tools
-    if (taskTools.canHandle(name)) {
-      return await taskTools.handle(name, toolArgs);
-    }
-
     // Handle property tools
     if (propertyTools.canHandle(name)) {
       return await propertyTools.handle(name, toolArgs);
-    }
-
-    // Handle project tools
-    if (projectTools.canHandle(name)) {
-      return await projectTools.handle(name, toolArgs);
     }
 
     // Handle epic tools
