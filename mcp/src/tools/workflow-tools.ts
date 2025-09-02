@@ -639,14 +639,9 @@ Important: For each task, ensure you populate all required properties and follow
     let currentBranch = "unknown";
     
     try {
-      // Try to get current branch from git (this would require shell access in real implementation)
-      // For MCP context, we'll still use environment detection but with better fallbacks
-      if (process.env.GIT_BRANCH) {
-        currentBranch = process.env.GIT_BRANCH;
-      } else {
-        // Default assumption - in real implementation this would be a git command
-        currentBranch = "main";
-      }
+      // Execute git command to get current branch
+      const { execSync } = await import('child_process');
+      currentBranch = execSync('git rev-parse --abbrev-ref HEAD').toString().trim();
     } catch (error) {
       console.error('Error detecting git branch:', error);
       currentBranch = "main"; // Safe fallback
