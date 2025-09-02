@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Plus, Folder, FolderOpen, Edit2 } from 'lucide-react';
 import { Project } from '@/types/project';
@@ -48,10 +48,10 @@ export function ProjectSidebar({
 
     setIsLoading(true);
     try {
-      const listProjectsTool = tools.find(tool => tool.name === 'list_projects');
+      const listObjectsTool = tools.find(tool => tool.name === 'list_objects');
       
-      if (listProjectsTool) {
-        const result = await callTool('list_projects', {});
+      if (listObjectsTool) {
+        const result = await callTool('list_objects', { template_id: 2 });
         if (result && result.content && result.content[0]) {
           const contentText = result.content[0].text;
           
@@ -59,12 +59,12 @@ export function ProjectSidebar({
             // Parse the JSON response
             const jsonResponse = JSON.parse(contentText);
             
-            if (jsonResponse.tasks && Array.isArray(jsonResponse.tasks)) {
-              const parsedProjects = jsonResponse.tasks.map((task: any) => ({
-                id: task.id,
-                name: task.title || 'Untitled Project',
-                description: task.description || '',
-                color: '#3b82f6', // Default color since projects are now stored as tasks
+            if (jsonResponse.objects && Array.isArray(jsonResponse.objects)) {
+              const parsedProjects = jsonResponse.objects.map((obj: any) => ({
+                id: obj.id,
+                name: obj.title || 'Untitled Project',
+                description: obj.description || '',
+                color: '#3b82f6', // Default color since projects are now stored as objects
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
                 created_by: 'user@example.com',

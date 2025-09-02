@@ -148,116 +148,14 @@ export default function Board() {
         }
       }
       
-      // If we couldn't get tasks with list_objects, fall back to list_tasks
-      // if (allTasks.length === 0) {
-      //   // Try to get all tasks using the list_tasks tool
-      //   const listTasksTool = tools.find(tool => tool.name === 'list_tasks');
-      //   
-      //   if (listTasksTool) {
-      //     try {
-      //       // Build arguments for list_tasks, including project_id if a project is selected
-      //       const listTasksArgs: any = {};
-      //       if (selectedProjectId !== null) {
-      //         listTasksArgs.project_id = selectedProjectId;
-      //         console.log(`Calling list_tasks with project_id: ${selectedProjectId}`);
-      //       } else {
-      //         console.log('Calling list_tasks for all projects');
-      //       }
-            
-      //       const result = await callTool('list_tasks', listTasksArgs);
-      //       if (result && result.content && result.content[0]) {
-      //         console.log('List tasks result:', result.content);
-              
-      //         const contentText = result.content[0].text;
-              
-      //         // Check if response is JSON (object or array)
-      //         if (contentText.trim().startsWith('{') || contentText.trim().startsWith('[')) {
-      //           try {
-      //             const jsonResponse = JSON.parse(contentText);
-                  
-      //             // Handle new JSON response format with { tasks: [...], count: number }
-      //             let tasksArray;
-      //             if (jsonResponse.tasks && Array.isArray(jsonResponse.tasks)) {
-      //               tasksArray = jsonResponse.tasks;
-      //             } else if (Array.isArray(jsonResponse)) {
-      //               // Handle simple array format as fallback
-      //               tasksArray = jsonResponse;
-      //             } else {
-      //               console.warn('Unexpected JSON response format:', jsonResponse);
-      //               allTasks = [];
-      //               return;
-      //             }
-
-      //             const parsedTasks = tasksArray.map((taskData: any) => ({
-      //               id: taskData.id,
-      //               title: taskData.title || taskData.Title || 'Untitled Task',
-      //               body: taskData.description || taskData.Description || taskData.Summary || '',
-      //               stage: taskData.stage as 'draft' | 'backlog' | 'doing' | 'review' | 'completed',
-      //               project_id: taskData.parent_id || taskData.project_id,
-      //               created_at: taskData.created_at || null,
-      //               updated_at: taskData.updated_at || null,
-      //               created_by: taskData.created_by || 'user@example.com',
-      //               updated_by: taskData.updated_by || 'user@example.com',
-      //               // Store original block-based properties for compatibility
-      //               Title: taskData.title || taskData.Title,
-      //               Description: taskData.description || taskData.Description
-      //             }));
-      //             allTasks = parsedTasks;
-      //           } catch (e) {
-      //             console.error('Error parsing JSON response:', e);
-      //             // Fallback to empty array on parse error
-      //             allTasks = [];
-      //           }
-      //         } else {
-      //           // Fallback to markdown table parsing for compatibility
-      //           const lines = contentText.split('\n').filter(line => line.trim());
-      //           const taskRows = lines.slice(2); // Skip header and separator
-                
-      //           const parsedTasks = taskRows.map((row, index) => {
-      //             const columns = row.split('|').map(col => col.trim()).filter(col => col);
-                  
-      //             if (columns.length >= 6) { // Now expecting 6 columns: ID, Title, Description, Stage, Project, Project ID
-      //               const id = parseInt(columns[0]) || index + 1;
-      //               const titleColumn = columns[1] || 'Untitled Task';
-      //               const descriptionColumn = columns[2] || '';
-      //               const stage = columns[3] || 'backlog';
-      //               const projectName = columns[4]; // Project name for display (not used in filtering)
-      //               const projectIdColumn = columns[5]; // Project ID for filtering
-      //               const projectId = projectIdColumn === 'None' ? undefined : parseInt(projectIdColumn);
-                    
-      //               return {
-      //                 id,
-      //                 title: titleColumn, // For backward compatibility
-      //                 body: descriptionColumn, // For backward compatibility
-      //                 stage: stage as 'draft' | 'backlog' | 'doing' | 'review' | 'completed',
-      //                 project_id: projectId,
-      //                 created_at: new Date().toISOString(),
-      //                 updated_at: new Date().toISOString(),
-      //                 created_by: 'user@example.com',
-      //                 updated_by: 'user@example.com',
-      //                 // Store original block-based properties
-      //                 Title: titleColumn,
-      //                 Description: descriptionColumn
-      //               };
-      //             }
-      //             return null;
-      //           }).filter(task => task !== null);
-                
-      //           allTasks = parsedTasks;
-      //         }
-      //       }
-      //     } catch (err) {
-      //       console.warn('Failed to get tasks with list_tasks:', err);
-      //     }
-      //   }
-      // }
+      // Note: Legacy list_tasks fallback has been removed - we only use list_objects now
       
       // Remove duplicates based on id
       const uniqueTasks = allTasks.filter((task, index, self) => 
         index === self.findIndex(t => t.id === task.id)
       );
       
-      // No need for client-side project filtering since we pass project_id to list_tasks
+      // Client-side filtering is done after fetching all objects from list_objects
       console.log(`Found ${uniqueTasks.length} tasks for selected project: ${selectedProjectId}`);
       setTasks(uniqueTasks);
       
@@ -309,7 +207,7 @@ export default function Board() {
 
     try {
       const updateTool = tools.find(tool => 
-        tool.name === 'update_task' || 
+        tool.name === 'update_object' || 
         tool.name === 'modify_task' ||
         tool.name === 'edit_task'
       );
@@ -319,7 +217,8 @@ export default function Board() {
         suppressNextRefreshRef.current = true;
         // Use callToolWithEvent to trigger events after successful update
         await callToolWithEvent(updateTool.name, {
-          task_id: taskId,
+          object_id: taskId,
+          template_id: 1,
           stage: newStage
         });
         console.log(`Task ${taskId} updated to ${newStage}`);

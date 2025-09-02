@@ -88,8 +88,8 @@ export class WorkflowTools {
     try {
       console.log(`🚀 Starting task execution workflow for task ${taskId}`);
       
-      // Step 1: Load task context using get_task tool
-      const taskResponse = await this.taskTools.handle('get_task', { task_id: taskId });
+      // Step 1: Load task context using get_object tool
+      const taskResponse = await this.taskTools.handle('get_object', { object_id: taskId });
       const taskContextText = taskResponse.content[0].text;
       
       let taskContext;
@@ -108,11 +108,11 @@ export class WorkflowTools {
         };
       }
 
-      // Step 2: Load project context using get_project tool if task has parent_id
+      // Step 2: Load project context using get_object tool if task has parent_id
       let projectContext = null;
       if (taskContext.parent_id) {
         try {
-          const projectResponse = await this.projectTools.handle('get_project', { project_id: taskContext.parent_id });
+          const projectResponse = await this.projectTools.handle('get_object', { object_id: taskContext.parent_id });
           const projectContextText = projectResponse.content[0].text;
           projectContext = JSON.parse(projectContextText);
           console.log(`📁 Retrieved project: \"${projectContext.blocks?.Title || 'Untitled'}\"`);
@@ -122,10 +122,10 @@ export class WorkflowTools {
         }
       }
 
-      // Step 3: Update task status to 'doing' using update_task tool (if not already doing)
+      // Step 3: Update task status to 'doing' using update_object tool (if not already doing)
       if (taskContext.stage !== 'doing') {
         try {
-          await this.taskTools.handle('update_task', { task_id: taskId, stage: 'doing' });
+          await this.taskTools.handle('update_object', { object_id: taskId, template_id: 1, stage: 'doing' });
           console.log(`⚡ Moved task to \"Doing\" stage`);
           taskContext.stage = 'doing'; // Update local state
         } catch (error) {
@@ -185,8 +185,9 @@ export class WorkflowTools {
       if (originalTaskState && originalTaskState.stage !== 'doing') {
         try {
           console.log(`🔄 Attempting rollback for task ${taskId} to stage '${originalTaskState.stage}'`);
-          await this.taskTools.handle('update_task', { 
-            task_id: taskId, 
+          await this.taskTools.handle('update_object', { 
+            object_id: taskId,
+            template_id: 1,
             stage: originalTaskState.stage 
           });
           console.log(`✅ Successfully rolled back task ${taskId} to original stage`);
@@ -351,8 +352,9 @@ export class WorkflowTools {
     if (progress.total > 0 && progress.completed === progress.total) {
       console.log(`✅ All checkboxes completed for task ${taskId}, moving to Review stage`);
       try {
-        await this.taskTools.handle("update_task", { 
-          task_id: taskId,
+        await this.taskTools.handle("update_object", { 
+          object_id: taskId,
+          template_id: 1,
           stage: 'review'
         });
         console.log(`🎉 Task ${taskId} automatically transitioned to 'review' stage`);
@@ -380,8 +382,8 @@ export class WorkflowTools {
     try {
       console.log(`🔍 Starting project initiation for project ${projectId}`);
       
-      // Step 1: Load project using get_project tool
-      const projectResponse = await this.projectTools.handle('get_project', { project_id: projectId });
+      // Step 1: Load project using get_object tool
+      const projectResponse = await this.projectTools.handle('get_object', { object_id: projectId });
       if (!projectResponse || !projectResponse.content || !projectResponse.content[0]?.text) {
         return this.createErrorResponse(`Project with ID ${projectId} not found.`);
       }
@@ -601,9 +603,10 @@ Important: For each task, ensure you populate all required properties and follow
         }
       });
       
-      // Create task using create_task tool
+      // Create task using create_object tool
       try {
-        const taskResponse = await this.taskTools.handle('create_task', taskData);
+        const taskData_with_template: Record<string, any> = { ...taskData, template_id: 1 };
+        const taskResponse = await this.taskTools.handle('create_object', taskData_with_template);
         if (taskResponse && taskResponse.content && taskResponse.content[0]?.text) {
           const createdTask = JSON.parse(taskResponse.content[0].text);
           createdTasks.push(createdTask);
