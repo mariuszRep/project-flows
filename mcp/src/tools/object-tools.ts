@@ -58,38 +58,30 @@ export class ObjectTools {
       } as Tool,
       {
         name: "get_object",
-        description: "Retrieve an object by its numeric ID and template_id. Returns the complete object data.",
+        description: "Retrieve an object by its numeric ID. Returns the complete object data.",
         inputSchema: {
           type: "object",
           properties: {
             object_id: {
               type: "number",
               description: "The numeric ID of the object to retrieve"
-            },
-            template_id: {
-              type: "number",
-              description: "Template ID: 1=Task, 2=Project, 3=Epic"
             }
           },
-          required: ["object_id", "template_id"],
+          required: ["object_id"],
         },
       } as Tool,
       {
         name: "delete_object",
-        description: "Delete an object by its numeric ID and template_id. This permanently removes the object and all its associated data.",
+        description: "Delete an object by its numeric ID. This permanently removes the object and all its associated data.",
         inputSchema: {
           type: "object",
           properties: {
             object_id: {
               type: "number",
               description: "The numeric ID of the object to delete"
-            },
-            template_id: {
-              type: "number",
-              description: "Template ID: 1=Task, 2=Project, 3=Epic"
             }
           },
-          required: ["object_id", "template_id"],
+          required: ["object_id"],
         },
       } as Tool,
       {
@@ -455,7 +447,6 @@ export class ObjectTools {
 
   private async handleGetObject(toolArgs?: Record<string, any>) {
     const objectId = toolArgs?.object_id;
-    const templateId = toolArgs?.template_id;
     
     // Validate parameters
     if (!objectId || typeof objectId !== 'number' || objectId < 1) {
@@ -469,17 +460,6 @@ export class ObjectTools {
       };
     }
 
-    if (!templateId || typeof templateId !== 'number' || ![1, 2, 3].includes(templateId)) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: "Error: Valid template_id is required (1=Task, 2=Project, 3=Epic).",
-          } as TextContent,
-        ],
-      };
-    }
-
     // Get object from database
     const object = await this.sharedDbService.getTask(objectId);
     if (!object) {
@@ -488,18 +468,6 @@ export class ObjectTools {
           {
             type: "text",
             text: `Error: Object with ID ${objectId} not found.`,
-          } as TextContent,
-        ],
-      };
-    }
-
-    // Validate template_id matches
-    if (object.template_id !== templateId) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Error: Object template_id mismatch. Expected ${templateId}, found ${object.template_id}.`,
           } as TextContent,
         ],
       };
@@ -532,12 +500,12 @@ export class ObjectTools {
       }
     }
     
-    const typeDisplay = templateId === 1 ? 'task' : templateId === 2 ? 'project' : 'epic';
+    const typeDisplay = object.template_id === 1 ? 'task' : object.template_id === 2 ? 'project' : 'epic';
     
     const jsonData = {
       id: object.id,
       stage: object.stage || 'draft',
-      template_id: templateId,
+      template_id: object.template_id,
       parent_id: object.parent_id,
       parent_type: parentType,
       parent_name: parentName,
@@ -557,7 +525,6 @@ export class ObjectTools {
 
   private async handleDeleteObject(toolArgs?: Record<string, any>) {
     const objectId = toolArgs?.object_id;
-    const templateId = toolArgs?.template_id;
     
     // Validate parameters
     if (!objectId || typeof objectId !== 'number' || objectId < 1) {
@@ -571,18 +538,7 @@ export class ObjectTools {
       };
     }
 
-    if (!templateId || typeof templateId !== 'number' || ![1, 2, 3].includes(templateId)) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: "Error: Valid template_id is required (1=Task, 2=Project, 3=Epic).",
-          } as TextContent,
-        ],
-      };
-    }
-
-    // Check if object exists and validate template_id
+    // Check if object exists
     const existingObject = await this.sharedDbService.getTask(objectId);
     if (!existingObject) {
       return {
@@ -595,27 +551,14 @@ export class ObjectTools {
       };
     }
 
-    if (existingObject.template_id !== templateId) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Error: Object template_id mismatch. Expected ${templateId}, found ${existingObject.template_id}.`,
-          } as TextContent,
-        ],
-      };
-    }
-
     // Delete object from database
     try {
       const deleted = await this.sharedDbService.deleteTask(objectId);
       if (deleted) {
-        const typeDisplay = templateId === 1 ? 'Task' : templateId === 2 ? 'Project' : 'Epic';
+        const typeDisplay = existingObject.template_id === 1 ? 'Task' : existingObject.template_id === 2 ? 'Project' : 'Epic';
         const jsonResponse = {
           success: true,
           object_id: objectId,
-          template_id: templateId,
-          type: typeDisplay.toLowerCase(),
           message: `${typeDisplay} with ID ${objectId} has been successfully deleted.`
         };
         
@@ -631,7 +574,6 @@ export class ObjectTools {
         const jsonResponse = {
           success: false,
           object_id: objectId,
-          template_id: templateId,
           error: `Failed to delete object with ID ${objectId}.`
         };
         
@@ -649,7 +591,6 @@ export class ObjectTools {
       const jsonResponse = {
         success: false,
         object_id: objectId,
-        template_id: templateId,
         error: "Failed to delete object from database."
       };
       
