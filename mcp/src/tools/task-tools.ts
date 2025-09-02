@@ -49,24 +49,7 @@ export class TaskTools {
           required: ["task_id"],
         },
       } as Tool,
-      {
-        name: "list_tasks",
-        description: "List all tasks with their ID, Title, Summary, Stage, Type, and Parent. Shows hierarchical relationships. Optionally filter by stage, type, or project.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            stage: {
-              type: "string",
-              description: "Optional stage filter: 'draft', 'backlog', 'doing', 'review', or 'completed'"
-            },
-            project_id: {
-              type: "number",
-              description: "Optional project ID filter: only return tasks that belong to this project (parent_id)"
-            }
-          },
-          required: [],
-        },
-      } as Tool,
+      
       {
         name: "get_task",
         description: "Retrieve a task by its numeric ID. Returns the complete task data in JSON format.",
@@ -99,7 +82,7 @@ export class TaskTools {
   }
 
   canHandle(toolName: string): boolean {
-    return ["create_task", "update_task", "list_tasks", "get_task", "delete_task"].includes(toolName);
+    return ["create_task", "update_task", "get_task", "delete_task"].includes(toolName);
   }
 
   async handle(name: string, toolArgs?: Record<string, any>) {
@@ -108,8 +91,7 @@ export class TaskTools {
         return await this.handleCreateTask(toolArgs);
       case "update_task":
         return await this.handleUpdateTask(toolArgs);
-      case "list_tasks":
-        return await this.handleListTasks(toolArgs);
+      
       case "get_task":
         return await this.handleGetTask(toolArgs);
       case "delete_task":
@@ -402,114 +384,7 @@ export class TaskTools {
     };
   }
 
-  private async handleListTasks(toolArgs?: Record<string, any>) {
-    // List all tasks with optional stage and project_id filters
-    const stageFilter = toolArgs?.stage as string | undefined;
-    const projectIdFilter = toolArgs?.project_id as number | undefined;
-    // Always use template_id 1 for consistency
-    const templateIdFilter = 1;
-    let tasks: TaskData[];
-    try {
-      tasks = await this.sharedDbService.listTasks(stageFilter, projectIdFilter, templateIdFilter);
-    } catch (error) {
-      console.error('Error listing tasks:', error);
-      return {
-        content: [
-          {
-            type: "text",
-            text: "Error: Failed to retrieve tasks list.",
-          } as TextContent,
-        ],
-      };
-    }
-
-    if (tasks.length === 0) {
-      const filters = [];
-      if (stageFilter) filters.push(`stage '${stageFilter}'`);
-      filters.push(`template_id '1'`);
-      if (projectIdFilter) filters.push(`project_id '${projectIdFilter}'`);
-      const filterMsg = filters.length > 0 ? ` with ${filters.join(' and ')}` : '';
-      
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify({
-              tasks: [],
-              count: 0,
-              message: `No tasks found${filterMsg}.`,
-              filters: {
-                stage: stageFilter,
-                project_id: projectIdFilter,
-                template_id: 1
-              }
-            }, null, 2),
-          } as TextContent,
-        ],
-      };
-    }
-
-    // Build JSON array with task data
-    try {
-      // Create a map of task IDs to titles for parent references
-      const taskMap = new Map(tasks.map(t => [t.id, t.Title || 'Untitled']));
-
-      const tasksList = tasks.map(task => ({
-        id: task.id,
-        title: task.Title || '',
-        description: task.Description || task.Summary || '',
-        stage: task.stage || 'draft',
-        template_id: task.template_id,
-        type: task.template_id === 2 ? 'Project' : 'Task',
-        parent_id: task.parent_id,
-        parent_name: task.parent_id ? (taskMap.get(task.parent_id) || `Unknown (${task.parent_id})`) : null,
-        // Include timestamp fields for sorting
-        created_at: task.created_at,
-        updated_at: task.updated_at,
-        created_by: task.created_by,
-        updated_by: task.updated_by,
-        // Include any additional properties
-        ...Object.fromEntries(
-          Object.entries(task).filter(([key, value]) => 
-            !['id', 'Title', 'Description', 'stage', 'template_id', 'parent_id', 'created_at', 'updated_at', 'created_by', 'updated_by'].includes(key) &&
-            value
-          )
-        )
-      }));
-
-      const jsonResponse = {
-        tasks: tasksList,
-        count: tasksList.length,
-        filters: {
-          stage: stageFilter,
-          project_id: projectIdFilter,
-          template_id: 1
-        }
-      };
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify(jsonResponse, null, 2),
-          } as TextContent,
-        ],
-      };
-    } catch (error) {
-      console.error('Error formatting tasks list:', error);
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify({
-              error: "Failed to format tasks list.",
-              success: false
-            }, null, 2),
-          } as TextContent,
-        ],
-      };
-    }
-  }
+  
 
   private async handleGetTask(toolArgs?: Record<string, any>) {
     // Handle retrieving a task by ID
