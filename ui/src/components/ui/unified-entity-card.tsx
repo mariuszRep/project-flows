@@ -260,7 +260,7 @@ export const UnifiedEntityCard: React.FC<UnifiedEntityCardProps> = ({
                   <MarkdownRenderer content={entity.summary} />
                 </div>
               )}
-              <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-2 mt-2 flex-wrap">
                 <KeyValuePill keyName={entity.type} value={`${entity.id}`} size="sm" />
                 {entity.stage && (
                   <KeyValuePill keyName="Stage" value={effectiveStages.find(s => s.key === entity.stage)?.title || entity.stage} size="sm" />
