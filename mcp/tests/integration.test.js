@@ -29,7 +29,6 @@ class IntegrationTester {
 
     try {
       await this.testDatabaseConnection();
-      await this.testSchemaPropertiesLoad();
       await this.testTaskCreation();
       await this.testTaskRetrieval();
       await this.testTaskUpdate();
@@ -61,46 +60,7 @@ class IntegrationTester {
     }
   }
 
-  async testSchemaPropertiesLoad() {
-    console.log('\\n📋 Testing schema properties loading...');
-    try {
-      // Load expected schema properties
-      const schemaPath = join(__dirname, '..', 'schema_properties.json');
-      const expectedSchema = JSON.parse(readFileSync(schemaPath, 'utf8'));
-      
-      // Query database for schema properties
-      const result = await this.pool.query('SELECT key, type, description, dependencies, execution_order FROM properties ORDER BY key');
-      
-      if (result.rows.length === 0) {
-        console.log('⚠️  No schema properties found, loading them...');
-        // Load schema properties (simulate bootstrap)
-        for (const [key, value] of Object.entries(expectedSchema)) {
-          await this.pool.query(
-            'INSERT INTO properties (key, type, description, dependencies, execution_order, created_by) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (key) DO UPDATE SET type = $2, description = $3, dependencies = $4, execution_order = $5, updated_by = $6',
-            [key, value.type, value.description, value.dependencies || [], value.execution_order || 0, 'system']
-          );
-        }
-        console.log('✅ Schema properties loaded successfully');
-      } else {
-        console.log(`✅ Found ${result.rows.length} schema properties in database`);
-      }
-      
-      // Verify properties match expected
-      for (const [key, expectedValue] of Object.entries(expectedSchema)) {
-        const dbRow = result.rows.find(row => row.key === key);
-        if (dbRow && dbRow.type === expectedValue.type && dbRow.description === expectedValue.description) {
-          console.log(`   ✓ Property '${key}' matches expected value`);
-        } else {
-          console.log(`   ⚠️  Property '${key}' missing or incorrect`);
-        }
-      }
-      
-      this.passed++;
-    } catch (error) {
-      console.error('❌ Schema properties test failed:', error.message);
-      this.failed++;
-    }
-  }
+  
 
   async testTaskCreation() {
     console.log('\\n➕ Testing task creation...');
@@ -115,8 +75,8 @@ class IntegrationTester {
 
       // Insert task
       const taskResult = await this.pool.query(
-        'INSERT INTO tasks (title, summary) VALUES ($1, $2) RETURNING id',
-        [taskData.title, taskData.summary]
+        'INSERT INTO objects (template_id) VALUES (1) RETURNING id',
+        []
       );
       
       const taskId = taskResult.rows[0].id;
@@ -127,15 +87,15 @@ class IntegrationTester {
       for (const [key, value] of Object.entries(taskData)) {
         if (key !== 'title' && key !== 'summary') {
           await this.pool.query(
-            'INSERT INTO blocks (task_id, property_name, content, position) VALUES ($1, $2, $3, $4)',
-            [taskId, key, JSON.stringify(value), position++]
+            'INSERT INTO object_properties (task_id, property_id, content, position) VALUES ($1, (SELECT id FROM template_properties WHERE key = $2), $3, $4)',
+            [taskId, key, value, position++]
           );
         }
       }
 
       // Verify creation
       const verifyResult = await this.pool.query(
-        'SELECT t.*, b.property_name, b.content FROM tasks t LEFT JOIN blocks b ON t.id = b.task_id WHERE t.id = $1',
+        'SELECT t.*, op.content FROM objects t LEFT JOIN object_properties op ON t.id = op.task_id WHERE t.id = $1',
         [taskId]
       );
 
@@ -156,7 +116,7 @@ class IntegrationTester {
     console.log('\\n📖 Testing task retrieval...');
     try {
       // Get all tasks
-      const tasksResult = await this.pool.query('SELECT * FROM tasks ORDER BY id DESC LIMIT 1');
+      const tasksResult = await this.pool.query('SELECT * FROM objects ORDER BY id DESC LIMIT 1');
       
       if (tasksResult.rows.length === 0) {
         console.log('⚠️  No tasks found for retrieval test');
@@ -168,22 +128,22 @@ class IntegrationTester {
 
       // Get task with blocks
       const result = await this.pool.query(`
-        SELECT t.id, t.title, t.summary, b.property_name, b.content, b.position
-        FROM tasks t 
-        LEFT JOIN blocks b ON t.id = b.task_id 
+        SELECT t.id, op.content, op.position
+        FROM objects t 
+        LEFT JOIN object_properties op ON t.id = op.task_id 
         WHERE t.id = $1 
-        ORDER BY b.position
+        ORDER BY op.position
       `, [taskId]);
 
       if (result.rows.length > 0) {
         console.log(`✅ Retrieved task with ${result.rows.length} total records`);
-        console.log(`   Task: ${result.rows[0].title}`);
+        console.log(`   Task: ${result.rows[0].id}`);
         
         // Group by property
         const properties = {};
         for (const row of result.rows) {
-          if (row.property_name) {
-            properties[row.property_name] = JSON.parse(row.content);
+          if (row.content) {
+            properties[row.position] = row.content;
           }
         }
         console.log(`   Properties: ${Object.keys(properties).join(', ')}`);
@@ -202,7 +162,7 @@ class IntegrationTester {
     console.log('\\n📝 Testing task update...');
     try {
       // Get a task to update
-      const taskResult = await this.pool.query('SELECT id FROM tasks ORDER BY id DESC LIMIT 1');
+      const taskResult = await this.pool.query('SELECT id FROM objects ORDER BY id DESC LIMIT 1');
       
       if (taskResult.rows.length === 0) {
         console.log('⚠️  No tasks found for update test');
@@ -214,25 +174,25 @@ class IntegrationTester {
 
       // Update task core fields
       await this.pool.query(
-        'UPDATE tasks SET title = $1, summary = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3',
-        ['Updated Test Task', 'Updated summary for testing', taskId]
+        'UPDATE objects SET updated_at = CURRENT_TIMESTAMP WHERE id = $1',
+        [taskId]
       );
 
       // Update/insert block
       await this.pool.query(`
-        INSERT INTO blocks (task_id, property_name, content, position) 
-        VALUES ($1, $2, $3, 0)
-        ON CONFLICT (task_id, property_name) 
-        DO UPDATE SET content = $3, updated_at = CURRENT_TIMESTAMP
-      `, [taskId, 'Research', JSON.stringify('Updated research content')]);
+        INSERT INTO object_properties (task_id, property_id, content, position) 
+        VALUES ($1, (SELECT id FROM template_properties WHERE key = 'Title'), $2, 0)
+        ON CONFLICT (task_id, property_id) 
+        DO UPDATE SET content = $2, updated_at = CURRENT_TIMESTAMP
+      `, [taskId, 'Updated Test Task']);
 
       // Verify update
       const verifyResult = await this.pool.query(
-        'SELECT title, summary FROM tasks WHERE id = $1',
+        'SELECT content FROM object_properties WHERE task_id = $1 AND property_id = (SELECT id FROM template_properties WHERE key = \'Title\')',
         [taskId]
       );
 
-      if (verifyResult.rows[0]?.title === 'Updated Test Task') {
+      if (verifyResult.rows[0]?.content === 'Updated Test Task') {
         console.log('✅ Task update successful');
         this.passed++;
       } else {
@@ -250,8 +210,8 @@ class IntegrationTester {
     try {
       // Create a task specifically for deletion testing
       const taskResult = await this.pool.query(
-        'INSERT INTO tasks (title, summary) VALUES ($1, $2) RETURNING id',
-        ['Task for Deletion', 'This task will be deleted']
+        'INSERT INTO objects (template_id) VALUES (1) RETURNING id',
+        []
       );
       
       const taskId = taskResult.rows[0].id;
@@ -259,12 +219,12 @@ class IntegrationTester {
 
       // Add some blocks
       await this.pool.query(
-        'INSERT INTO blocks (task_id, property_name, content, position) VALUES ($1, $2, $3, 0)',
-        [taskId, 'TestProperty', JSON.stringify('Test content'), 0]
+        'INSERT INTO object_properties (task_id, property_id, content, position) VALUES ($1, (SELECT id FROM template_properties WHERE key = \'Title\'), $2, 0)',
+        [taskId, 'Task for Deletion']
       );
 
       // Delete the task
-      const deleteResult = await this.pool.query('DELETE FROM tasks WHERE id = $1', [taskId]);
+      const deleteResult = await this.pool.query('DELETE FROM objects WHERE id = $1', [taskId]);
       
       if (deleteResult.rowCount === 1) {
         console.log('✅ Task deletion successful');
@@ -284,36 +244,36 @@ class IntegrationTester {
     try {
       // Create a task with blocks
       const taskResult = await this.pool.query(
-        'INSERT INTO tasks (title, summary) VALUES ($1, $2) RETURNING id',
-        ['Cascade Test Task', 'Testing cascade deletion']
+        'INSERT INTO objects (template_id) VALUES (1) RETURNING id',
+        []
       );
       
       const taskId = taskResult.rows[0].id;
 
       // Add multiple blocks
       await this.pool.query(
-        'INSERT INTO blocks (task_id, property_name, content, position) VALUES ($1, $2, $3, $4)',
-        [taskId, 'Property1', JSON.stringify('Content 1'), 0]
+        'INSERT INTO object_properties (task_id, property_id, content, position) VALUES ($1, (SELECT id FROM template_properties WHERE key = \'Title\'), $2, 0)',
+        [taskId, 'Cascade Test Task']
       );
       await this.pool.query(
-        'INSERT INTO blocks (task_id, property_name, content, position) VALUES ($1, $2, $3, $4)',
-        [taskId, 'Property2', JSON.stringify('Content 2'), 1]
+        'INSERT INTO object_properties (task_id, property_id, content, position) VALUES ($1, (SELECT id FROM template_properties WHERE key = \'Description\'), $2, 1)',
+        [taskId, 'Testing cascade deletion']
       );
 
       // Verify blocks exist
       const blocksResult = await this.pool.query(
-        'SELECT COUNT(*) as count FROM blocks WHERE task_id = $1',
+        'SELECT COUNT(*) as count FROM object_properties WHERE task_id = $1',
         [taskId]
       );
       
       console.log(`Created ${blocksResult.rows[0].count} blocks for cascade test`);
 
       // Delete the task
-      await this.pool.query('DELETE FROM tasks WHERE id = $1', [taskId]);
+      await this.pool.query('DELETE FROM objects WHERE id = $1', [taskId]);
 
       // Verify blocks are also deleted
       const remainingBlocks = await this.pool.query(
-        'SELECT COUNT(*) as count FROM blocks WHERE task_id = $1',
+        'SELECT COUNT(*) as count FROM object_properties WHERE task_id = $1',
         [taskId]
       );
 

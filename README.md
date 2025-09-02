@@ -318,69 +318,7 @@ The following tools are available through the Model Context Protocol (MCP) inter
 }
 ```
 
-### `list_tasks`
 
-**Purpose**: Lists multiple tasks with filtering capabilities for integration with UIs and dashboards.
-
-**Schema**:
-```typescript
-{
-  name: "list_tasks",
-  description: "List all tasks with their ID, Title, Summary, Stage, Type, and Parent. Shows hierarchical relationships. Optionally filter by stage, type, or project.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      stage: { type: "string", enum: ["draft", "backlog", "doing", "review", "completed"] },
-      project_id: { type: "number" }
-    }
-  }
-}
-```
-
-**Example Request**:
-```json
-{
-  "name": "list_tasks",
-  "arguments": {
-    "stage": "doing",
-    "project_id": 5
-  }
-}
-```
-
-**Response Format**:
-```json
-{
-  "tasks": [
-    {
-      "id": 42,
-      "title": "Implement feature X",
-      "description": "Add new functionality to the system",
-      "stage": "doing",
-      "template_id": 1,
-      "type": "Task",
-      "parent_id": 5,
-      "parent_name": "Project Name"
-    },
-    {
-      "id": 43,
-      "title": "Fix bug Y",
-      "description": "Resolve critical issue",
-      "stage": "doing",
-      "template_id": 1,
-      "type": "Task",
-      "parent_id": 5,
-      "parent_name": "Project Name"
-    }
-  ],
-  "count": 2,
-  "filters": {
-    "stage": "doing",
-    "project_id": 5,
-    "template_id": 1
-  }
-}
-```
 
 ### `delete_task`
 
