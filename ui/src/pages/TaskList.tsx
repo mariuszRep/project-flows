@@ -343,6 +343,21 @@ const DraftTasks = () => {
     });
   };
 
+  // Helper: remove an entity from a nested tree immutably
+  const removeEntityFromTree = (nodes: UnifiedEntity[], targetId: number): UnifiedEntity[] => {
+    return nodes.reduce<UnifiedEntity[]>((acc, node) => {
+      if (node.id === targetId) {
+        // Drop this node
+        return acc;
+      }
+      const newChildren = node.children && node.children.length
+        ? removeEntityFromTree(node.children, targetId)
+        : [];
+      acc.push({ ...node, children: newChildren });
+      return acc;
+    }, []);
+  };
+
   const confirmTaskDelete = async () => {
     if (!isConnected || !callToolWithEvent || !deleteDialog.taskId) {
       console.log('MCP not connected or no task ID, skipping delete');
@@ -352,29 +367,40 @@ const DraftTasks = () => {
 
     try {
       // Find the entity to get its template_id
-      const entity = allEntities.find(e => e.id === deleteDialog.taskId);
+      const entity = findEntityById(allEntities, deleteDialog.taskId);
       if (!entity) {
         console.error('Entity not found:', deleteDialog.taskId);
         return;
       }
 
-      const deleteTool = tools.find(tool => tool.name === 'delete_object');
+      // Resolve delete_object tool name (supports namespaced variants, e.g., mcp0_delete_object)
+      const deleteTool = tools.find(tool => tool.name === 'delete_object') 
+        || tools.find(tool => tool.name.endsWith('delete_object') || tool.name.includes('delete_object'));
       
       if (deleteTool) {
         // Use callToolWithEvent to trigger events after successful deletion
-        const result = await callToolWithEvent('delete_object', {
+        const result = await callToolWithEvent(deleteTool.name, {
           object_id: deleteDialog.taskId,
           template_id: entity.template_id
         });
         
         console.log('Delete result:', result);
         
-        // Remove entity from local state immediately for better UX
-        setAllEntities(prevEntities => prevEntities.filter(entity => entity.id !== deleteDialog.taskId));
+        // Remove entity from local state immediately for better UX (deep removal)
+        setAllEntities(prevEntities => removeEntityFromTree(prevEntities, deleteDialog.taskId!));
         
         // Close edit form if the deleted task was being edited
         if (editingTaskId === deleteDialog.taskId) {
           setEditingTaskId(null);
+        }
+
+        // Close any open viewers for this entity
+        if (viewingTaskId === deleteDialog.taskId) {
+          setViewingTaskId(null);
+        }
+        if (viewingEntityId === deleteDialog.taskId) {
+          setViewingEntityId(null);
+          setViewingEntityType(null);
         }
         
         // No need to manually refresh - the event system will handle it
@@ -522,11 +548,12 @@ const DraftTasks = () => {
     }
 
     try {
-      const deleteTool = tools.find(tool => tool.name === 'delete_object');
+      const deleteTool = tools.find(tool => tool.name === 'delete_object') 
+        || tools.find(tool => tool.name.endsWith('delete_object') || tool.name.includes('delete_object'));
       
       if (deleteTool) {
         // Use callToolWithEvent to trigger events after successful deletion
-        const result = await callToolWithEvent('delete_object', {
+        const result = await callToolWithEvent(deleteTool.name, {
           object_id: projectId,
           template_id: 2 // Projects have template_id = 2
         });
@@ -542,8 +569,9 @@ const DraftTasks = () => {
           await handleProjectSelect(null);
         }
         
-        // Trigger sidebar refresh
+        // Trigger sidebar refresh and optimistically remove from local state
         setSidebarRefreshTrigger(prev => prev + 1);
+        setAllEntities(prev => removeEntityFromTree(prev, projectId));
         
         // No need to manually refresh - the event system will handle it
       } else {

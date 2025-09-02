@@ -269,18 +269,41 @@ export default function Board() {
     }
 
     try {
-      const deleteTool = tools.find(tool => tool.name === 'delete_task');
+      const deleteObjectTool = tools.find(tool => tool.name === 'delete_object') 
+        || tools.find(tool => tool.name.endsWith('delete_object') || tool.name.includes('delete_object'));
+      const deleteTaskTool = tools.find(tool => tool.name === 'delete_task')
+        || tools.find(tool => tool.name.endsWith('delete_task') || tool.name.includes('delete_task'));
       
-      if (deleteTool) {
-        // Use callToolWithEvent to trigger events after successful deletion
-        const result = await callToolWithEvent('delete_task', {
+      if (deleteObjectTool) {
+        // Preferred: generic delete by object id
+        const result = await callToolWithEvent(deleteObjectTool.name, {
+          object_id: deleteDialog.taskId,
+          template_id: 1 // Task template
+        });
+        console.log('Delete result (delete_object):', result);
+
+        // Remove task from local state immediately for better UX
+        setTasks(prevTasks => prevTasks.filter(task => task.id !== deleteDialog.taskId));
+
+        // Close any open viewers for this task
+        if (viewingTaskId === deleteDialog.taskId) {
+          setViewingTaskId(null);
+        }
+      } else if (deleteTaskTool) {
+        // Fallback to legacy task-specific delete
+        const result = await callToolWithEvent(deleteTaskTool.name, {
           task_id: deleteDialog.taskId
         });
         
-        console.log('Delete result:', result);
+        console.log('Delete result (delete_task):', result);
         
         // Remove task from local state immediately for better UX
         setTasks(prevTasks => prevTasks.filter(task => task.id !== deleteDialog.taskId));
+
+        // Close any open viewers for this task
+        if (viewingTaskId === deleteDialog.taskId) {
+          setViewingTaskId(null);
+        }
         
         // No need to manually refresh - the event system will handle it
       } else {
@@ -364,15 +387,15 @@ export default function Board() {
     }
 
     try {
-      const deleteTool = tools.find(tool => tool.name === 'delete_task');
-      
-      if (deleteTool) {
-        // Use callToolWithEvent to trigger events after successful deletion
-        const result = await callToolWithEvent('delete_task', {
-          task_id: projectId
+      const deleteObjectTool = tools.find(tool => tool.name === 'delete_object') 
+        || tools.find(tool => tool.name.endsWith('delete_object') || tool.name.includes('delete_object'));
+      if (deleteObjectTool) {
+        const result = await callToolWithEvent(deleteObjectTool.name, {
+          object_id: projectId,
+          template_id: 2 // Project template
         });
         
-        console.log('Project delete result:', result);
+        console.log('Project delete result (delete_object):', result);
         
         // Close the edit form
         setEditingProjectId(null);
