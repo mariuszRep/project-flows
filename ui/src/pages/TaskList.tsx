@@ -112,6 +112,35 @@ const DraftTasks = () => {
       return b.id - a.id;
     });
 
+  const taskCountsByStage = React.useMemo(() => {
+    const counts: { [stage in TaskStage]: number } = {
+      draft: 0,
+      backlog: 0,
+      doing: 0,
+      review: 0,
+      completed: 0,
+    };
+    const flattenEntities = (entities: UnifiedEntity[]): UnifiedEntity[] => {
+        let flat: UnifiedEntity[] = [];
+        for (const entity of entities) {
+          flat.push(entity);
+          if (entity.children) {
+            flat = flat.concat(flattenEntities(entity.children));
+          }
+        }
+        return flat;
+    };
+    const flatEntities = flattenEntities(allEntities);
+    for (const entity of flatEntities) {
+      if (entity.type === 'Task' && entity.stage) {
+        if (counts[entity.stage] !== undefined) {
+            counts[entity.stage]++;
+        }
+      }
+    }
+    return counts;
+  }, [allEntities]);
+
   // Function to build hierarchical structure from flat entity list
   const buildHierarchy = (entities: UnifiedEntity[]): UnifiedEntity[] => {
     // Create a map for quick lookup
@@ -686,7 +715,7 @@ const DraftTasks = () => {
                       >
                         {stage.title}
                         <span className="ml-1 text-xs">
-                          ({allEntities.filter(e => e.type === 'Task' && e.stage === stage.key).length})
+                          ({taskCountsByStage[stage.key]})
                         </span>
                       </Badge>
                     </button>
