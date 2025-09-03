@@ -83,14 +83,53 @@ const DraftTasks = () => {
     return allEntities;
   })();
 
+  // Helper function to check if an entity or any of its children are visible
+  const hasVisibleChildren = (entity: UnifiedEntity): boolean => {
+    // If all stages are selected, everything is visible
+    if (selectedStages.length === 0 || selectedStages.length === stages.length) {
+      return true;
+    }
+
+    // A task is visible if its stage is selected
+    if (entity.type === 'Task' && entity.stage) {
+      return selectedStages.includes(entity.stage);
+    }
+
+    // An epic or project is visible if any of its children are visible
+    if (entity.children && entity.children.length > 0) {
+      return entity.children.some(hasVisibleChildren);
+    }
+
+    // Default to not visible if no conditions are met
+    return false;
+  };
+
   // Get filtered entities based on selected stages and sort chronologically
   const filteredEntities = baseEntities
     .filter(entity => {
-      // For tasks, filter by selected stages. For other entities, show all
+      const allStagesSelected = selectedStages.length === stages.length;
+
+      // When all stages are selected or no filter is applied, show all entities
+      if (allStagesSelected || selectedStages.length === 0) {
+        return true;
+      }
+
+      // For epics, show them if they have any visible children
+      if (entity.type === 'Epic') {
+        return hasVisibleChildren(entity);
+      }
+      
+      // For tasks, filter by selected stages
       if (entity.type === 'Task' && entity.stage) {
         return selectedStages.includes(entity.stage);
       }
-      return true; // Show all Projects and Epics
+      
+      // Always show projects at the root level, but their children will be filtered
+      if (entity.type === 'Project') {
+        return true;
+      }
+      
+      return false; // Default to hiding entities that don't match
     })
     .sort((a, b) => {
       // Chronological sorting by updated_at timestamp (most recent first)
