@@ -54,12 +54,9 @@ npm run clean
 
 ## Key Implementation Details
 
-- The server provides five tools:
-  - `create_task`: Creates a new task plan (requires Title and Summary, accepts dynamic properties)
-  - `update_task`: Updates an existing task plan (all fields optional, validates dependencies)
-  - `get_item`: Retrieves a complete task by numeric ID
-  - `execute_task`: Orchestrates task execution with real-time progress tracking
-  - `initiate_project`: Analyzes a project and automatically generates appropriate tasks
+- The server provides these tools:
+  - Object Tools: `create_object`, `update_object`, `get_object`, `delete_object`, `list_objects`
+  - Workflow Tools: `execute_task` (guided execution), `initiate_project` (analyze project and generate tasks)
 - Dynamic properties are loaded from `schema_properties.json` with execution order and dependency management
 - Properties include Research (depends on Summary) and Items (depends on Summary and Research)
 - Output is formatted as structured markdown with sections for each property
@@ -116,121 +113,58 @@ This enables tracking which MCP client created or modified each record and task 
 
 ## Tool Usage Examples
 
-### create_task
-Creates a complete task plan with automatic numeric task ID generation:
+### create_object (Task)
+Create a task (template_id=1):
 
 ```json
 {
-  "name": "create_task",
+  "name": "create_object",
   "arguments": {
+    "template_id": 1,
     "Title": "Implement user authentication system",
-    "Summary": "Add secure login/logout functionality with session management",
-    "Research": "Technical requirements: OAuth 2.0, JWT tokens, password hashing with bcrypt, session storage in Redis. Business constraints: Must integrate with existing user database. Dependencies: Redis server, OAuth provider setup.",
-    "Items": "- Set up OAuth 2.0 configuration\n- Implement JWT token generation and validation\n- Create password hashing utilities\n- Build login/logout endpoints\n- Add session middleware\n- Write comprehensive tests"
+    "Description": "Add secure login/logout functionality with session management",
+    "Items": "- Set up OAuth 2.0 configuration\n- Implement JWT token generation and validation",
+    "stage": "backlog"
   }
 }
 ```
 
-**Output includes Task ID:**
-```markdown
-# Task
-**Task ID:** 1
+### update_object (Task)
+Update fields of an existing task by object ID and template ID:
 
-**Title:** Implement user authentication system
-
-## Summary
-Add secure login/logout functionality with session management
-...
-```
-
-### update_task
-Updates specific fields of an existing task by numeric task ID. The `task_id` field is required, all other fields are optional. **No dependency validation is enforced for updates** - you can update any field independently.
-
-#### Single field updates:
 ```json
 {
-  "name": "update_task", 
+  "name": "update_object",
   "arguments": {
-    "task_id": 1,
-    "Title": "Enhanced user authentication system"
+    "object_id": 1,
+    "template_id": 1,
+    "Title": "Enhanced user authentication system",
+    "stage": "doing"
   }
 }
 ```
 
-#### Update any field independently:
+### get_object
+Retrieve a complete object by numeric ID:
+
 ```json
-{
-  "name": "update_task",
-  "arguments": {
-    "task_id": 1,
-    "Research": "Updated research findings"
-  }
-}
+{ "name": "get_object", "arguments": { "object_id": 1 } }
 ```
 
-#### Multi-field updates:
+### list_objects
+List objects with optional filters:
+
 ```json
-{
-  "name": "update_task",
-  "arguments": {
-    "task_id": 1,
-    "Summary": "Updated summary with new requirements",
-    "Research": "Updated research findings with additional security considerations"
-  }
-}
+{ "name": "list_objects", "arguments": { "template_id": 1 } }
+{ "name": "list_objects", "arguments": { "template_id": 1, "stage": "backlog" } }
 ```
 
-#### Task ID validation:
-- ✅ Valid: `{"task_id": 1, "Title": "..."}` (numeric ID ≥ 1)
-- ❌ Invalid: `{"Title": "..."}` (missing task_id)
-- ❌ Invalid: `{"task_id": "1", "Title": "..."}` (string ID)
-- ❌ Invalid: `{"task_id": 0, "Title": "..."}` (ID must be ≥ 1)
+### delete_object
+Delete object by ID:
 
-#### Dependency behavior:
-- ✅ `{"task_id": 1, "Research": "..."}` (can update Research alone)
-- ✅ `{"task_id": 1, "Items": "..."}` (can update Items alone)
-- ✅ `{"task_id": 1, "Summary": "...", "Research": "..."}` (can update multiple fields)
-- **Note:** Dependencies are only validated during initial task creation with `create_task`, not during updates
-
-### get_item
-Retrieves a complete task by its numeric ID. Returns all stored task data in the same format as create_task.
-
-#### Basic retrieval:
 ```json
-{
-  "name": "get_item",
-  "arguments": {
-    "task_id": 1
-  }
-}
+{ "name": "delete_object", "arguments": { "object_id": 1 } }
 ```
-
-#### Task ID validation:
-- ✅ Valid: `{"task_id": 1}` (numeric ID ≥ 1)
-- ❌ Invalid: `{}` (missing task_id)
-- ❌ Invalid: `{"task_id": "1"}` (string ID)
-- ❌ Invalid: `{"task_id": 0}` (ID must be ≥ 1)
-
-#### Output format:
-```markdown
-# Task
-**Task ID:** 1
-
-**Title:** [Task Title]
-
-## Summary
-[Task Summary]
-
-## Research
-[Research Content]
-
-## Items
-[Items Content]
-```
-
-#### Error handling:
-- **Missing task**: Returns `Error: Task with ID [id] not found.`
-- **Invalid ID**: Returns `Error: Valid numeric task_id is required for retrieval.`
 
 ### execute_task
 Orchestrates task execution by loading task and project context, then providing guided execution with real-time progress tracking. **Important**: This tool automatically moves the task stage from 'backlog' → 'doing' → 'review' upon successful completion.
@@ -316,11 +250,11 @@ Analyzes a project and automatically generates appropriate tasks based on projec
 - **`comprehensive`**: Detailed task breakdown with extensive planning
 
 #### Workflow behavior:
-1. **Project Loading**: Retrieves project context using `get_project` tool
+1. **Project Loading**: Retrieves project context using `get_object` tool
 2. **Schema Discovery**: Dynamically loads project and task property schemas using `list_properties`
 3. **Analysis Generation**: Creates analysis prompt based on available properties
 4. **Task Generation**: Determines appropriate tasks based on project complexity
-5. **Task Creation**: Creates tasks using `create_task` tool with proper relationships
+5. **Task Creation**: Creates tasks using `create_object` (template_id=1) with proper relationships
 6. **Report Generation**: Returns comprehensive analysis report with created tasks
 
 #### Output format:
@@ -359,10 +293,9 @@ Returns JSON with analysis results including:
 - **Schema loading failure**: Returns `{"error": "Failed to load project/task property schema."}`
 - **Task creation failure**: Continues with remaining tasks, logs individual failures
 
-#### Integration with existing tools:
-- Uses `get_project` to retrieve project context
+- Uses `get_object` to retrieve project context
 - Uses `list_properties` to discover available schemas dynamically
-- Uses `create_task` to generate tasks with proper parent relationships
+- Uses `create_object` to generate tasks with proper parent relationships
 - All created tasks are automatically set to 'backlog' stage
 - Tasks inherit project ID as parent_id for proper hierarchy
 
@@ -370,7 +303,7 @@ Returns JSON with analysis results including:
 - Run this tool after creating a new project to automatically populate it with tasks
 - Use `analysis_depth: "comprehensive"` for complex projects requiring detailed planning
 - Use `max_tasks` parameter to limit task generation for large projects
-- Generated tasks can be further refined using `update_task` after creation
+- Generated tasks can be further refined using `update_object` after creation
 - Use `execute_task` on generated tasks to begin implementation workflow
 
 ## Build Process

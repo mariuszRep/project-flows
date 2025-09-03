@@ -65,47 +65,65 @@ A TypeScript implementation of the Model Context Protocol (MCP) server with Post
 
 ## API Usage
 
-### Available Tools
+### Available Tools (Object Tools)
 
-#### 1. create_task
-Creates a new task with automatic ID generation:
+Object Tools provide unified CRUD across Tasks, Projects, and Epics. Use `template_id` to select the type: `1=Task`, `2=Project`, `3=Epic`.
+
+#### 1. create_object
+Create a new object (example: Task):
 
 ```json
 {
-  "name": "create_task",
+  "name": "create_object",
   "arguments": {
+    "template_id": 1,
     "Title": "Implement user authentication",
-    "Summary": "Add secure login/logout functionality",
-    "Research": "Use OAuth 2.0 with JWT tokens",
-    "Items": "- Set up OAuth config\n- Create login endpoint\n- Add session management"
+    "Description": "Add secure login/logout functionality",
+    "Items": "- Set up OAuth config\n- Create login endpoint\n- Add session management",
+    "stage": "backlog"
   }
 }
 ```
 
-#### 2. update_task
-Updates existing task by ID:
+#### 2. update_object
+Update an existing object (example: Task):
 
 ```json
 {
-  "name": "update_task",
+  "name": "update_object",
   "arguments": {
-    "task_id": 1,
+    "object_id": 1,
+    "template_id": 1,
     "Title": "Enhanced user authentication",
-    "Research": "Updated research with additional security considerations"
+    "stage": "doing"
   }
 }
 ```
 
-#### 3. get_item
-Retrieves complete task by ID:
+#### 3. get_object
+Retrieve complete object by ID:
 
 ```json
 {
-  "name": "get_item",
-  "arguments": {
-    "task_id": 1
-  }
+  "name": "get_object",
+  "arguments": { "object_id": 1 }
 }
+```
+
+#### 4. list_objects
+List objects with optional filters:
+
+```json
+{ "name": "list_objects", "arguments": { "template_id": 1 } }
+{ "name": "list_objects", "arguments": { "template_id": 1, "stage": "backlog" } }
+{ "name": "list_objects", "arguments": { "parent_id": 2 } }
+```
+
+#### 5. delete_object
+Delete object by ID:
+
+```json
+{ "name": "delete_object", "arguments": { "object_id": 1 } }
 ```
 
 ## Database Integration

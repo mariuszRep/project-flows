@@ -164,206 +164,81 @@ claude mcp add --transport sse project-flows http://localhost:3001/sse --header 
 
 ### Available MCP Tools
 
-The following tools are available through the Model Context Protocol (MCP) interface. These tools are designed for integration with AI agents, UIs, and automated systems.
+The server exposes Object Tools for CRUD over all object types (Task, Project, Epic) plus Workflow Tools. Use `template_id` to choose the object type: `1=Task`, `2=Project`, `3=Epic`.
 
-## Task Management Tools
+## Object Tools
 
-### `create_task`
+### `create_object`
 
-**Purpose**: Creates a structured task entity with hierarchical relationships and multiple property blocks.
+Creates a new object. For tasks, use `template_id: 1`.
 
-**Schema**:
-```typescript
-{
-  name: "create_task",
-  description: "Create a detailed task plan with markdown formatting, make sure you populate 'Title' and 'Description' and later all the rest of the properties. Use parent_id to create hierarchical tasks (e.g., subtasks under a project).",
-  inputSchema: {
-    type: "object",
-    properties: {
-      Title: { type: "string" },
-      Description: { type: "string" },
-      Research: { type: "string" },
-      Items: { type: "string" },
-      parent_id: { type: "number" }
-      // Additional dynamic properties may be available
-    },
-    required: ["Title", "Description"]
-  }
-}
-```
-
-**Example Request**:
+Example request (create task):
 ```json
 {
-  "name": "create_task",
+  "name": "create_object",
   "arguments": {
+    "template_id": 1,
     "Title": "Implement feature X",
     "Description": "Add new functionality to the system",
-    "Research": "Technical requirements and constraints",
-    "Items": "- Task 1\n- Task 2\n- Task 3",
+    "Items": "- Task 1\n- Task 2",
+    "stage": "backlog",
     "parent_id": 5
   }
 }
 ```
 
-**Response Format**:
+### `update_object`
+
+Updates an existing object by ID and `template_id`.
+
+Example request (update task stage/title):
 ```json
 {
-  "success": true,
-  "task_id": 42,
-  "type": "task",
-  "title": "Implement feature X",
-  "description": "Add new functionality to the system",
-  "project_id": 5,
-  "project_name": "Project Name",
-  "template_id": 1,
-  "stage": "draft",
-  "Research": "Technical requirements and constraints",
-  "Items": "- Task 1\n- Task 2\n- Task 3"
-}
-```
-
-### `update_task`
-
-**Purpose**: Updates an existing task's properties, stage, or hierarchical relationships.
-
-**Schema**:
-```typescript
-{
-  name: "update_task",
-  description: "Update an existing task plan by task ID. Provide the task_id and any subset of fields to update. All fields except task_id are optional. To change a task's stage, include the 'stage' parameter with one of these values: 'draft', 'backlog', 'doing', 'review', or 'completed'.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      task_id: { type: "number" },
-      Title: { type: "string" },
-      Description: { type: "string" },
-      stage: { type: "string", enum: ["draft", "backlog", "doing", "review", "completed"] },
-      parent_id: { type: "number" }
-      // Additional dynamic properties may be available
-    },
-    required: ["task_id"]
-  }
-}
-```
-
-**Example Request**:
-```json
-{
-  "name": "update_task",
+  "name": "update_object",
   "arguments": {
-    "task_id": 42,
+    "object_id": 42,
+    "template_id": 1,
     "Title": "Updated feature X",
     "stage": "doing"
   }
 }
 ```
 
-**Response Format**:
+### `get_object`
+
+Retrieves an object by numeric ID.
+
+Example request:
 ```json
-{
-  "success": true,
-  "task_id": 42,
-  "message": "Task 42 updated successfully",
-  "updated_fields": {
-    "Title": "Updated feature X"
-  }
-}
+{ "name": "get_object", "arguments": { "object_id": 42 } }
 ```
 
-### `get_task`
+### `delete_object`
 
-**Purpose**: Retrieves complete task data including all property blocks.
+Deletes an object by numeric ID.
 
-**Schema**:
-```typescript
-{
-  name: "get_task",
-  description: "Retrieve a task by its numeric ID. Returns the complete task data in JSON format.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      task_id: { type: "number" }
-    },
-    required: ["task_id"]
-  }
-}
-```
-
-**Example Request**:
+Example request:
 ```json
-{
-  "name": "get_task",
-  "arguments": {
-    "task_id": 42
-  }
-}
+{ "name": "delete_object", "arguments": { "object_id": 42 } }
 ```
 
-**Response Format**:
+### `list_objects`
+
+Lists objects with optional filters.
+
+Example requests:
 ```json
-{
-  "id": 42,
-  "stage": "doing",
-  "template_id": 1,
-  "parent_id": 5,
-  "parent_type": "project",
-  "parent_name": "Project Name",
-  "blocks": {
-    "Title": "Implement feature X",
-    "Description": "Add new functionality to the system",
-    "Research": "Technical requirements and constraints",
-    "Items": "- Task 1\n- Task 2\n- Task 3"
-  }
-}
-```
-
-
-
-### `delete_task`
-
-**Purpose**: Permanently removes a task and all associated data.
-
-**Schema**:
-```typescript
-{
-  name: "delete_task",
-  description: "Delete a task by its numeric ID. This permanently removes the task and all its associated data.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      task_id: { type: "number" }
-    },
-    required: ["task_id"]
-  }
-}
-```
-
-**Example Request**:
-```json
-{
-  "name": "delete_task",
-  "arguments": {
-    "task_id": 42
-  }
-}
-```
-
-**Response Format**:
-```json
-{
-  "success": true,
-  "task_id": 42,
-  "message": "Task with ID 42 has been successfully deleted."
-}
+{ "name": "list_objects", "arguments": { "template_id": 1 } }
+{ "name": "list_objects", "arguments": { "template_id": 1, "stage": "backlog" } }
+{ "name": "list_objects", "arguments": { "parent_id": 5 } }
 ```
 
 ## Integration Notes
 
 - All responses are returned as JSON for easy parsing by agents and UIs
 - Error responses follow a consistent format with `success: false` and an `error` message
-- Task stages follow a workflow progression: draft → backlog → doing → review → completed
-- The system supports hierarchical relationships between tasks and projects
+- Stages: draft → backlog → doing → review → completed
+- The system supports hierarchical relationships across objects (tasks under projects/epics)
 - Dynamic properties may be available based on the schema configuration
 
 ## 🐛 Troubleshooting
