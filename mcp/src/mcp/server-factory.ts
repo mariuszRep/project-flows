@@ -331,11 +331,7 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
   const propertyTools = createPropertyTools(sharedDbService, clientId);
   
   const objectTools = createObjectTools(
-    sharedDbService,
-    clientId,
-    loadGenericSchemaProperties,
-    createExecutionChain,
-    validateDependencies
+    sharedDbService
   );
   // Restore task and project specific toolsets
   const projectTools = createProjectTools(
@@ -445,7 +441,7 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
         // Add epic tools
         ...epicTools.getToolDefinitions(epicSchemaProperties),
         // Keep generic object tools available
-        ...objectTools.getToolDefinitions(epicSchemaProperties),
+        ...objectTools.getToolDefinitions(),
         ...workflowTools.getToolDefinitions(),
       ],
     };
