@@ -7,6 +7,8 @@ import { fileURLToPath } from "url";
 import DatabaseService from "../database.js";
 import { createPropertyTools } from "../tools/property-tools.js";
 import { createObjectTools } from "../tools/object-tools.js";
+import { createTaskTools } from "../tools/task-tools.js";
+import { createProjectTools } from "../tools/project-tools.js";
 import { createWorkflowTools } from "../tools/workflow-tools.js";
 import pg from 'pg';
 
@@ -334,7 +336,24 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
     createExecutionChain,
     validateDependencies
   );
-  
+  // Restore task and project specific toolsets
+  const projectTools = createProjectTools(
+    sharedDbService,
+    clientId,
+    loadProjectSchemaProperties,
+    createExecutionChain,
+    validateDependencies
+  );
+
+  const taskTools = createTaskTools(
+    sharedDbService,
+    clientId,
+    loadDynamicSchemaProperties,
+    createExecutionChain,
+    validateDependencies,
+    projectTools
+  );
+
   const workflowTools = createWorkflowTools(sharedDbService, clientId, objectTools, objectTools, propertyTools);
 
   // Set up tool list handler
@@ -410,6 +429,10 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
     return {
       tools: [
         ...propertyTools.getToolDefinitions(),
+        // Expose restored task and project tools
+        ...taskTools.getToolDefinitions(taskSchemaProperties),
+        ...projectTools.getToolDefinitions(projectSchemaProperties),
+        // Keep generic object tools available
         ...objectTools.getToolDefinitions(epicSchemaProperties),
         ...workflowTools.getToolDefinitions(),
       ],
@@ -425,7 +448,17 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
       return await propertyTools.handle(name, toolArgs);
     }
 
-    // Handle epic tools
+    // Handle task tools
+    if (taskTools.canHandle(name)) {
+      return await taskTools.handle(name, toolArgs);
+    }
+
+    // Handle project tools
+    if (projectTools.canHandle(name)) {
+      return await projectTools.handle(name, toolArgs);
+    }
+
+    // Handle generic object tools
     if (objectTools.canHandle(name)) {
       return await objectTools.handle(name, toolArgs);
     }
