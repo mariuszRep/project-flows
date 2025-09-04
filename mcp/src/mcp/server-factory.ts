@@ -9,6 +9,7 @@ import { createPropertyTools } from "../tools/property-tools.js";
 import { createObjectTools } from "../tools/object-tools.js";
 import { createTaskTools } from "../tools/task-tools.js";
 import { createProjectTools } from "../tools/project-tools.js";
+import { createEpicTools } from "../tools/epic-tools.js";
 import { createWorkflowTools } from "../tools/workflow-tools.js";
 import pg from 'pg';
 
@@ -354,6 +355,15 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
     projectTools
   );
 
+  const epicTools = createEpicTools(
+    sharedDbService,
+    clientId,
+    loadEpicSchemaProperties,
+    createExecutionChain,
+    validateDependencies,
+    projectTools
+  );
+
   const workflowTools = createWorkflowTools(sharedDbService, clientId, objectTools, objectTools, propertyTools);
 
   // Set up tool list handler
@@ -432,6 +442,8 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
         // Expose restored task and project tools
         ...taskTools.getToolDefinitions(taskSchemaProperties),
         ...projectTools.getToolDefinitions(projectSchemaProperties),
+        // Add epic tools
+        ...epicTools.getToolDefinitions(epicSchemaProperties),
         // Keep generic object tools available
         ...objectTools.getToolDefinitions(epicSchemaProperties),
         ...workflowTools.getToolDefinitions(),
@@ -456,6 +468,11 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
     // Handle project tools
     if (projectTools.canHandle(name)) {
       return await projectTools.handle(name, toolArgs);
+    }
+
+    // Handle epic tools
+    if (epicTools.canHandle(name)) {
+      return await epicTools.handle(name, toolArgs);
     }
 
     // Handle generic object tools
