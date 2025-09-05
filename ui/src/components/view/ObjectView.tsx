@@ -14,11 +14,23 @@ import { useMCP } from '@/contexts/MCPContext';
 import { useToast } from '@/hooks/use-toast';
 
 /**
- * Props interface for EntityView component
+ * Template ID constants for entity types
  */
-interface EntityViewProps {
-  /** Type of entity to display - either 'task' or 'project' */
-  entityType: 'task' | 'project';
+export const TEMPLATE_ID = {
+  TASK: 1,
+  PROJECT: 2,
+  EPIC: 3,
+} as const;
+
+/**
+ * Entity type discriminated union
+ */
+export type EntityType = 'task' | 'project' | 'epic';
+
+/**
+ * Base props interface for ObjectView component
+ */
+interface BaseObjectViewProps {
   /** Unique identifier of the entity */
   entityId: number;
   /** Whether the modal is open/visible */
@@ -27,13 +39,42 @@ interface EntityViewProps {
   onClose: () => void;
   /** Callback when the edit button is clicked */
   onEdit: () => void;
-  /** Optional template ID override. If not provided, will be derived from entity data or defaults */
-  templateId?: number;
-  /** Optional callback for task stage updates */
-  onTaskUpdate?: (taskId: number, newStage: string) => void;
   /** Optional callback for entity deletion */
   onDelete?: (entityId: number, entityTitle: string) => void;
 }
+
+/**
+ * Task-specific props interface
+ */
+interface TaskObjectViewProps extends BaseObjectViewProps {
+  entityType: 'task';
+  templateId?: typeof TEMPLATE_ID.TASK;
+  /** Optional callback for task stage updates */
+  onTaskUpdate?: (taskId: number, newStage: string) => void;
+}
+
+/**
+ * Project-specific props interface
+ */
+interface ProjectObjectViewProps extends BaseObjectViewProps {
+  entityType: 'project';
+  templateId?: typeof TEMPLATE_ID.PROJECT;
+  onTaskUpdate?: never;
+}
+
+/**
+ * Epic-specific props interface
+ */
+interface EpicObjectViewProps extends BaseObjectViewProps {
+  entityType: 'epic';
+  templateId?: typeof TEMPLATE_ID.EPIC;
+  onTaskUpdate?: never;
+}
+
+/**
+ * Discriminated union for ObjectView props
+ */
+export type ObjectViewProps = TaskObjectViewProps | ProjectObjectViewProps | EpicObjectViewProps;
 
 interface Entity {
   id: number;
@@ -55,54 +96,66 @@ interface Entity {
   [key: string]: any;
 }
 
-
 /**
- * EntityView - A unified read-only viewer component for both tasks and projects
+ * ObjectView - A unified view component for tasks, projects, and epics
  * 
- * This component provides a consistent viewing experience for both task and project entities,
- * using template-driven property ordering and dynamic data fetching. It serves as the core
- * viewer that both TaskView and ProjectView wrapper components utilize.
+ * This component provides a consistent viewing experience for all entity types,
+ * using template-driven property ordering and dynamic data fetching. It centralizes
+ * MCP calls and provides strong TypeScript typing through discriminated unions.
  * 
  * Key Features:
  * - Template-driven rendering: Uses database templates to determine property display order
- * - Dynamic entity type handling: Adapts UI elements based on task vs project
- * - Intelligent template ID resolution: Prefers entity data, falls back to MCP lookup or defaults
+ * - Universal entity type handling: Supports tasks, projects, and epics with unified logic
+ * - Centralized MCP integration: All get_object, list_properties, and list_templates calls
+ * - Strong TypeScript typing: Discriminated unions prevent invalid prop combinations
+ * - Epic-specific styling: Maintains epic color schemes and labels
  * - Graceful error handling: Handles missing properties, templates, and network issues
- * - Consistent UI/UX: Same modal layout, hover effects, and interaction patterns for both entity types
+ * - Backward compatibility: API matches existing TaskView/ProjectView patterns
  * 
  * Data Flow:
- * 1. Fetches entity data via get_object based on entityType and template_id
- * 2. Derives template ID from entity data or uses fallback logic
+ * 1. Fetches entity data via get_object with template-aware parameters
+ * 2. Resolves template ID from entity data, props, or defaults
  * 3. Fetches template properties via list_properties for ordering
  * 4. Renders properties excluding meta fields, using MarkdownRenderer
  * 
  * Template ID Resolution Priority:
  * 1. entity.template_id (from fetched data)
- * 2. propTemplateId (passed as prop)
- * 3. list_templates lookup by entity type name
- * 4. Hardcoded fallback: task=1, project=2
+ * 2. templateId prop (passed as parameter)
+ * 3. TEMPLATE_ID constants based on entityType
  * 
  * @component
  * @example
  * ```tsx
- * // Used via TaskView wrapper
- * <TaskView taskId={123} isOpen={true} onClose={handleClose} onEdit={handleEdit} />
- * 
- * // Used via ProjectView wrapper  
- * <ProjectView projectId={456} isOpen={true} onClose={handleClose} onEdit={handleEdit} />
- * 
- * // Direct usage (not recommended - use wrappers instead)
- * <EntityView 
+ * // Task view
+ * <ObjectView 
  *   entityType="task" 
  *   entityId={123} 
  *   isOpen={true} 
  *   onClose={handleClose} 
  *   onEdit={handleEdit}
- *   templateId={1} 
+ *   onTaskUpdate={handleTaskUpdate}
+ * />
+ * 
+ * // Project view
+ * <ObjectView 
+ *   entityType="project" 
+ *   entityId={456} 
+ *   isOpen={true} 
+ *   onClose={handleClose} 
+ *   onEdit={handleEdit}
+ * />
+ * 
+ * // Epic view
+ * <ObjectView 
+ *   entityType="epic" 
+ *   entityId={789} 
+ *   isOpen={true} 
+ *   onClose={handleClose} 
+ *   onEdit={handleEdit}
  * />
  * ```
  */
-const EntityView: React.FC<EntityViewProps> = ({
+const ObjectView: React.FC<ObjectViewProps> = ({
   entityType,
   entityId,
   isOpen,
@@ -139,6 +192,19 @@ const EntityView: React.FC<EntityViewProps> = ({
     }
   }, [entity, templateId]);
 
+  const getDefaultTemplateId = (entityType: EntityType): number => {
+    switch (entityType) {
+      case 'task':
+        return TEMPLATE_ID.TASK;
+      case 'project':
+        return TEMPLATE_ID.PROJECT;
+      case 'epic':
+        return TEMPLATE_ID.EPIC;
+      default:
+        return TEMPLATE_ID.TASK;
+    }
+  };
+
   const deriveTemplateId = async (entityData: Entity): Promise<number> => {
     // First preference: use template_id from entity data
     if (entityData.template_id) {
@@ -150,7 +216,7 @@ const EntityView: React.FC<EntityViewProps> = ({
       return propTemplateId;
     }
 
-    // Fallback: determine by entity type - attempt to lookup via list_templates
+    // Third preference: attempt to lookup via list_templates
     try {
       if (callTool) {
         const result = await callTool('list_templates', {});
@@ -168,8 +234,8 @@ const EntityView: React.FC<EntityViewProps> = ({
       console.error('Error fetching templates for fallback:', err);
     }
 
-    // Final fallback: hardcoded mapping
-    return entityType === 'task' ? 1 : 2;
+    // Final fallback: use constants
+    return getDefaultTemplateId(entityType);
   };
 
   const fetchTemplateProperties = async () => {
@@ -213,31 +279,29 @@ const EntityView: React.FC<EntityViewProps> = ({
         throw new Error(`No entity ID provided`);
       }
 
-      // Determine template_id first - prioritize propTemplateId over internal templateId
+      // Determine template_id first - prioritize propTemplateId
       let effectiveTemplateId = propTemplateId || templateId;
       if (!effectiveTemplateId) {
-        // Use fallback based on entityType
-        effectiveTemplateId = entityType === 'task' ? 1 : 2; // Default to project for non-tasks
+        effectiveTemplateId = getDefaultTemplateId(entityType);
       }
 
-      console.log(`EntityView DEBUG: entityType=${entityType}, entityId=${entityId}, templateId=${templateId}, propTemplateId=${propTemplateId}, effectiveTemplateId=${effectiveTemplateId}`);
+      console.log(`ObjectView DEBUG: entityType=${entityType}, entityId=${entityId}, templateId=${templateId}, propTemplateId=${propTemplateId}, effectiveTemplateId=${effectiveTemplateId}`);
 
       // Use unified get_object tool
       const result = await callTool('get_object', {
-        object_id: entityId,
-        template_id: effectiveTemplateId
+        object_id: entityId
       });
       
       if (result && result.content && result.content[0]) {
         try {
-          console.log('EntityView DEBUG: raw result:', result.content[0].text);
+          console.log('ObjectView DEBUG: raw result:', result.content[0].text);
           const entityData = JSON.parse(result.content[0].text);
-          console.log('EntityView DEBUG: parsed entityData:', entityData);
+          console.log('ObjectView DEBUG: parsed entityData:', entityData);
           setEntity(entityData);
 
           // Update template ID if the entity data provides one
           const derivedTemplateId = await deriveTemplateId(entityData);
-          console.log('EntityView DEBUG: derivedTemplateId:', derivedTemplateId);
+          console.log('ObjectView DEBUG: derivedTemplateId:', derivedTemplateId);
           setTemplateId(derivedTemplateId);
         } catch (e) {
           console.error(`Error parsing entity JSON:`, e, 'Raw text:', result.content[0].text);
@@ -288,7 +352,7 @@ const EntityView: React.FC<EntityViewProps> = ({
   };
 
   const handleStageMove = (newStage: string) => {
-    if (onTaskUpdate && entity) {
+    if (entityType === 'task' && onTaskUpdate && entity) {
       onTaskUpdate(entity.id, newStage);
     }
   };
@@ -337,6 +401,36 @@ const EntityView: React.FC<EntityViewProps> = ({
     }
   };
 
+  const getEntityTypeInfo = () => {
+    const effectiveTemplateId = templateId || getDefaultTemplateId(entityType);
+    
+    if (effectiveTemplateId === TEMPLATE_ID.TASK || entity?.type === 'Task') {
+      return {
+        label: 'Task',
+        className: 'bg-blue-50 text-blue-700 dark:bg-blue-900 dark:text-blue-300'
+      };
+    }
+    
+    if (effectiveTemplateId === TEMPLATE_ID.PROJECT || entity?.type === 'Project') {
+      return {
+        label: 'Project', 
+        className: 'bg-green-50 text-green-700 dark:bg-green-900 dark:text-green-300'
+      };
+    }
+    
+    if (effectiveTemplateId === TEMPLATE_ID.EPIC || entity?.type === 'Epic') {
+      return {
+        label: 'Epic',
+        className: 'bg-purple-50 text-purple-700 dark:bg-purple-900 dark:text-purple-300'
+      };
+    }
+    
+    return {
+      label: 'Entity',
+      className: 'bg-gray-50 text-gray-700 dark:bg-gray-900 dark:text-gray-300'
+    };
+  };
+
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 overflow-y-auto p-4">
       <Card className="w-full max-w-3xl mx-auto">
@@ -348,7 +442,7 @@ const EntityView: React.FC<EntityViewProps> = ({
             <Button variant="outline" size="icon" onClick={onEdit}>
               <Edit className="h-4 w-4" />
             </Button>
-            {(templateId === 1 || entity?.type === 'Task') && (
+            {entityType === 'task' && (
               <Button 
                 variant="outline" 
                 size="icon" 
@@ -359,7 +453,7 @@ const EntityView: React.FC<EntityViewProps> = ({
                 <Copy className="h-4 w-4" />
               </Button>
             )}
-            {(onTaskUpdate || onDelete) && (
+            {((entityType === 'task' && onTaskUpdate) || onDelete) && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="icon">
@@ -367,7 +461,7 @@ const EntityView: React.FC<EntityViewProps> = ({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  {entity && entity.stage && onTaskUpdate && (
+                  {entity && entity.stage && entityType === 'task' && onTaskUpdate && (
                     <>
                       {entity.stage !== 'doing' && (
                         <DropdownMenuItem onClick={() => handleStageMove('doing')}>
@@ -429,17 +523,9 @@ const EntityView: React.FC<EntityViewProps> = ({
                     <Badge variant="outline" className="text-xs">
                       #{entityId}
                     </Badge>
-                    {/* Generic type badge based on template_id or entity data */}
-                    <Badge variant="outline" className={`text-xs ${
-                      templateId === 1 || entity.type === 'Task' ? 'bg-blue-50 text-blue-700 dark:bg-blue-900 dark:text-blue-300' :
-                      templateId === 2 || entity.type === 'Project' ? 'bg-green-50 text-green-700 dark:bg-green-900 dark:text-green-300' :
-                      templateId === 3 || entity.type === 'Epic' ? 'bg-purple-50 text-purple-700 dark:bg-purple-900 dark:text-purple-300' :
-                      'bg-gray-50 text-gray-700 dark:bg-gray-900 dark:text-gray-300'
-                    }`}>
-                      {templateId === 1 || entity.type === 'Task' ? 'Task' :
-                       templateId === 2 || entity.type === 'Project' ? 'Project' :
-                       templateId === 3 || entity.type === 'Epic' ? 'Epic' :
-                       'Entity'}
+                    {/* Entity type badge with specific styling */}
+                    <Badge variant="outline" className={`text-xs ${getEntityTypeInfo().className}`}>
+                      {getEntityTypeInfo().label}
                     </Badge>
                     {/* Stage badge for any entity that has a stage */}
                     {entity.stage && (
@@ -456,7 +542,7 @@ const EntityView: React.FC<EntityViewProps> = ({
                       </Badge>
                     )}
                     {/* Project badge for tasks */}
-                    {(templateId === 1 || entity.type === 'Task') && entity.parent_name && (
+                    {entityType === 'task' && entity.parent_name && (
                       <Badge variant="outline" className="text-xs">
                         Project: {entity.parent_name}
                       </Badge>
@@ -493,4 +579,4 @@ const EntityView: React.FC<EntityViewProps> = ({
   );
 };
 
-export default EntityView;
+export default ObjectView;
