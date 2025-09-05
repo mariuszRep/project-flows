@@ -6,7 +6,7 @@ import { Project } from '@/types/project';
 import { TaskBoard } from '@/components/board/TaskBoard';
 import { Button } from '@/components/ui/button';
 import UnifiedForm from '@/components/forms/UnifiedForm';
-import ObjectView from '@/components/view/ObjectView';
+import ObjectView from '@/components/forms/ObjectView';
 // import ProjectEditForm from '@/components/forms/ProjectEditForm'; // Replaced by UnifiedForm
 import { ProjectSidebar } from '@/components/ui/project-sidebar';
 import { MCPDisconnectedState, NoTasksState } from '@/components/ui/empty-state';

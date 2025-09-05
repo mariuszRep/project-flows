@@ -17,7 +17,7 @@ import { ProjectSidebar } from '@/components/ui/project-sidebar';
 import { parseTaskDate } from '@/lib/utils';
 import { FileText, Plus, ArrowRight, Filter } from 'lucide-react';
 import UnifiedForm from '@/components/forms/UnifiedForm';
-import ObjectView, { TEMPLATE_ID } from '@/components/view/ObjectView';
+import ObjectView, { TEMPLATE_ID } from '@/components/forms/ObjectView';
 
 const DraftTasks = () => {
   const navigate = useNavigate();
