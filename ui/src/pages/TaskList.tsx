@@ -17,8 +17,7 @@ import { ProjectSidebar } from '@/components/ui/project-sidebar';
 import { parseTaskDate } from '@/lib/utils';
 import { FileText, Plus, ArrowRight, Filter } from 'lucide-react';
 import UnifiedForm from '@/components/forms/UnifiedForm';
-import TaskView from '@/components/view/TaskView';
-import ProjectView from '@/components/view/ProjectView';
+import ObjectView, { TEMPLATE_ID } from '@/components/view/ObjectView';
 
 const DraftTasks = () => {
   const navigate = useNavigate();
@@ -900,8 +899,9 @@ const DraftTasks = () => {
           isOpen={showAddTaskForm}
         />
         
-        <TaskView
-          taskId={viewingTaskId || 0}
+        <ObjectView
+          entityType="task"
+          entityId={viewingTaskId || 0}
           isOpen={!!viewingTaskId}
           onClose={() => setViewingTaskId(null)}
           onEdit={handleSwitchToEdit}
@@ -909,22 +909,33 @@ const DraftTasks = () => {
           onDelete={handleTaskDelete}
         />
         
-        <ProjectView
-          projectId={viewingProjectId || 0}
-          isOpen={!!viewingProjectId}
-          onClose={() => {
-            setViewingProjectId(null);
-            setViewingEntityType(null);
-          }}
-          onEdit={handleSwitchToProjectEdit}
-          templateId={(() => {
-            // Get the template_id directly from the entity data instead of relying on state
-            const entity = viewingProjectId ? allEntities.find(e => e.id === viewingProjectId) : null;
-            const templateId = entity?.template_id || (viewingEntityType === 'Epic' ? 3 : 2);
-            console.log(`ProjectView templateId: ${templateId} (entity: ${entity ? `${entity.type} #${entity.id} template_id=${entity.template_id}` : 'not found'}, viewingEntityType: ${viewingEntityType})`);
-            return templateId;
-          })()}
-        />
+        {viewingProjectId && viewingEntityType && (
+          viewingEntityType === 'Epic' ? (
+            <ObjectView
+              entityType="epic"
+              entityId={viewingProjectId}
+              isOpen={!!viewingProjectId}
+              onClose={() => {
+                setViewingProjectId(null);
+                setViewingEntityType(null);
+              }}
+              onEdit={handleSwitchToProjectEdit}
+              templateId={TEMPLATE_ID.EPIC}
+            />
+          ) : (
+            <ObjectView
+              entityType="project"
+              entityId={viewingProjectId}
+              isOpen={!!viewingProjectId}
+              onClose={() => {
+                setViewingProjectId(null);
+                setViewingEntityType(null);
+              }}
+              onEdit={handleSwitchToProjectEdit}
+              templateId={TEMPLATE_ID.PROJECT}
+            />
+          )
+        )}
       </div>
     </HeaderAndSidebarLayout>
   );

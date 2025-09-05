@@ -6,8 +6,7 @@ import { Project } from '@/types/project';
 import { TaskBoard } from '@/components/board/TaskBoard';
 import { Button } from '@/components/ui/button';
 import UnifiedForm from '@/components/forms/UnifiedForm';
-import TaskView from '@/components/view/TaskView';
-import ProjectView from '@/components/view/ProjectView';
+import ObjectView from '@/components/view/ObjectView';
 // import ProjectEditForm from '@/components/forms/ProjectEditForm'; // Replaced by UnifiedForm
 import { ProjectSidebar } from '@/components/ui/project-sidebar';
 import { MCPDisconnectedState, NoTasksState } from '@/components/ui/empty-state';
@@ -455,8 +454,9 @@ export default function Board() {
           isOpen={showAddTaskForm || !!editingTaskId}
         />
         
-        <TaskView
-          taskId={viewingTaskId || 0}
+        <ObjectView
+          entityType="task"
+          entityId={viewingTaskId || 0}
           isOpen={!!viewingTaskId}
           onClose={() => setViewingTaskId(null)}
           onEdit={handleSwitchToEdit}
@@ -464,8 +464,9 @@ export default function Board() {
           onDelete={handleTaskDelete}
         />
         
-        <ProjectView
-          projectId={viewingProjectId || 0}
+        <ObjectView
+          entityType="project"
+          entityId={viewingProjectId || 0}
           isOpen={!!viewingProjectId}
           onClose={() => setViewingProjectId(null)}
           onEdit={handleSwitchToProjectEdit}
