@@ -17,7 +17,7 @@ export class TaskTools {
     return [
       {
         name: "create_task",
-        description: "Create a detailed task plan with markdown formatting, make sure you populate 'Title' and 'Description' and later all the rest of the properties. Use parent_id to create hierarchical tasks (e.g., subtasks under a project).",
+        description: "Create a task by following each property's individual prompt instructions exactly. Each field (Title, Description, etc.) has specific formatting requirements - read and follow each property's prompt precisely. Do not impose your own formatting or structure. Each property prompt defines exactly what content and format is required for that field. Use parent_id to create hierarchical tasks (e.g., subtasks under a project).",
         inputSchema: {
           type: "object",
           properties: {
