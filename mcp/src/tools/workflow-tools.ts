@@ -122,11 +122,11 @@ export class WorkflowTools {
         }
       }
 
-      // Step 3: Update task status to 'doing' using update_object tool (if not already doing)
+      // Step 3: Update task status to 'doing' using update_task tool (if not already doing)
       if (taskContext.stage !== 'doing') {
         try {
-          await this.taskTools.handle('update_object', { object_id: taskId, template_id: 1, stage: 'doing' });
-          console.log(`⚡ Moved task to \"Doing\" stage`);
+          await this.taskTools.handle('update_task', { task_id: taskId, stage: 'doing' });
+          console.log(`⚡ Moved task to "Doing" stage`);
           taskContext.stage = 'doing'; // Update local state
         } catch (error) {
           console.error('Error updating task status:', error);
@@ -185,9 +185,8 @@ export class WorkflowTools {
       if (originalTaskState && originalTaskState.stage !== 'doing') {
         try {
           console.log(`🔄 Attempting rollback for task ${taskId} to stage '${originalTaskState.stage}'`);
-          await this.taskTools.handle('update_object', { 
-            object_id: taskId,
-            template_id: 1,
+          await this.taskTools.handle('update_task', { 
+            task_id: taskId,
             stage: originalTaskState.stage 
           });
           console.log(`✅ Successfully rolled back task ${taskId} to original stage`);
@@ -352,9 +351,8 @@ export class WorkflowTools {
     if (progress.total > 0 && progress.completed === progress.total) {
       console.log(`✅ All checkboxes completed for task ${taskId}, moving to Review stage`);
       try {
-        await this.taskTools.handle("update_object", { 
-          object_id: taskId,
-          template_id: 1,
+        await this.taskTools.handle("update_task", { 
+          task_id: taskId,
           stage: 'review'
         });
         console.log(`🎉 Task ${taskId} automatically transitioned to 'review' stage`);
