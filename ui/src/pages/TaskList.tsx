@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { HeaderAndSidebarLayout } from '@/components/layout/HeaderAndSidebarLayout';
 import { Button } from '@/components/ui/button';
 import { UnifiedEntityCard } from '@/components/ui/unified-entity-card';
-import { EnhancedEntityCard } from '@/components/ui/enhanced-entity-card';
 import { Badge } from '@/components/ui/badge';
 import { useMCP } from '@/contexts/MCPContext';
 import { useProject } from '@/contexts/ProjectContext';
@@ -797,43 +796,22 @@ const DraftTasks = () => {
               </h2>
             </div>
             <div className="space-y-3 w-full">
-              {filteredEntities.map((entity) => {
-                const isEpicOrProject = entity.type === 'Epic' || entity.type === 'Project';
-
-                if (isEpicOrProject) {
-                  return (
-                    <EnhancedEntityCard
-                      key={`${entity.type}-${entity.id}`}
-                      entity={entity}
-                      onStageChange={handleMoveEntity}
-                      onDoubleClick={handleEntityView}
-                      getStageColor={getStageColor}
-                      stages={stages}
-                      getPreviousStage={getPreviousStage}
-                      getNextStage={getNextStage}
-                      // Enable sliding when the entity has a stage
-                      enableSliding={!!entity.stage}
-                      selectedStages={selectedStages}
-                      onTaskDoubleClick={handleEntityView}
-                    />
-                  );
-                }
-
-                return (
-                  <UnifiedEntityCard
-                    key={`${entity.type}-${entity.id}`}
-                    entity={entity}
-                    onStageChange={handleMoveEntity}
-                    onDoubleClick={() => handleEntityView(entity.id)}
-                    getStageColor={getStageColor}
-                    stages={stages}
-                    getPreviousStage={getPreviousStage}
-                    getNextStage={getNextStage}
-                    // Allow sliding for any entity with a stage (tasks always have one)
-                    enableSliding={!!entity.stage}
-                  />
-                );
-              })}
+              {filteredEntities.map((entity) => (
+                <UnifiedEntityCard
+                  key={`${entity.type}-${entity.id}`}
+                  entity={entity}
+                  onStageChange={handleMoveEntity}
+                  onDoubleClick={handleEntityView}
+                  getStageColor={getStageColor}
+                  stages={stages}
+                  getPreviousStage={getPreviousStage}
+                  getNextStage={getNextStage}
+                  // Enable sliding when the entity has a stage
+                  enableSliding={!!entity.stage}
+                  selectedStages={selectedStages}
+                  onTaskDoubleClick={handleEntityView}
+                />
+              ))}
             </div>
           </div>
         )}

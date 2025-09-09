@@ -3,29 +3,23 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { KeyValuePill } from '@/components/ui/key-value-pill';
 import { TaskStage } from '@/types/task';
+import { UnifiedEntity } from '@/types/unified-entity';
 import MarkdownRenderer from '@/components/ui/MarkdownRenderer';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 
-interface UnifiedEntity {
-  id: number;
-  title: string;
-  summary?: string;
-  stage?: TaskStage;
-  type: 'Task' | 'Project' | 'Epic';
-  template_id?: number;
-  parent_id?: number;
-  created_at?: string;
-  updated_at?: string;
-}
 
 interface UnifiedEntityCardProps {
   entity: UnifiedEntity;
   onStageChange?: (entityId: number, newStage: TaskStage) => void;
-  onDoubleClick: () => void;
+  onDoubleClick?: (entityId?: number) => void;
   getStageColor?: (stage: TaskStage) => string;
   stages?: { key: TaskStage; title: string; color: string }[];
   getPreviousStage?: (currentStage: TaskStage) => TaskStage;
   getNextStage?: (currentStage: TaskStage) => TaskStage;
   enableSliding?: boolean;
+  selectedStages?: TaskStage[];
+  onTaskDoubleClick?: (taskId: number) => void;
+  level?: number;
 }
 
 export const UnifiedEntityCard: React.FC<UnifiedEntityCardProps> = ({
@@ -37,7 +31,11 @@ export const UnifiedEntityCard: React.FC<UnifiedEntityCardProps> = ({
   getPreviousStage,
   getNextStage,
   enableSliding = false,
+  selectedStages = [],
+  onTaskDoubleClick,
+  level = 0,
 }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
   const [isSliding, setIsSliding] = useState(false);
   const [slideX, setSlideX] = useState(0);
   const [isUpdating, setIsUpdating] = useState(false);
@@ -76,6 +74,25 @@ export const UnifiedEntityCard: React.FC<UnifiedEntityCardProps> = ({
 
   const effectiveStages = stages || defaultStages;
   const effectiveGetStageColor = getStageColor || defaultStageColor;
+
+  // Filter children: apply stage filter to tasks, always include Epics/Projects
+  const filteredChildren = (entity.children || []).filter(child => {
+    if (child.type === 'Task' && child.stage && selectedStages.length > 0) {
+      return selectedStages.includes(child.stage);
+    }
+    return true;
+  });
+
+  // Calculate progress for Epic/Project cards
+  const childTasks = (entity.children || []).filter(child => child.type === 'Task');
+  const completedChildTasks = childTasks.filter(task => task.stage === 'completed');
+  const totalChildTasks = childTasks.length;
+  const progress = totalChildTasks > 0 ? (completedChildTasks.length / totalChildTasks) * 100 : 0;
+
+  // Unified appearance - no visual distinction between entity types
+  const getCardVariantClasses = () => {
+    return ''; // All entities have identical appearance
+  };
 
   // Sliding logic - enabled for any entity that has a stage
   const canSlide = !!(
@@ -228,6 +245,8 @@ export const UnifiedEntityCard: React.FC<UnifiedEntityCardProps> = ({
     }
   };
 
+  const hasChildren = entity.children && entity.children.length > 0;
+  const showExpandToggle = (entity.type === 'Epic' || entity.type === 'Project') && hasChildren;
 
   return (
     <div 
@@ -237,6 +256,7 @@ export const UnifiedEntityCard: React.FC<UnifiedEntityCardProps> = ({
         transform: isSliding ? `translateX(${slideX}px)` : 'translateX(0)',
         opacity: isSliding ? getSlideOpacity() : 1,
         transition: isSliding ? 'none' : 'transform 0.2s ease-out, opacity 0.2s ease-out',
+        marginLeft: level > 0 ? level * 12 : 0,
       }}
       onMouseDown={handleMouseDown}
       onTouchStart={handleTouchStart}
@@ -244,22 +264,63 @@ export const UnifiedEntityCard: React.FC<UnifiedEntityCardProps> = ({
       onTouchEnd={handleTouchEnd}
     >
       <Card 
-        className={`card-hover w-full cursor-pointer select-none ${
+        className={`card-hover w-full select-none ${
           isUpdating ? 'opacity-60' : ''
-        } ${isSliding ? 'shadow-lg' : ''}`}
-        onDoubleClick={onDoubleClick}
+        } ${isSliding ? 'shadow-lg' : ''} ${getCardVariantClasses()}`}
       >
-        <CardContent className="p-4 w-full">
+        <CardContent 
+          className="p-4 w-full cursor-pointer"
+          onDoubleClick={() => {
+            if (entity.type === 'Task' && onTaskDoubleClick) {
+              onTaskDoubleClick(entity.id);
+            } else if (onDoubleClick) {
+              onDoubleClick(entity.id);
+            }
+          }}
+        >
           <div className="flex items-center justify-between w-full">
             <div className="flex-1 min-w-0 pr-4">
-              <h3 className="text-lg font-semibold truncate mb-2">
-                {entity.title}
-              </h3>
-              {entity.summary && (
-                <div className="line-clamp-2 text-sm text-muted-foreground prose dark:prose-invert max-w-none prose-p:mb-0 prose-headings:mb-0 prose-lists:mb-0">
-                  <MarkdownRenderer content={entity.summary} />
+              <div className="flex justify-between items-start">
+                <div className="flex-1">
+                  <h3 className="text-lg font-semibold mb-2">
+                    {entity.title}
+                  </h3>
+                  {entity.summary && (
+                    <div className="line-clamp-2 text-sm text-muted-foreground prose dark:prose-invert max-w-none prose-p:mb-0 prose-headings:mb-0 prose-headings:mt-0 prose-lists:mb-0">
+                      <MarkdownRenderer content={entity.summary} />
+                    </div>
+                  )}
+                </div>
+                {showExpandToggle && (
+                  <div className="flex items-center space-x-4 ml-4">
+                    <span className="text-sm text-muted-foreground whitespace-nowrap">
+                      {completedChildTasks.length} / {totalChildTasks} tasks
+                    </span>
+                    <button 
+                      className="text-muted-foreground hover:text-foreground transition-colors"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsExpanded(!isExpanded);
+                      }}
+                    >
+                      {isExpanded ? <ChevronDown className="h-6 w-6" /> : <ChevronRight className="h-6 w-6" />}
+                    </button>
+                  </div>
+                )}
+              </div>
+              
+              {/* Progress bar for Epic/Project cards - always show if has child tasks */}
+              {(entity.type === 'Epic' || entity.type === 'Project') && totalChildTasks > 0 && (
+                <div className="mt-4">
+                  <div className="w-full bg-muted rounded-full h-1.5">
+                    <div 
+                      className="bg-primary h-1.5 rounded-full transition-all duration-300" 
+                      style={{ width: `${progress}%` }}
+                    />
+                  </div>
                 </div>
               )}
+              
               <div className="flex items-center gap-2 mt-2 flex-wrap">
                 <KeyValuePill keyName={entity.type} value={`${entity.id}`} size="sm" />
                 {entity.stage && (
@@ -278,6 +339,39 @@ export const UnifiedEntityCard: React.FC<UnifiedEntityCardProps> = ({
             </div>
           </div>
         </CardContent>
+        
+        {/* Expanded children section */}
+        {isExpanded && showExpandToggle && (
+          <div className="bg-muted/30 border-t border-border">
+            <div className="px-4 py-3 space-y-2">
+              {filteredChildren.length > 0 ? (
+                filteredChildren.map(child => {
+                  // Render all children using UnifiedEntityCard recursively
+                  return (
+                    <UnifiedEntityCard
+                      key={`child-entity-${child.id}`}
+                      entity={child}
+                      onStageChange={onStageChange}
+                      onDoubleClick={onDoubleClick}
+                      getStageColor={getStageColor}
+                      stages={stages}
+                      getPreviousStage={getPreviousStage}
+                      getNextStage={getNextStage}
+                      enableSliding={false}
+                      selectedStages={selectedStages}
+                      onTaskDoubleClick={onTaskDoubleClick}
+                      level={level + 1}
+                    />
+                  );
+                })
+              ) : (
+                <p className="text-center text-muted-foreground py-2 text-sm">
+                  No child tasks match the current filters.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
         
         {/* Slide indicator overlay */}
         {isSliding && getSlideIndicator()}
