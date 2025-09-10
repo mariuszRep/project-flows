@@ -291,22 +291,37 @@ const DraftTasks = () => {
   };
 
   // Set up change event listeners for real-time updates
-  // Suppress the immediate refetch after our own optimistic updates
-  const suppressNextRefreshRef = React.useRef(false);
+  // Suppress immediate refetch after our own optimistic updates using a timeout-based approach
+  const suppressRefreshTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  const suppressRefreshForDuration = (durationMs: number = 1000) => {
+    // Clear any existing timeout
+    if (suppressRefreshTimeoutRef.current) {
+      clearTimeout(suppressRefreshTimeoutRef.current);
+    }
+    
+    // Set a new timeout to allow refreshes again after the duration
+    suppressRefreshTimeoutRef.current = setTimeout(() => {
+      suppressRefreshTimeoutRef.current = null;
+    }, durationMs);
+  };
+
+  const shouldSuppressRefresh = () => {
+    return suppressRefreshTimeoutRef.current !== null;
+  };
 
   const { callToolWithEvent, emitTaskChanged, emitProjectChanged, emitDataChanged } = useChangeEvents({
     onTaskChanged: () => {
-      if (suppressNextRefreshRef.current) {
-        // Skip one refresh triggered by our own optimistic update
-        suppressNextRefreshRef.current = false;
+      if (shouldSuppressRefresh()) {
+        console.log('Task changed event received but suppressed due to recent optimistic update');
         return;
       }
       console.log('Task changed event received, refreshing entities');
       fetchAllEntities();
     },
     onProjectChanged: () => {
-      if (suppressNextRefreshRef.current) {
-        suppressNextRefreshRef.current = false;
+      if (shouldSuppressRefresh()) {
+        console.log('Project changed event received but suppressed due to recent optimistic update');
         return;
       }
       console.log('Project changed event received, refreshing entities');
@@ -318,6 +333,15 @@ const DraftTasks = () => {
   useEffect(() => {
     fetchAllEntities();
   }, [isConnected, tools, selectedProjectId]);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (suppressRefreshTimeoutRef.current) {
+        clearTimeout(suppressRefreshTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleStageToggle = (stage: TaskStage, ctrlKey: boolean = false) => {
     setSelectedStages(prev => {
@@ -511,17 +535,49 @@ const DraftTasks = () => {
 
       setAllEntities(prev => updateStageInTree(prev));
 
-      // 2) Persist change via MCP, then broadcast to other tabs without forcing a local refetch
-      const updateObjectTool = tools.find(tool => tool.name === 'update_object');
-      if (updateObjectTool && isConnected && callToolWithEvent) {
-        // Mark to suppress the refresh that will be triggered by the notification
-        suppressNextRefreshRef.current = true;
+      // 2) Persist change via MCP using entity-specific tools for proper stage handling
+      if (isConnected && callToolWithEvent) {
+        // Suppress refreshes for a short duration to prevent full page refreshes from events
+        suppressRefreshForDuration(1000); // Suppress for 1 second
 
-        await callToolWithEvent('update_object', {
-          object_id: entityId,
-          template_id: entity.template_id,
-          stage: newStage,
-        });
+        // Determine correct tool based on entity template_id
+        let toolName: string;
+        let toolArgs: Record<string, any>;
+        
+        if (entity.template_id === 1) {
+          // Task
+          toolName = 'update_task';
+          toolArgs = { task_id: entityId, stage: newStage };
+        } else if (entity.template_id === 2) {
+          // Project
+          toolName = 'update_project';
+          toolArgs = { project_id: entityId, stage: newStage };
+        } else if (entity.template_id === 3) {
+          // Epic
+          toolName = 'update_epic';
+          toolArgs = { epic_id: entityId, stage: newStage };
+        } else {
+          // Fallback to generic update_object for unknown template types
+          toolName = 'update_object';
+          toolArgs = { object_id: entityId, template_id: entity.template_id, stage: newStage };
+        }
+
+        // Find the appropriate tool
+        const updateTool = tools.find(tool => tool.name === toolName);
+        if (updateTool) {
+          await callToolWithEvent(toolName, toolArgs);
+        } else {
+          console.error(`Tool ${toolName} not found for entity type ${entity.template_id}`);
+          // Fallback to update_object if specific tool is not available
+          const updateObjectTool = tools.find(tool => tool.name === 'update_object');
+          if (updateObjectTool) {
+            await callToolWithEvent('update_object', {
+              object_id: entityId,
+              template_id: entity.template_id,
+              stage: newStage,
+            });
+          }
+        }
       }
     } catch (err) {
       console.error('Error moving entity:', err);
