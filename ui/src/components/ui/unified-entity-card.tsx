@@ -312,7 +312,7 @@ export const UnifiedEntityCard: React.FC<UnifiedEntityCardProps> = ({
               {/* Progress bar for Epic/Project cards - always show if has child tasks */}
               {(entity.type === 'Epic' || entity.type === 'Project') && totalChildTasks > 0 && (
                 <div className="mt-4">
-                  <div className="w-full bg-muted rounded-full h-1.5">
+                  <div className="w-full bg-border rounded-full h-1.5">
                     <div 
                       className="h-1.5 rounded-full transition-all duration-300 bg-gradient-to-r from-[hsl(var(--gradient-from))] via-[hsl(var(--gradient-via))] to-[hsl(var(--gradient-to))]" 
                       style={{ width: `${progress}%` }}
@@ -321,7 +321,7 @@ export const UnifiedEntityCard: React.FC<UnifiedEntityCardProps> = ({
                 </div>
               )}
               
-              <div className="flex items-center gap-2 mt-2 flex-wrap">
+              <div className="flex items-center gap-2 mt-4 flex-wrap">
                 {(() => {
                   // Assign distinct gradient-derived colors for entity type pill
                   let typePrimary: string | undefined;
