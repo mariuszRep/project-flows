@@ -424,11 +424,11 @@ export class WorkflowTools {
         instructions: [
           "Analyze this project in full detail and create appropriate tasks so that the project can be completed successfully.",
           "Use the provided project context and available properties to determine task structure.",
-          `Create tasks using the create_object tool with parent_id: ${projectId}`,
+          `Create tasks using the create_task tool with parent_id: ${projectId}`,
           "Consider the analysis depth and max_tasks parameters for scope."
         ],
         available_task_properties: taskProperties.map((prop: any) => prop.key),
-        next_steps: "Analyze the project and create tasks using create_object tool for each required task."
+        next_steps: "Analyze the project and create tasks using create_task tool for each required task."
       };
       
       return {
@@ -573,7 +573,7 @@ Important: For each task, ensure you populate all required properties and follow
   }
 
   /**
-   * Helper method to create tasks from analysis using create_object
+   * Helper method to create tasks from analysis using create_task
    */
   private async createTasksFromAnalysis(
     taskStructure: any[],
@@ -601,10 +601,10 @@ Important: For each task, ensure you populate all required properties and follow
         }
       });
       
-      // Create task using create_object tool
+      // Create task using create_task tool
       try {
         const taskData_with_template: Record<string, any> = { ...taskData, template_id: 1 };
-        const taskResponse = await this.taskTools.handle('create_object', taskData_with_template);
+        const taskResponse = await this.taskTools.handle('create_task', taskData_with_template);
         if (taskResponse && taskResponse.content && taskResponse.content[0]?.text) {
           const createdTask = JSON.parse(taskResponse.content[0].text);
           createdTasks.push(createdTask);
