@@ -314,7 +314,7 @@ export const UnifiedEntityCard: React.FC<UnifiedEntityCardProps> = ({
                 <div className="mt-4">
                   <div className="w-full bg-muted rounded-full h-1.5">
                     <div 
-                      className="bg-primary h-1.5 rounded-full transition-all duration-300" 
+                      className="h-1.5 rounded-full transition-all duration-300 bg-gradient-to-r from-[hsl(var(--gradient-from))] via-[hsl(var(--gradient-via))] to-[hsl(var(--gradient-to))]" 
                       style={{ width: `${progress}%` }}
                     />
                   </div>
@@ -322,7 +322,26 @@ export const UnifiedEntityCard: React.FC<UnifiedEntityCardProps> = ({
               )}
               
               <div className="flex items-center gap-2 mt-2 flex-wrap">
-                <KeyValuePill keyName={entity.type} value={`${entity.id}`} size="sm" />
+                {(() => {
+                  // Assign distinct gradient-derived colors for entity type pill
+                  let typePrimary: string | undefined;
+                  if (entity.type === 'Task') {
+                    typePrimary = 'hsl(var(--gradient-from))';
+                  } else if (entity.type === 'Project') {
+                    typePrimary = 'hsl(var(--gradient-via))';
+                  } else if (entity.type === 'Epic') {
+                    typePrimary = 'hsl(var(--gradient-to))';
+                  }
+                  return (
+                    <KeyValuePill 
+                      keyName={entity.type} 
+                      value={`${entity.id}`} 
+                      size="sm" 
+                      primaryColor={typePrimary}
+                      secondaryColor={'hsl(var(--surface))'}
+                    />
+                  );
+                })()}
                 {entity.stage && (
                   <KeyValuePill keyName="Stage" value={effectiveStages.find(s => s.key === entity.stage)?.title || entity.stage} size="sm" />
                 )}

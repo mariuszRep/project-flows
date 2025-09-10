@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils"
 
 const keyValuePillVariants = cva(
   // Neutral, theme-aware pill that fits shadcn styles
-  "inline-flex items-center rounded-[var(--radius-l)] overflow-hidden border border-emerald-500/70 dark:border-emerald-400/70 shadow-sm transition-all",
+  "inline-flex items-center rounded-[var(--radius-l)] overflow-hidden border shadow-sm transition-all",
   {
     variants: {
       variant: {
@@ -31,6 +31,21 @@ export interface KeyValuePillProps
     VariantProps<typeof keyValuePillVariants> {
   keyName: string;
   value: string;
+  /**
+   * Primary color replaces muted text usages by default:
+   * - border color
+   * - key text color
+   * - value background color
+   * Provide any valid CSS color (e.g., `hsl(var(--gradient-from))`, `#fff`, `rgb(...)`).
+   */
+  primaryColor?: string;
+  /**
+   * Secondary color replaces card background usages by default:
+   * - key background color
+   * - value text color
+   * Provide any valid CSS color (e.g., `hsl(var(--card))`).
+   */
+  secondaryColor?: string;
 }
 
 function KeyValuePill({ 
@@ -39,18 +54,36 @@ function KeyValuePill({
   size, 
   keyName, 
   value, 
+  primaryColor,
+  secondaryColor,
   ...props 
 }: KeyValuePillProps) {
+  // Defaults aligned with Acceptance Criteria and entity card appearance:
+  // - Border: muted-foreground
+  // - Key background: surface (matches Card bg)
+  // - Key text: muted-foreground (bold)
+  // - Value background: muted-foreground
+  // - Value text: surface
+  const resolvedPrimary = primaryColor || "hsl(var(--muted-foreground))";
+  const resolvedSecondary = secondaryColor || "hsl(var(--surface))";
+
   return (
     <div 
       className={cn(keyValuePillVariants({ variant, size }), className)} 
+      style={{ borderColor: resolvedPrimary }}
       aria-label={`${keyName}: ${value}`}
       {...props}
     >
-      <span className="bg-muted text-emerald-600 dark:text-emerald-400 font-medium px-2 py-0.3">
+      <span 
+        className="font-bold px-2 py-0.3"
+        style={{ backgroundColor: resolvedSecondary, color: resolvedPrimary }}
+      >
         {keyName}
       </span>
-      <span className="bg-emerald-500/70 dark:bg-emerald-400/70 text-white dark:text-emerald-950 font-semibold px-2 py-0.3 whitespace-nowrap">
+      <span 
+        className="font-semibold px-2 py-0.3 whitespace-nowrap"
+        style={{ backgroundColor: resolvedPrimary, color: resolvedSecondary }}
+      >
         {value}
       </span>
     </div>
