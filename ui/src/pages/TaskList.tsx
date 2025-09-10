@@ -654,6 +654,7 @@ const DraftTasks = () => {
   const handleEditProject = (project: Project) => {
     // First show the project view instead of directly editing
     setViewingProjectId(project.id);
+    setViewingEntityType('Project');
   };
   
   const handleSwitchToProjectEdit = () => {
