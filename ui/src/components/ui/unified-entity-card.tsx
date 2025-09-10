@@ -257,6 +257,7 @@ export const UnifiedEntityCard: React.FC<UnifiedEntityCardProps> = ({
         opacity: isSliding ? getSlideOpacity() : 1,
         transition: isSliding ? 'none' : 'transform 0.2s ease-out, opacity 0.2s ease-out',
         marginLeft: level > 0 ? level * 12 : 0,
+        marginRight: level > 0 ? level * 12 : 0,
       }}
       onMouseDown={handleMouseDown}
       onTouchStart={handleTouchStart}
