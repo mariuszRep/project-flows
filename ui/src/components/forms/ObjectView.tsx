@@ -193,64 +193,7 @@ const ObjectView: React.FC<ObjectViewProps> = ({
     'title', 'body', 'project_id', 'description', 'type', 'Title'
   ];
 
-  useEffect(() => {
-    if (isOpen && entityId && isConnected) {
-      fetchEntityDetails();
-    }
-  }, [entityId, isOpen, isConnected, fetchEntityDetails]);
-
-  useEffect(() => {
-    if (entity && templateId) {
-      fetchTemplateProperties();
-    }
-  }, [entity, templateId, fetchTemplateProperties]);
-
-  const getDefaultTemplateId = (entityType: EntityType): number => {
-    switch (entityType) {
-      case 'task':
-        return TEMPLATE_ID.TASK;
-      case 'project':
-        return TEMPLATE_ID.PROJECT;
-      case 'epic':
-        return TEMPLATE_ID.EPIC;
-      default:
-        return TEMPLATE_ID.TASK;
-    }
-  };
-
-  const deriveTemplateId = async (entityData: Entity): Promise<number> => {
-    // First preference: use template_id from entity data
-    if (entityData.template_id) {
-      return entityData.template_id;
-    }
-
-    // Second preference: use prop templateId
-    if (propTemplateId) {
-      return propTemplateId;
-    }
-
-    // Third preference: attempt to lookup via list_templates
-    try {
-      if (callTool) {
-        const result = await callTool('list_templates', {});
-        if (result?.content?.[0]?.text) {
-          const templates = JSON.parse(result.content[0].text);
-          const template = templates.find((t: { name?: string; id?: number }) => 
-            t.name?.toLowerCase() === entityType.toLowerCase()
-          );
-          if (template?.id) {
-            return template.id;
-          }
-        }
-      }
-    } catch (err) {
-      console.error('Error fetching templates for fallback:', err);
-    }
-
-    // Final fallback: use constants
-    return getDefaultTemplateId(entityType);
-  };
-
+  // Define functions first before useEffect hooks
   const fetchTemplateProperties = useCallback(async () => {
     if (!callTool || !templateId) return;
 
@@ -330,6 +273,64 @@ const ObjectView: React.FC<ObjectViewProps> = ({
       setIsLoading(false);
     }
   }, [callTool, entityId, entityType, propTemplateId, templateId]);
+
+  useEffect(() => {
+    if (isOpen && entityId && isConnected) {
+      fetchEntityDetails();
+    }
+  }, [entityId, isOpen, isConnected, fetchEntityDetails]);
+
+  useEffect(() => {
+    if (entity && templateId) {
+      fetchTemplateProperties();
+    }
+  }, [entity, templateId, fetchTemplateProperties]);
+
+  const getDefaultTemplateId = (entityType: EntityType): number => {
+    switch (entityType) {
+      case 'task':
+        return TEMPLATE_ID.TASK;
+      case 'project':
+        return TEMPLATE_ID.PROJECT;
+      case 'epic':
+        return TEMPLATE_ID.EPIC;
+      default:
+        return TEMPLATE_ID.TASK;
+    }
+  };
+
+  const deriveTemplateId = async (entityData: Entity): Promise<number> => {
+    // First preference: use template_id from entity data
+    if (entityData.template_id) {
+      return entityData.template_id;
+    }
+
+    // Second preference: use prop templateId
+    if (propTemplateId) {
+      return propTemplateId;
+    }
+
+    // Third preference: attempt to lookup via list_templates
+    try {
+      if (callTool) {
+        const result = await callTool('list_templates', {});
+        if (result?.content?.[0]?.text) {
+          const templates = JSON.parse(result.content[0].text);
+          const template = templates.find((t: { name?: string; id?: number }) => 
+            t.name?.toLowerCase() === entityType.toLowerCase()
+          );
+          if (template?.id) {
+            return template.id;
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching templates for fallback:', err);
+    }
+
+    // Final fallback: use constants
+    return getDefaultTemplateId(entityType);
+  };
 
   if (!isOpen) return null;
 
@@ -464,7 +465,16 @@ const ObjectView: React.FC<ObjectViewProps> = ({
         }
       });
       
+      console.log('ObjectView DEBUG: Save attempt');
+      console.log('  entityType:', entityType);
+      console.log('  entityId:', entity.id);
+      console.log('  originalValues:', originalValues);
+      console.log('  editValues:', editValues);
+      console.log('  updatePayload:', updatePayload);
+      console.log('  hasChanges:', Object.keys(updatePayload).length > 0);
+      
       if (Object.keys(updatePayload).length === 0) {
+        console.log('ObjectView DEBUG: No changes to save, exiting edit mode');
         // No changes to save
         exitEditMode();
         return;
@@ -478,10 +488,27 @@ const ObjectView: React.FC<ObjectViewProps> = ({
         toolName = 'update_epic';
       }
       
-      const result = await callTool(toolName, {
+      const toolPayload = {
         [`${entityType}_id`]: entity.id,
         ...updatePayload
-      });
+      };
+      
+      console.log('ObjectView DEBUG: Calling tool');
+      console.log('  toolName:', toolName);
+      console.log('  toolPayload:', toolPayload);
+      
+      const result = await callTool(toolName, toolPayload);
+      
+      console.log('ObjectView DEBUG: Tool result', result);
+      
+      if (result && result.content && result.content[0]) {
+        try {
+          const toolResponse = JSON.parse(result.content[0].text);
+          console.log('ObjectView DEBUG: Parsed tool response', toolResponse);
+        } catch (e) {
+          console.log('ObjectView DEBUG: Tool response not JSON:', result.content[0].text);
+        }
+      }
       
       if (result) {
         toast({
@@ -492,9 +519,16 @@ const ObjectView: React.FC<ObjectViewProps> = ({
         // Refresh the entity data
         await fetchEntityDetails();
         exitEditMode();
+      } else {
+        console.error('ObjectView DEBUG: No result from tool call');
+        toast({
+          title: "Error",
+          description: "No response from update operation",
+          variant: "destructive",
+        });
       }
     } catch (err) {
-      console.error('Error saving changes:', err);
+      console.error('ObjectView DEBUG: Error saving changes:', err);
       toast({
         title: "Error",
         description: `Failed to save changes: ${err instanceof Error ? err.message : 'Unknown error'}`,
@@ -523,7 +557,6 @@ const ObjectView: React.FC<ObjectViewProps> = ({
             onChange={(e) => handleInputChange(propertyName, e.target.value)}
             placeholder={`Enter ${propertyName.toLowerCase()}...`}
             minRows={2}
-            maxRows={8}
             className="w-full"
           />
         );

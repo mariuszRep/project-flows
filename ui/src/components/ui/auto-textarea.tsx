@@ -21,15 +21,14 @@ const AutoTextarea = React.forwardRef<HTMLTextAreaElement, AutoTextareaProps>(
       // Calculate the line height
       const lineHeight = parseInt(getComputedStyle(textarea).lineHeight, 10) || 20;
       const minHeight = lineHeight * minRows;
-      const maxHeight = lineHeight * maxRows;
       
-      // Set height based on content, respecting min/max constraints
+      // Set height based on content, with no maximum limit - always grow
       const scrollHeight = textarea.scrollHeight;
-      const newHeight = Math.min(Math.max(scrollHeight, minHeight), maxHeight);
+      const newHeight = Math.max(scrollHeight, minHeight);
       
       textarea.style.height = `${newHeight}px`;
-      textarea.style.overflowY = scrollHeight > maxHeight ? 'auto' : 'hidden';
-    }, [minRows, maxRows]);
+      textarea.style.overflowY = 'hidden'; // Never show scrollbars
+    }, [minRows]);
 
     React.useEffect(() => {
       adjustHeight();
