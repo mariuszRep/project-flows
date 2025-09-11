@@ -55,7 +55,8 @@ npm run clean
 ## Key Implementation Details
 
 - The server provides these tools:
-  - Object Tools: `create_object`, `update_object`, `get_object`, `delete_object`, `list_objects`
+  - Task Tools: `create_task`, `update_task`
+  - Object Tools: `get_object`, `delete_object`, `list_objects`
   - Workflow Tools: `execute_task` (guided execution), `initiate_project` (analyze project and generate tasks)
 - Dynamic properties are loaded from `schema_properties.json` with execution order and dependency management
 - Properties include Research (depends on Summary) and Items (depends on Summary and Research)
@@ -113,31 +114,30 @@ This enables tracking which MCP client created or modified each record and task 
 
 ## Tool Usage Examples
 
-### create_object (Task)
-Create a task (template_id=1):
+### create_task
+Create a task:
 
 ```json
 {
-  "name": "create_object",
+  "name": "create_task",
   "arguments": {
-    "template_id": 1,
     "Title": "Implement user authentication system",
     "Description": "Add secure login/logout functionality with session management",
     "Items": "- Set up OAuth 2.0 configuration\n- Implement JWT token generation and validation",
-    "stage": "backlog"
+    "stage": "backlog",
+    "parent_id": 2
   }
 }
 ```
 
-### update_object (Task)
-Update fields of an existing task by object ID and template ID:
+### update_task
+Update fields of an existing task by task ID:
 
 ```json
 {
-  "name": "update_object",
+  "name": "update_task",
   "arguments": {
-    "object_id": 1,
-    "template_id": 1,
+    "task_id": 1,
     "Title": "Enhanced user authentication system",
     "stage": "doing"
   }
@@ -254,7 +254,7 @@ Analyzes a project and automatically generates appropriate tasks based on projec
 2. **Schema Discovery**: Dynamically loads project and task property schemas using `list_properties`
 3. **Analysis Generation**: Creates analysis prompt based on available properties
 4. **Task Generation**: Determines appropriate tasks based on project complexity
-5. **Task Creation**: Creates tasks using `create_object` (template_id=1) with proper relationships
+5. **Task Creation**: Creates tasks using `create_task` with proper relationships
 6. **Report Generation**: Returns comprehensive analysis report with created tasks
 
 #### Output format:
@@ -295,7 +295,7 @@ Returns JSON with analysis results including:
 
 - Uses `get_object` to retrieve project context
 - Uses `list_properties` to discover available schemas dynamically
-- Uses `create_object` to generate tasks with proper parent relationships
+- Uses `create_task` to generate tasks with proper parent relationships
 - All created tasks are automatically set to 'backlog' stage
 - Tasks inherit project ID as parent_id for proper hierarchy
 
@@ -303,7 +303,7 @@ Returns JSON with analysis results including:
 - Run this tool after creating a new project to automatically populate it with tasks
 - Use `analysis_depth: "comprehensive"` for complex projects requiring detailed planning
 - Use `max_tasks` parameter to limit task generation for large projects
-- Generated tasks can be further refined using `update_object` after creation
+- Generated tasks can be further refined using `update_task` after creation
 - Use `execute_task` on generated tasks to begin implementation workflow
 
 ## Build Process

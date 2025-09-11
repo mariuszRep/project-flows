@@ -65,35 +65,34 @@ A TypeScript implementation of the Model Context Protocol (MCP) server with Post
 
 ## API Usage
 
-### Available Tools (Object Tools)
+### Available Tools
 
-Object Tools provide unified CRUD across Tasks, Projects, and Epics. Use `template_id` to select the type: `1=Task`, `2=Project`, `3=Epic`.
+Task tools provide first-class operations for tasks. Object tools provide generic retrieval and listing.
 
-#### 1. create_object
-Create a new object (example: Task):
+#### 1. create_task
+Create a new task:
 
 ```json
 {
-  "name": "create_object",
+  "name": "create_task",
   "arguments": {
-    "template_id": 1,
     "Title": "Implement user authentication",
     "Description": "Add secure login/logout functionality",
     "Items": "- Set up OAuth config\n- Create login endpoint\n- Add session management",
-    "stage": "backlog"
+    "stage": "backlog",
+    "parent_id": 2
   }
 }
 ```
 
-#### 2. update_object
-Update an existing object (example: Task):
+#### 2. update_task
+Update an existing task:
 
 ```json
 {
-  "name": "update_object",
+  "name": "update_task",
   "arguments": {
-    "object_id": 1,
-    "template_id": 1,
+    "task_id": 1,
     "Title": "Enhanced user authentication",
     "stage": "doing"
   }

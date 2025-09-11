@@ -7,6 +7,7 @@ export class WorkflowTools {
     private clientId: string,
     private taskTools: any,
     private projectTools: any,
+    private objectTools: any,
     private propertyTools?: any
   ) {}
 
@@ -89,7 +90,7 @@ export class WorkflowTools {
       console.log(`🚀 Starting task execution workflow for task ${taskId}`);
       
       // Step 1: Load task context using get_object tool
-      const taskResponse = await this.taskTools.handle('get_object', { object_id: taskId });
+      const taskResponse = await this.objectTools.handle('get_object', { object_id: taskId });
       const taskContextText = taskResponse.content[0].text;
       
       let taskContext;
@@ -112,7 +113,7 @@ export class WorkflowTools {
       let projectContext = null;
       if (taskContext.parent_id) {
         try {
-          const projectResponse = await this.projectTools.handle('get_object', { object_id: taskContext.parent_id });
+          const projectResponse = await this.objectTools.handle('get_object', { object_id: taskContext.parent_id });
           const projectContextText = projectResponse.content[0].text;
           projectContext = JSON.parse(projectContextText);
           console.log(`📁 Retrieved project: \"${projectContext.blocks?.Title || 'Untitled'}\"`);
@@ -259,7 +260,7 @@ export class WorkflowTools {
         "2. Plan your implementation approach based on the requirements", 
         "3. Execute the plan step by step",
         "4. CRITICAL: Update Items section checkboxes as you complete each step",
-        "5. Use update_object tool to save progress in real-time",
+        "5. Use update_task tool to save progress in real-time",
         "6. Task will automatically transition to 'review' status upon completion"
       ],
       task_context: task,
@@ -282,14 +283,14 @@ export class WorkflowTools {
       progress_tracking_requirements: {
         mandatory: "You MUST update Items section checkboxes as work progresses",
         format: "Change [ ] to [x] immediately after completing each step",
-        tool: "Use update_object tool to save checkbox progress", 
+        tool: "Use update_task tool to save checkbox progress", 
         purpose: "Provides visibility for multi-agent coordination and handoffs",
         auto_transition: "Task will automatically move to 'review' when all checkboxes are completed"
       },
       completion_instructions: [
         "1. When all implementation steps are complete:",
         "2. Update all remaining checkboxes to [x] in the Items section", 
-        "3. Use update_object tool to save final progress",
+        "3. Use update_task tool to save final progress",
         "4. The system will automatically detect completion and move task to 'review'",
         "5. Task will then be ready for code review and testing"
       ],
@@ -381,7 +382,7 @@ export class WorkflowTools {
       console.log(`🔍 Starting project initiation for project ${projectId}`);
       
       // Step 1: Load project using get_object tool
-      const projectResponse = await this.projectTools.handle('get_object', { object_id: projectId });
+      const projectResponse = await this.objectTools.handle('get_object', { object_id: projectId });
       if (!projectResponse || !projectResponse.content || !projectResponse.content[0]?.text) {
         return this.createErrorResponse(`Project with ID ${projectId} not found.`);
       }
@@ -663,7 +664,8 @@ export function createWorkflowTools(
   clientId: string,
   taskTools: any,
   projectTools: any,
+  objectTools: any,
   propertyTools?: any
 ): WorkflowTools {
-  return new WorkflowTools(sharedDbService, clientId, taskTools, projectTools, propertyTools);
+  return new WorkflowTools(sharedDbService, clientId, taskTools, projectTools, objectTools, propertyTools);
 }
