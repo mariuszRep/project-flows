@@ -164,20 +164,19 @@ claude mcp add --transport sse project-flows http://localhost:3001/sse --header 
 
 ### Available MCP Tools
 
-The server exposes Object Tools for CRUD over all object types (Task, Project, Epic) plus Workflow Tools. Use `template_id` to choose the object type: `1=Task`, `2=Project`, `3=Epic`.
+The server exposes Task Tools for creating/updating tasks, Object Tools for retrieval/listing, and Workflow Tools.
 
-## Object Tools
+## Task Tools
 
-### `create_object`
+### `create_task`
 
-Creates a new object. For tasks, use `template_id: 1`.
+Creates a new task.
 
 Example request (create task):
 ```json
 {
-  "name": "create_object",
+  "name": "create_task",
   "arguments": {
-    "template_id": 1,
     "Title": "Implement feature X",
     "Description": "Add new functionality to the system",
     "Items": "- Task 1\n- Task 2",
@@ -187,17 +186,16 @@ Example request (create task):
 }
 ```
 
-### `update_object`
+### `update_task`
 
-Updates an existing object by ID and `template_id`.
+Updates an existing task by `task_id`.
 
 Example request (update task stage/title):
 ```json
 {
-  "name": "update_object",
+  "name": "update_task",
   "arguments": {
-    "object_id": 42,
-    "template_id": 1,
+    "task_id": 42,
     "Title": "Updated feature X",
     "stage": "doing"
   }

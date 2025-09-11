@@ -3,6 +3,7 @@ import MarkdownRenderer from '@/components/ui/MarkdownRenderer';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { EntityPillMenu } from '@/components/ui/entity-pill-menu';
 import { 
   DropdownMenu, 
   DropdownMenuContent, 
@@ -519,41 +520,12 @@ const ObjectView: React.FC<ObjectViewProps> = ({
             <div>
               {entity && (
                 <div className="mb-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Badge variant="outline" className="text-xs">
-                      #{entityId}
-                    </Badge>
-                    {/* Entity type badge with specific styling */}
-                    <Badge variant="outline" className={`text-xs ${getEntityTypeInfo().className}`}>
-                      {getEntityTypeInfo().label}
-                    </Badge>
-                    {/* Stage badge for any entity that has a stage */}
-                    {entity.stage && (
-                      <Badge 
-                        className={`
-                          ${entity.stage === 'draft' ? 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200' : ''}
-                          ${entity.stage === 'backlog' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' : ''}
-                          ${entity.stage === 'doing' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' : ''}
-                          ${entity.stage === 'review' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200' : ''}
-                          ${entity.stage === 'completed' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' : ''}
-                        `}
-                      >
-                        {entity.stage.charAt(0).toUpperCase() + entity.stage.slice(1)}
-                      </Badge>
-                    )}
-                    {/* Project badge for tasks */}
-                    {entityType === 'task' && entity.parent_name && (
-                      <Badge variant="outline" className="text-xs">
-                        Project: {entity.parent_name}
-                      </Badge>
-                    )}
-                    {entity.created_at && (
-                      <div className="text-xs text-muted-foreground flex items-center gap-1">
-                        <Calendar className="h-3 w-3" />
-                        {new Date(entity.created_at).toLocaleDateString()}
-                      </div>
-                    )}
-                  </div>
+                  <EntityPillMenu 
+                    entity={entity}
+                    entityType={entityType}
+                    entityId={entityId}
+                    templateId={templateId}
+                  />
                 </div>
               )}
               {entity && (
