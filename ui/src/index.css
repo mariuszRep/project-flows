@@ -167,4 +167,33 @@
       transform: scale(1.05);
     }
   }
+
+  /* Override thick focus rings and borders globally */
+  *:focus,
+  *:focus-visible,
+  input:focus,
+  textarea:focus,
+  button:focus,
+  select:focus {
+    @apply outline-none ring-0;
+    box-shadow: none !important;
+    border-width: 1px !important;
+  }
+
+  /* Ensure all borders use the 1px size */
+  .border,
+  .border-t,
+  .border-r,
+  .border-b,
+  .border-l {
+    border-width: 1px !important;
+  }
+
+  /* Override any thick ring utilities */
+  .ring-1,
+  .ring-2,
+  .ring-4,
+  .ring-8 {
+    box-shadow: none !important;
+  }
 }
