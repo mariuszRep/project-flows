@@ -244,10 +244,14 @@ const UnifiedForm: React.FC<UnifiedFormProps> = ({
 
     try {
       console.log(`Fetching ${entityType} data for entityId:`, entityId);
-      const result = await callTool('get_object', { 
-        object_id: entityId,
-        template_id: effectiveTemplateId
-      });
+      let result: any;
+      if (entityType === 'task') {
+        result = await callTool('get_object', { object_id: entityId });
+      } else if (entityType === 'project') {
+        result = await callTool('get_object', { object_id: entityId });
+      } else if (entityType === 'epic') {
+        result = await callTool('get_object', { object_id: entityId });
+      }
       
       if (result?.content?.[0]?.text) {
         const responseContent = result.content[0].text;
@@ -378,10 +382,8 @@ const UnifiedForm: React.FC<UnifiedFormProps> = ({
       let result: any;
       
       if (mode === 'create') {
-        // Create new entity using unified create_object
-        const createData: Record<string, any> = {
-          template_id: effectiveTemplateId
-        };
+        // Create new entity using entity-specific tools
+        const createData: Record<string, any> = {};
         
         formFields.forEach(field => {
           if (field.name !== 'stage' && formData[field.name]) {
@@ -395,14 +397,18 @@ const UnifiedForm: React.FC<UnifiedFormProps> = ({
         }
         
         console.log(`Creating ${entityType} with data:`, createData);
-        result = await callTool('create_object', createData);
+        
+        if (entityType === 'task') {
+          result = await callTool('create_task', createData);
+        } else if (entityType === 'project') {
+          result = await callTool('create_project', createData);
+        } else if (entityType === 'epic') {
+          result = await callTool('create_epic', createData);
+        }
         
       } else if (mode === 'edit' && entityId) {
-        // Update existing entity using unified update_object
-        const updateData: Record<string, any> = { 
-          object_id: entityId,
-          template_id: effectiveTemplateId
-        };
+        // Update existing entity using entity-specific tools
+        const updateData: Record<string, any> = {};
         
         formFields.forEach(field => {
           if (formData[field.name] !== undefined) {
@@ -416,7 +422,17 @@ const UnifiedForm: React.FC<UnifiedFormProps> = ({
         }
         
         console.log(`Updating ${entityType} with data:`, updateData);
-        result = await callTool('update_object', updateData);
+        
+        if (entityType === 'task') {
+          updateData.task_id = entityId;
+          result = await callTool('update_task', updateData);
+        } else if (entityType === 'project') {
+          updateData.project_id = entityId;
+          result = await callTool('update_project', updateData);
+        } else if (entityType === 'epic') {
+          updateData.epic_id = entityId;
+          result = await callTool('update_epic', updateData);
+        }
       }
 
       if (result?.content) {

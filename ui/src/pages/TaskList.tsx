@@ -557,9 +557,8 @@ const DraftTasks = () => {
           toolName = 'update_epic';
           toolArgs = { epic_id: entityId, stage: newStage };
         } else {
-          // Fallback to generic update_object for unknown template types
-          toolName = 'update_object';
-          toolArgs = { object_id: entityId, template_id: entity.template_id, stage: newStage };
+          console.error(`Unknown template_id ${entity.template_id} for entity ${entityId}`);
+          return; // Exit early if we don't know how to handle this entity type
         }
 
         // Find the appropriate tool
@@ -568,15 +567,8 @@ const DraftTasks = () => {
           await callToolWithEvent(toolName, toolArgs);
         } else {
           console.error(`Tool ${toolName} not found for entity type ${entity.template_id}`);
-          // Fallback to update_object if specific tool is not available
-          const updateObjectTool = tools.find(tool => tool.name === 'update_object');
-          if (updateObjectTool) {
-            await callToolWithEvent('update_object', {
-              object_id: entityId,
-              template_id: entity.template_id,
-              stage: newStage,
-            });
-          }
+          setError(`Unable to update entity: ${toolName} tool not available`);
+          return;
         }
       }
     } catch (err) {

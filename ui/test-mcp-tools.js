@@ -32,8 +32,8 @@ async function testMCPObjectTools() {
       }
     };
 
-    // Create some test tasks using create_object (template_id=1)
-    console.log('\n🔧 Creating test tasks via create_object...');
+    // Create some test tasks using create_task
+    console.log('\n🔧 Creating test tasks via create_task...');
 
     const testTasks = [
       { Title: 'Test Backlog Task 1', Description: 'This is a test task in backlog', stage: 'backlog' },
@@ -48,13 +48,14 @@ async function testMCPObjectTools() {
     for (const task of testTasks) {
       try {
         const res = await client.callTool({
-          name: 'create_object',
-          arguments: { template_id: 1, ...task }
+          name: 'create_task',
+          arguments: { ...task }
         });
         const data = parseContent(res);
-        if (data?.success && data?.object_id) {
-          createdIds.push(data.object_id);
-          console.log(`✅ Created ${task.Title} (ID ${data.object_id})`);
+        const newId = data?.task_id ?? data?.object_id ?? data?.id;
+        if (data?.success && newId) {
+          createdIds.push(newId);
+          console.log(`✅ Created ${task.Title} (ID ${newId})`);
         } else {
           console.warn(`⚠️ Create response not parsable for ${task.Title}`);
         }

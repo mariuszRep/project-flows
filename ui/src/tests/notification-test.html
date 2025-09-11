@@ -355,8 +355,7 @@
                     return;
                 }
                 
-                await mcpClient.callTool('create_object', {
-                    template_id: 1,
+                await mcpClient.callTool('create_task', {
                     Title: title,
                     Description: 'Task created from notification test',
                 });
@@ -382,9 +381,8 @@
                     return;
                 }
                 
-                await mcpClient.callTool('update_object', {
-                    object_id: taskId,
-                    template_id: 1,
+                await mcpClient.callTool('update_task', {
+                    task_id: taskId,
                     Title: title,
                 });
                 
@@ -422,8 +420,7 @@
                     return;
                 }
                 
-                await mcpClient.callTool('create_object', {
-                    template_id: 2,
+                await mcpClient.callTool('create_project', {
                     Title: title,
                     Description: 'Project created from notification test',
                 });
@@ -449,9 +446,8 @@
                     return;
                 }
                 
-                await mcpClient.callTool('update_object', {
-                    object_id: projectId,
-                    template_id: 2,
+                await mcpClient.callTool('update_project', {
+                    project_id: projectId,
                     Title: title,
                 });
                 
