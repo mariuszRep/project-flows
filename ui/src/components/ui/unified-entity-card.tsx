@@ -7,6 +7,7 @@ import { UnifiedEntity } from '@/types/unified-entity';
 import MarkdownRenderer from '@/components/ui/MarkdownRenderer';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useSlidable } from '@/hooks/use-slidable';
+import { useDraggable, UseDraggableConfig } from '@/hooks/use-draggable';
 
 
 interface UnifiedEntityCardProps {
@@ -21,6 +22,8 @@ interface UnifiedEntityCardProps {
   selectedStages?: TaskStage[];
   onTaskDoubleClick?: (taskId: number) => void;
   level?: number;
+  enableDragging?: boolean;
+  dragConfig?: UseDraggableConfig;
 }
 
 export const UnifiedEntityCard: React.FC<UnifiedEntityCardProps> = ({
@@ -35,9 +38,14 @@ export const UnifiedEntityCard: React.FC<UnifiedEntityCardProps> = ({
   selectedStages = [],
   onTaskDoubleClick,
   level = 0,
+  enableDragging = false,
+  dragConfig,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
+  // Use the dragging functionality hook if enabled
+  const draggable = enableDragging && dragConfig ? useDraggable(dragConfig) : null;
+  
   // Use the sliding functionality hook
   const slidable = useSlidable({
     onStageChange,
@@ -46,7 +54,7 @@ export const UnifiedEntityCard: React.FC<UnifiedEntityCardProps> = ({
     entityId: entity.id,
     currentStage: entity.stage,
     threshold: 100,
-    enableSliding,
+    enableSliding: enableSliding && !enableDragging, // Disable sliding when dragging is enabled
     getStageColor,
     stages
   });
@@ -78,7 +86,6 @@ export const UnifiedEntityCard: React.FC<UnifiedEntityCardProps> = ({
   ];
 
   const effectiveStages = stages || defaultStages;
-  const effectiveGetStageColor = getStageColor || defaultStageColor;
 
   // Filter children: apply stage filter to tasks, always include Epics/Projects
   const filteredChildren = (entity.children || []).filter(child => {
@@ -121,23 +128,31 @@ export const UnifiedEntityCard: React.FC<UnifiedEntityCardProps> = ({
     );
   };
 
+  // Determine if we're using drag or slide mode
+  const isDragMode = enableDragging && draggable;
+  const isSlideMode = !enableDragging;
+
   return (
     <div 
-      className="relative"
+      ref={isDragMode ? draggable.innerRef : undefined}
+      {...(isDragMode ? draggable.draggableProps : {})}
+      {...(isDragMode ? draggable.dragHandleProps : {})}
+      className={`relative ${isDragMode ? draggable.dragClassName : ''}`}
       style={{
-        ...slidable.styles,
+        ...(isDragMode ? draggable.dragStyle : {}),
+        ...(isSlideMode ? slidable.styles : {}),
         marginLeft: level > 0 ? level * 12 : 0,
         marginRight: level > 0 ? level * 12 : 0,
       }}
-      onMouseDown={slidable.handleMouseDown}
-      onTouchStart={slidable.handleTouchStart}
-      onTouchMove={slidable.handleTouchMove}
-      onTouchEnd={slidable.handleTouchEnd}
+      onMouseDown={isSlideMode ? slidable.handleMouseDown : undefined}
+      onTouchStart={isSlideMode ? slidable.handleTouchStart : undefined}
+      onTouchMove={isSlideMode ? slidable.handleTouchMove : undefined}
+      onTouchEnd={isSlideMode ? slidable.handleTouchEnd : undefined}
     >
       <Card 
-        className={`card-hover w-full select-none ${
+        className={`card-hover w-full select-none cursor-grab active:cursor-grabbing ${
           slidable.isUpdating ? 'opacity-60' : ''
-        } ${slidable.isSliding ? 'shadow-lg' : ''} ${getCardVariantClasses()}`}
+        } ${slidable.isSliding ? 'shadow-lg' : ''} ${isDragMode && draggable?.isDragging ? 'shadow-xl ring-2 ring-primary ring-opacity-50' : ''} ${getCardVariantClasses()}`}
       >
         <CardContent 
           className="p-4 w-full cursor-pointer"
@@ -264,7 +279,7 @@ export const UnifiedEntityCard: React.FC<UnifiedEntityCardProps> = ({
         )}
         
         {/* Slide indicator overlay */}
-        {slidable.isSliding && renderSlideIndicator()}
+        {!enableDragging && slidable.isSliding && renderSlideIndicator()}
       </Card>
       
       {/* Loading overlay */}

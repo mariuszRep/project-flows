@@ -1,8 +1,26 @@
 import React from 'react';
 import { Draggable } from 'react-beautiful-dnd';
-import { TaskCard } from './TaskCard';
-import { Task } from '@/types/task';
+import { UnifiedEntityCard } from '@/components/ui/unified-entity-card';
+import { Task, TaskStage } from '@/types/task';
 import { Project } from '@/types/project';
+import { UnifiedEntity } from '@/types/unified-entity';
+
+// Utility function to convert Task to UnifiedEntity
+const taskToUnifiedEntity = (task: Task): UnifiedEntity => {
+  return {
+    id: task.id,
+    title: task.title || task.blocks?.Title || task.Title || 'Untitled Task',
+    summary: task.body || task.blocks?.Summary || task.blocks?.Description || task.Summary || task.Description || '',
+    stage: task.stage,
+    type: 'Task',
+    template_id: task.template_id || 1,
+    parent_id: task.parent_id || task.project_id,
+    created_at: task.created_at,
+    updated_at: task.updated_at,
+    created_by: task.created_by,
+    updated_by: task.updated_by,
+  };
+};
 
 interface TaskColumnProps {
   title: string;
@@ -35,21 +53,15 @@ export const TaskColumn: React.FC<TaskColumnProps> = ({
         tasks.map((task, index) => (
           <Draggable key={task.id} draggableId={task.id.toString()} index={index}>
             {(provided, snapshot) => (
-              <div
-                ref={provided.innerRef}
-                {...provided.draggableProps}
-                {...provided.dragHandleProps}
-                className={`${snapshot.isDragging ? 'rotate-2 scale-105' : ''} transition-transform`}
-              >
-                <TaskCard
-                  task={task}
-                  onUpdate={onTaskUpdate}
-                  onDelete={() => onTaskDelete(task.id, task.title || task.Title || `Task #${task.id}`)}
-                  onEdit={() => onTaskEdit(task.id)}
-                  isDragging={snapshot.isDragging}
-                  projects={projects}
-                />
-              </div>
+              <UnifiedEntityCard
+                entity={taskToUnifiedEntity(task)}
+                onTaskDoubleClick={() => onTaskEdit(task.id)}
+                enableDragging={true}
+                dragConfig={{
+                  provided,
+                  snapshot
+                }}
+              />
             )}
           </Draggable>
         ))
