@@ -112,8 +112,7 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
 
     try {
       // Use callToolWithEvent to trigger events after successful creation
-      const result = await callToolWithEvent('create_object', {
-        template_id: 2,
+      const result = await callToolWithEvent('create_project', {
         Title: projectData.name,
         Description: projectData.description
       });
@@ -129,7 +128,7 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
           
           // Return project object with real ID from response
           return {
-            id: jsonResponse.object_id || Date.now(),
+            id: jsonResponse.project_id || jsonResponse.object_id || jsonResponse.id || Date.now(),
             name: projectData.name,
             description: projectData.description || '',
             color: projectData.color || '#3b82f6',
@@ -139,7 +138,7 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
             updated_by: 'user@example.com'
           };
         } catch (parseError) {
-          console.error('Error parsing create_object response:', parseError);
+          console.error('Error parsing create_project response:', parseError);
           // No need to manually refresh - the event system will handle it
           
           return {
@@ -170,7 +169,7 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
     }
 
     try {
-      const updateData: Record<string, any> = { object_id: projectId, template_id: 2 };
+      const updateData: Record<string, any> = { project_id: projectId };
       
       // Map UI field names to MCP tool field names
       if (updates.name) updateData.Title = updates.name;
@@ -178,7 +177,7 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
       // Note: color is not supported in the new template-based system
       
       // Use callToolWithEvent to trigger events after successful update
-      const result = await callToolWithEvent('update_object', updateData);
+      const result = await callToolWithEvent('update_project', updateData);
 
       if (result && result.content && result.content[0]) {
         try {
@@ -188,7 +187,7 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
             return true;
           }
         } catch (parseError) {
-          console.error('Error parsing update_object response:', parseError);
+          console.error('Error parsing update_project response:', parseError);
         }
         
         // No need to manually refresh - the event system will handle it

@@ -49,7 +49,17 @@ export default function Board() {
     taskTitle: '',
   });
 
-  const suppressNextRefreshRef = React.useRef(false);
+  // Suppress refresh briefly after optimistic updates (avoid full list refetch flicker)
+  const suppressRefreshTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+  const suppressRefreshForDuration = (durationMs: number = 1000) => {
+    if (suppressRefreshTimeoutRef.current) {
+      clearTimeout(suppressRefreshTimeoutRef.current);
+    }
+    suppressRefreshTimeoutRef.current = setTimeout(() => {
+      suppressRefreshTimeoutRef.current = null;
+    }, durationMs);
+  };
+  const shouldSuppressRefresh = () => suppressRefreshTimeoutRef.current !== null;
 
   // Fetch tasks from MCP tools
   const fetchTasks = async () => {
@@ -169,16 +179,16 @@ export default function Board() {
   // Set up change event listeners for real-time updates
   const { callToolWithEvent } = useChangeEvents({
     onTaskChanged: () => {
-      if (suppressNextRefreshRef.current) {
-        suppressNextRefreshRef.current = false;
+      if (shouldSuppressRefresh()) {
+        console.log('Task changed event received but suppressed due to recent optimistic update');
         return;
       }
       console.log('Task changed event received, refreshing tasks');
       fetchTasks();
     },
     onProjectChanged: () => {
-      if (suppressNextRefreshRef.current) {
-        suppressNextRefreshRef.current = false;
+      if (shouldSuppressRefresh()) {
+        console.log('Project changed event received but suppressed due to recent optimistic update');
         return;
       }
       console.log('Project changed event received, refreshing tasks');
@@ -198,6 +208,15 @@ export default function Board() {
     }
   }, [isConnected, tools, selectedProjectId]);
 
+  // Cleanup suppression timer on unmount
+  useEffect(() => {
+    return () => {
+      if (suppressRefreshTimeoutRef.current) {
+        clearTimeout(suppressRefreshTimeoutRef.current);
+      }
+    };
+  }, []);
+
   const handleTaskUpdate = async (taskId?: number, newStage?: string) => {
     if (!isConnected || !callToolWithEvent) {
       console.log('MCP not connected, skipping task update');
@@ -205,19 +224,14 @@ export default function Board() {
     }
 
     try {
-      const updateTool = tools.find(tool => 
-        tool.name === 'update_object' || 
-        tool.name === 'modify_task' ||
-        tool.name === 'edit_task'
-      );
+      const updateTool = tools.find(tool => tool.name === 'update_task');
       
       if (updateTool && taskId && newStage) {
-        // Suppress the refresh from the event
-        suppressNextRefreshRef.current = true;
+        // Suppress refreshes for a short duration to prevent flicker
+        suppressRefreshForDuration(1000);
         // Use callToolWithEvent to trigger events after successful update
-        await callToolWithEvent(updateTool.name, {
-          object_id: taskId,
-          template_id: 1,
+        await callToolWithEvent('update_task', {
+          task_id: taskId,
           stage: newStage
         });
         console.log(`Task ${taskId} updated to ${newStage}`);
