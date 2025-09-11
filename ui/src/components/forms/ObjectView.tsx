@@ -1,16 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import MarkdownRenderer from '@/components/ui/MarkdownRenderer';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { EntityPillMenu } from '@/components/ui/entity-pill-menu';
+import { Input } from '@/components/ui/input';
+import { AutoTextarea } from '@/components/ui/auto-textarea';
 import { 
   DropdownMenu, 
   DropdownMenuContent, 
   DropdownMenuItem, 
   DropdownMenuTrigger 
 } from '@/components/ui/dropdown-menu';
-import { X, Edit, Calendar, MoreHorizontal, ArrowRight, Trash2, Copy } from 'lucide-react';
+import { X, Edit, MoreHorizontal, ArrowRight, Trash2, Copy, Save, XCircle } from 'lucide-react';
 import { useMCP } from '@/contexts/MCPContext';
 import { useToast } from '@/hooks/use-toast';
 
@@ -77,6 +79,11 @@ interface EpicObjectViewProps extends BaseObjectViewProps {
  */
 export type ObjectViewProps = TaskObjectViewProps | ProjectObjectViewProps | EpicObjectViewProps;
 
+/**
+ * View mode type for the ObjectView component
+ */
+type ViewMode = 'view' | 'global-edit';
+
 interface Entity {
   id: number;
   stage?: string;
@@ -88,13 +95,13 @@ interface Entity {
   updated_at?: string;
   created_by?: string;
   updated_by?: string;
-  blocks?: Record<string, any>;
+  blocks?: Record<string, unknown>;
   title?: string;
   Title?: string;
   description?: string;
   type?: string;
   project_id?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 /**
@@ -173,6 +180,11 @@ const ObjectView: React.FC<ObjectViewProps> = ({
   const [entity, setEntity] = useState<Entity | null>(null);
   const [orderedProperties, setOrderedProperties] = useState<string[]>([]);
   const [templateId, setTemplateId] = useState<number | null>(propTemplateId || null);
+  const [mode, setMode] = useState<ViewMode>('view');
+  const [editValues, setEditValues] = useState<Record<string, string>>({});
+  const [originalValues, setOriginalValues] = useState<Record<string, string>>({});
+  const firstInputRef = useRef<HTMLInputElement>(null);
+  const firstTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Meta fields to exclude from rendering in body
   const META_KEYS = [
@@ -185,13 +197,13 @@ const ObjectView: React.FC<ObjectViewProps> = ({
     if (isOpen && entityId && isConnected) {
       fetchEntityDetails();
     }
-  }, [entityId, isOpen, isConnected]);
+  }, [entityId, isOpen, isConnected, fetchEntityDetails]);
 
   useEffect(() => {
     if (entity && templateId) {
       fetchTemplateProperties();
     }
-  }, [entity, templateId]);
+  }, [entity, templateId, fetchTemplateProperties]);
 
   const getDefaultTemplateId = (entityType: EntityType): number => {
     switch (entityType) {
@@ -223,7 +235,7 @@ const ObjectView: React.FC<ObjectViewProps> = ({
         const result = await callTool('list_templates', {});
         if (result?.content?.[0]?.text) {
           const templates = JSON.parse(result.content[0].text);
-          const template = templates.find((t: any) => 
+          const template = templates.find((t: { name?: string; id?: number }) => 
             t.name?.toLowerCase() === entityType.toLowerCase()
           );
           if (template?.id) {
@@ -239,7 +251,7 @@ const ObjectView: React.FC<ObjectViewProps> = ({
     return getDefaultTemplateId(entityType);
   };
 
-  const fetchTemplateProperties = async () => {
+  const fetchTemplateProperties = useCallback(async () => {
     if (!callTool || !templateId) return;
 
     try {
@@ -265,9 +277,9 @@ const ObjectView: React.FC<ObjectViewProps> = ({
       console.error('Error fetching template properties:', err);
       // Continue without ordered properties
     }
-  };
+  }, [callTool, templateId]);
 
-  const fetchEntityDetails = async () => {
+  const fetchEntityDetails = useCallback(async () => {
     setIsLoading(true);
     setError(null);
 
@@ -317,7 +329,7 @@ const ObjectView: React.FC<ObjectViewProps> = ({
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [callTool, entityId, entityType, propTemplateId, templateId]);
 
   if (!isOpen) return null;
 
@@ -402,34 +414,137 @@ const ObjectView: React.FC<ObjectViewProps> = ({
     }
   };
 
-  const getEntityTypeInfo = () => {
-    const effectiveTemplateId = templateId || getDefaultTemplateId(entityType);
+
+  const enterEditMode = () => {
+    if (!entity) return;
     
-    if (effectiveTemplateId === TEMPLATE_ID.TASK || entity?.type === 'Task') {
-      return {
-        label: 'Task',
-        className: 'bg-blue-50 text-blue-700 dark:bg-blue-900 dark:text-blue-300'
-      };
+    const propertiesToEdit = getPropertiesToRender();
+    const values: Record<string, string> = {};
+    
+    propertiesToEdit.forEach(propertyName => {
+      const value = String(entity.blocks?.[propertyName] || entity[propertyName] || '');
+      values[propertyName] = value;
+    });
+    
+    setOriginalValues({ ...values });
+    setEditValues({ ...values });
+    setMode('global-edit');
+    
+    // Focus the first input after state update
+    setTimeout(() => {
+      if (firstInputRef.current) {
+        firstInputRef.current.focus();
+      } else if (firstTextareaRef.current) {
+        firstTextareaRef.current.focus();
+      }
+    }, 0);
+  };
+
+  const exitEditMode = () => {
+    setMode('view');
+    setEditValues({});
+    setOriginalValues({});
+  };
+
+  const handleCancel = () => {
+    setEditValues({ ...originalValues });
+    exitEditMode();
+  };
+
+  const handleSave = async () => {
+    if (!entity || !callTool) return;
+    
+    try {
+      // Prepare the update payload - only include changed values
+      const updatePayload: Record<string, string> = {};
+      
+      Object.keys(editValues).forEach(key => {
+        if (editValues[key] !== originalValues[key]) {
+          updatePayload[key] = editValues[key];
+        }
+      });
+      
+      if (Object.keys(updatePayload).length === 0) {
+        // No changes to save
+        exitEditMode();
+        return;
+      }
+      
+      // Use the appropriate update tool based on entity type
+      let toolName = 'update_task';
+      if (entityType === 'project') {
+        toolName = 'update_project';
+      } else if (entityType === 'epic') {
+        toolName = 'update_epic';
+      }
+      
+      const result = await callTool(toolName, {
+        [`${entityType}_id`]: entity.id,
+        ...updatePayload
+      });
+      
+      if (result) {
+        toast({
+          title: "Success",
+          description: `${entityType.charAt(0).toUpperCase() + entityType.slice(1)} updated successfully`,
+        });
+        
+        // Refresh the entity data
+        await fetchEntityDetails();
+        exitEditMode();
+      }
+    } catch (err) {
+      console.error('Error saving changes:', err);
+      toast({
+        title: "Error",
+        description: `Failed to save changes: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        variant: "destructive",
+      });
     }
-    
-    if (effectiveTemplateId === TEMPLATE_ID.PROJECT || entity?.type === 'Project') {
-      return {
-        label: 'Project', 
-        className: 'bg-green-50 text-green-700 dark:bg-green-900 dark:text-green-300'
-      };
+  };
+
+  const handleInputChange = (propertyName: string, value: string) => {
+    setEditValues(prev => ({
+      ...prev,
+      [propertyName]: value
+    }));
+  };
+
+  const renderPropertyContent = (propertyName: string, index: number) => {
+    if (mode === 'global-edit') {
+      const value = editValues[propertyName] || '';
+      const isLongContent = value.length > 100 || value.includes('\n');
+      
+      if (isLongContent) {
+        return (
+          <AutoTextarea
+            ref={index === 0 ? firstTextareaRef : undefined}
+            value={value}
+            onChange={(e) => handleInputChange(propertyName, e.target.value)}
+            placeholder={`Enter ${propertyName.toLowerCase()}...`}
+            minRows={2}
+            maxRows={8}
+            className="w-full"
+          />
+        );
+      } else {
+        return (
+          <Input
+            ref={index === 0 ? firstInputRef : undefined}
+            value={value}
+            onChange={(e) => handleInputChange(propertyName, e.target.value)}
+            placeholder={`Enter ${propertyName.toLowerCase()}...`}
+            className="w-full"
+          />
+        );
+      }
+    } else {
+      return (
+        <div className="prose dark:prose-invert max-w-none">
+          <MarkdownRenderer content={String(entity.blocks?.[propertyName] || entity[propertyName] || '')} />
+        </div>
+      );
     }
-    
-    if (effectiveTemplateId === TEMPLATE_ID.EPIC || entity?.type === 'Epic') {
-      return {
-        label: 'Epic',
-        className: 'bg-purple-50 text-purple-700 dark:bg-purple-900 dark:text-purple-300'
-      };
-    }
-    
-    return {
-      label: 'Entity',
-      className: 'bg-gray-50 text-gray-700 dark:bg-gray-900 dark:text-gray-300'
-    };
   };
 
   return (
@@ -440,9 +555,27 @@ const ObjectView: React.FC<ObjectViewProps> = ({
             {getEntityTitle()}
           </CardTitle>
           <div className="flex gap-2">
-            <Button variant="outline" size="icon" onClick={onEdit}>
-              <Edit className="h-4 w-4" />
-            </Button>
+            {mode === 'global-edit' ? (
+              <>
+                <Button variant="default" size="sm" onClick={handleSave}>
+                  <Save className="h-4 w-4 mr-2" />
+                  Save
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleCancel}>
+                  <XCircle className="h-4 w-4 mr-2" />
+                  Cancel
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button variant="outline" size="icon" onClick={enterEditMode} title="Edit all properties">
+                  <Edit className="h-4 w-4" />
+                </Button>
+                <Button variant="outline" size="icon" onClick={onEdit} title="Open edit form">
+                  <Edit className="h-4 w-4" />
+                </Button>
+              </>
+            )}
             {entityType === 'task' && (
               <Button 
                 variant="outline" 
@@ -530,15 +663,17 @@ const ObjectView: React.FC<ObjectViewProps> = ({
               )}
               {entity && (
                 <div className="space-y-4">
-                  {getPropertiesToRender().map((propertyName) => (
+                  {getPropertiesToRender().map((propertyName, index) => (
                     <div 
                       key={propertyName}
-                      className="relative -mx-4 px-4 py-2 border border-transparent hover:border-border rounded-xl transition-colors duration-200"
+                      className={`relative -mx-4 px-4 py-2 border rounded-xl transition-colors duration-200 ${
+                        mode === 'global-edit' 
+                          ? 'border-border bg-muted/10' 
+                          : 'border-transparent hover:border-border'
+                      }`}
                     >
                       <h3 className="text-sm font-semibold mb-2">{propertyName}</h3>
-                      <div className="prose dark:prose-invert max-w-none">
-                        <MarkdownRenderer content={String(entity.blocks?.[propertyName] || entity[propertyName] || '')} />
-                      </div>
+                      {renderPropertyContent(propertyName, index)}
                     </div>
                   ))}
                 </div>
