@@ -947,6 +947,7 @@ const DraftTasks = () => {
                 setViewingEntityType(null);
               }}
               onEdit={handleSwitchToProjectEdit}
+              onDelete={handleProjectDelete}
               templateId={TEMPLATE_ID.EPIC}
             />
           ) : (
@@ -959,6 +960,7 @@ const DraftTasks = () => {
                 setViewingEntityType(null);
               }}
               onEdit={handleSwitchToProjectEdit}
+              onDelete={handleProjectDelete}
               templateId={TEMPLATE_ID.PROJECT}
             />
           )

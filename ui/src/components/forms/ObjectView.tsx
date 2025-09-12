@@ -376,9 +376,52 @@ const ObjectView: React.FC<ObjectViewProps> = ({
     });
   };
 
-  const handleStageMove = (newStage: string) => {
-    if (entityType === 'task' && onTaskUpdate && entity) {
-      onTaskUpdate(entity.id, newStage);
+  const handleStageMove = async (newStage: string) => {
+    if (!entity || !callTool) return;
+    
+    try {
+      // Use the appropriate update tool based on entity type
+      let toolName = 'update_task';
+      if (entityType === 'project') {
+        toolName = 'update_project';
+      } else if (entityType === 'epic') {
+        toolName = 'update_epic';
+      }
+      
+      const toolPayload = {
+        [`${entityType}_id`]: entity.id,
+        stage: newStage
+      };
+      
+      const result = await callTool(toolName, toolPayload);
+      
+      if (result) {
+        toast({
+          title: "Success",
+          description: `${entityType.charAt(0).toUpperCase() + entityType.slice(1)} moved to ${newStage}`,
+        });
+        
+        // For tasks, use the callback if available
+        if (entityType === 'task' && onTaskUpdate) {
+          onTaskUpdate(entity.id, newStage);
+        } else {
+          // For other entity types, refresh the data
+          await fetchEntityDetails();
+        }
+      } else {
+        toast({
+          title: "Error",
+          description: "Failed to update stage",
+          variant: "destructive",
+        });
+      }
+    } catch (err) {
+      console.error('Error updating stage:', err);
+      toast({
+        title: "Error",
+        description: `Failed to update stage: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        variant: "destructive",
+      });
     }
   };
 
@@ -389,8 +432,22 @@ const ObjectView: React.FC<ObjectViewProps> = ({
     }
   };
 
-  const handleCopyExecuteCommand = async () => {
-    const command = `execute task ${entityId}`;
+  const handleCopyCommand = async () => {
+    // Generate appropriate command based on entity type
+    let command: string;
+    switch (entityType) {
+      case 'task':
+        command = `execute task ${entityId}`;
+        break;
+      case 'epic':
+        command = `initiate epic ${entityId}`;
+        break;
+      case 'project':
+        command = `initiate project ${entityId}`;
+        break;
+      default:
+        command = `execute task ${entityId}`;
+    }
     
     try {
       if (navigator.clipboard && window.isSecureContext) {
@@ -432,6 +489,10 @@ const ObjectView: React.FC<ObjectViewProps> = ({
     
     const propertiesToEdit = getPropertiesToRender();
     const values: Record<string, string> = {};
+    
+    // Include title in edit values
+    const titleValue = String(entity.blocks?.Title || entity.title || entity.Title || '');
+    values['Title'] = titleValue;
     
     propertiesToEdit.forEach(propertyName => {
       const value = String(entity.blocks?.[propertyName] || entity[propertyName] || '');
@@ -594,11 +655,19 @@ const ObjectView: React.FC<ObjectViewProps> = ({
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 overflow-y-auto p-4">
       <Card className="w-full max-w-3xl mx-auto">
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>
-            {getEntityTitle()}
-          </CardTitle>
-          <div className="flex gap-2">
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between mb-2">
+            {entity && (
+              <div className="flex-1">
+                <EntityPillMenu 
+                  entity={entity}
+                  entityType={entityType}
+                  entityId={entityId}
+                  templateId={templateId}
+                />
+              </div>
+            )}
+            <div className="flex gap-2 ml-4">
             {mode === 'global-edit' ? (
               <>
                 <Button variant="default" size="sm" onClick={handleSave}>
@@ -620,18 +689,16 @@ const ObjectView: React.FC<ObjectViewProps> = ({
                 </Button>
               </>
             )}
-            {entityType === 'task' && (
-              <Button 
-                variant="outline" 
-                size="icon" 
-                onClick={handleCopyExecuteCommand}
-                title="Copy execute task command"
-                aria-label="Copy execute task command"
-              >
-                <Copy className="h-4 w-4" />
-              </Button>
-            )}
-            {((entityType === 'task' && onTaskUpdate) || onDelete) && (
+            <Button 
+              variant="outline" 
+              size="icon" 
+              onClick={handleCopyCommand}
+              title={`Copy ${entityType === 'task' ? 'execute task' : entityType === 'epic' ? 'initiate epic' : 'initiate project'} command`}
+              aria-label={`Copy ${entityType === 'task' ? 'execute task' : entityType === 'epic' ? 'initiate epic' : 'initiate project'} command`}
+            >
+              <Copy className="h-4 w-4" />
+            </Button>
+            {(entity?.stage || onDelete) && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="icon">
@@ -639,7 +706,7 @@ const ObjectView: React.FC<ObjectViewProps> = ({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  {entity && entity.stage && entityType === 'task' && onTaskUpdate && (
+                  {entity && entity.stage && (
                     <>
                       {entity.stage !== 'doing' && (
                         <DropdownMenuItem onClick={() => handleStageMove('doing')}>
@@ -679,6 +746,28 @@ const ObjectView: React.FC<ObjectViewProps> = ({
             <Button variant="outline" size="icon" onClick={onClose}>
               <X className="h-4 w-4" />
             </Button>
+            </div>
+          </div>
+          <div 
+            className={`mt-2 group relative -mx-4 px-4 py-2 border rounded-xl transition-colors duration-200 ${
+              mode === 'global-edit' 
+                ? 'border-border bg-muted/10' 
+                : 'border-transparent hover:border-border'
+            }`}
+          >
+            {mode === 'global-edit' ? (
+              <AutoTextarea
+                value={editValues['Title'] || ''}
+                onChange={(e) => handleInputChange('Title', e.target.value)}
+                placeholder="Enter title..."
+                className="w-full text-xl font-semibold"
+                minRows={1}
+              />
+            ) : (
+              <CardTitle className="text-xl">
+                {getEntityTitle()}
+              </CardTitle>
+            )}
           </div>
         </CardHeader>
         <CardContent className="max-h-[70vh] overflow-y-auto">
@@ -695,16 +784,6 @@ const ObjectView: React.FC<ObjectViewProps> = ({
             </div>
           ) : (
             <div>
-              {entity && (
-                <div className="mb-4">
-                  <EntityPillMenu 
-                    entity={entity}
-                    entityType={entityType}
-                    entityId={entityId}
-                    templateId={templateId}
-                  />
-                </div>
-              )}
               {entity && (
                 <div className="space-y-4">
                   {getPropertiesToRender().map((propertyName, index) => (

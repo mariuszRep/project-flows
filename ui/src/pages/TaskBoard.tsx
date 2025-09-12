@@ -484,6 +484,7 @@ export default function Board() {
           isOpen={!!viewingProjectId}
           onClose={() => setViewingProjectId(null)}
           onEdit={handleSwitchToProjectEdit}
+          onDelete={handleProjectDelete}
         />
 
         <UnifiedForm
