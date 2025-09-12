@@ -41,8 +41,6 @@ interface BaseObjectViewProps {
   isOpen: boolean;
   /** Callback when the modal is closed */
   onClose: () => void;
-  /** Callback when the edit button is clicked */
-  onEdit: () => void;
   /** Optional callback for entity deletion */
   onDelete?: (entityId: number, entityTitle: string) => void;
 }
@@ -141,7 +139,6 @@ interface Entity {
  *   entityId={123} 
  *   isOpen={true} 
  *   onClose={handleClose} 
- *   onEdit={handleEdit}
  *   onTaskUpdate={handleTaskUpdate}
  * />
  * 
@@ -151,7 +148,6 @@ interface Entity {
  *   entityId={456} 
  *   isOpen={true} 
  *   onClose={handleClose} 
- *   onEdit={handleEdit}
  * />
  * 
  * // Epic view
@@ -160,7 +156,6 @@ interface Entity {
  *   entityId={789} 
  *   isOpen={true} 
  *   onClose={handleClose} 
- *   onEdit={handleEdit}
  * />
  * ```
  */
@@ -169,7 +164,6 @@ const ObjectView: React.FC<ObjectViewProps> = ({
   entityId,
   isOpen,
   onClose,
-  onEdit,
   templateId: propTemplateId,
   onTaskUpdate,
   onDelete
@@ -680,14 +674,9 @@ const ObjectView: React.FC<ObjectViewProps> = ({
                 </Button>
               </>
             ) : (
-              <>
-                <Button variant="outline" size="icon" onClick={enterEditMode} title="Edit all properties">
-                  <Edit className="h-4 w-4" />
-                </Button>
-                <Button variant="outline" size="icon" onClick={onEdit} title="Open edit form">
-                  <Edit className="h-4 w-4" />
-                </Button>
-              </>
+              <Button variant="outline" size="icon" onClick={enterEditMode} title="Edit all properties">
+                <Edit className="h-4 w-4" />
+              </Button>
             )}
             <Button 
               variant="outline" 
