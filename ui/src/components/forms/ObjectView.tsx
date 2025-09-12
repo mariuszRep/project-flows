@@ -12,9 +12,10 @@ import {
   DropdownMenuItem, 
   DropdownMenuTrigger 
 } from '@/components/ui/dropdown-menu';
-import { X, Edit, MoreHorizontal, ArrowRight, Trash2, Copy, Save, XCircle } from 'lucide-react';
+import { X, Edit, MoreHorizontal, ArrowRight, Trash2, Copy, Save, XCircle, Info } from 'lucide-react';
 import { useMCP } from '@/contexts/MCPContext';
 import { useToast } from '@/hooks/use-toast';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 /**
  * Template ID constants for entity types
@@ -179,6 +180,7 @@ const ObjectView: React.FC<ObjectViewProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [entity, setEntity] = useState<Entity | null>(null);
   const [orderedProperties, setOrderedProperties] = useState<string[]>([]);
+  const [propertyDescriptions, setPropertyDescriptions] = useState<Record<string, string>>({});
   const [templateId, setTemplateId] = useState<number | null>(propTemplateId || null);
   const [mode, setMode] = useState<ViewMode>('view');
   const [editValues, setEditValues] = useState<Record<string, string>>({});
@@ -213,7 +215,16 @@ const ObjectView: React.FC<ObjectViewProps> = ({
             })
             .map(property => property.key);
           
+          // Store property descriptions mapped by key
+          const descriptions: Record<string, string> = {};
+          properties.forEach(property => {
+            if (property.key && property.description) {
+              descriptions[property.key] = property.description;
+            }
+          });
+          
           setOrderedProperties(ordered);
+          setPropertyDescriptions(descriptions);
         }
       }
     } catch (err) {
@@ -699,13 +710,29 @@ const ObjectView: React.FC<ObjectViewProps> = ({
                   {getPropertiesToRender().map((propertyName, index) => (
                     <div 
                       key={propertyName}
-                      className={`relative -mx-4 px-4 py-2 border rounded-xl transition-colors duration-200 ${
+                      className={`group relative -mx-4 px-4 py-2 border rounded-xl transition-colors duration-200 ${
                         mode === 'global-edit' 
                           ? 'border-border bg-muted/10' 
                           : 'border-transparent hover:border-border'
                       }`}
                     >
-                      <h3 className="text-sm font-semibold mb-2">{propertyName}</h3>
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="text-sm font-semibold">{propertyName}</h3>
+                        {propertyDescriptions[propertyName] && (
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button className="opacity-0 group-hover:opacity-100 hover:opacity-100 transition-opacity duration-200 p-1 rounded-md hover:bg-muted/50">
+                                  <Info className="h-3 w-3 text-muted-foreground" />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent className="bg-surface border-border">
+                                <p className="max-w-xs text-xs">{propertyDescriptions[propertyName]}</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )}
+                      </div>
                       {renderPropertyContent(propertyName, index)}
                     </div>
                   ))}
