@@ -473,7 +473,6 @@ export default function Board() {
           entityId={viewingTaskId || 0}
           isOpen={!!viewingTaskId}
           onClose={() => setViewingTaskId(null)}
-          onEdit={handleSwitchToEdit}
           onTaskUpdate={handleTaskUpdate}
           onDelete={handleTaskDelete}
         />
@@ -483,7 +482,7 @@ export default function Board() {
           entityId={viewingProjectId || 0}
           isOpen={!!viewingProjectId}
           onClose={() => setViewingProjectId(null)}
-          onEdit={handleSwitchToProjectEdit}
+          onDelete={handleProjectDelete}
         />
 
         <UnifiedForm

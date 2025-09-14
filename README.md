@@ -138,6 +138,14 @@ claude mcp add --transport sse project-flows http://localhost:3001/sse --header 
 }
 ```
 
+#### Codex CLI
+
+```toml
+[mcp_servers.project-flows]
+command = "npx"
+args = ["mcp-remote", "http://localhost:3001/sse?clientId=codex-cli"]
+```
+
 #### Cursor
 
 ```json

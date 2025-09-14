@@ -931,7 +931,6 @@ const DraftTasks = () => {
           entityId={viewingTaskId || 0}
           isOpen={!!viewingTaskId}
           onClose={() => setViewingTaskId(null)}
-          onEdit={handleSwitchToEdit}
           onTaskUpdate={handleMoveEntity}
           onDelete={handleTaskDelete}
         />
@@ -946,7 +945,7 @@ const DraftTasks = () => {
                 setViewingProjectId(null);
                 setViewingEntityType(null);
               }}
-              onEdit={handleSwitchToProjectEdit}
+              onDelete={handleProjectDelete}
               templateId={TEMPLATE_ID.EPIC}
             />
           ) : (
@@ -958,7 +957,7 @@ const DraftTasks = () => {
                 setViewingProjectId(null);
                 setViewingEntityType(null);
               }}
-              onEdit={handleSwitchToProjectEdit}
+              onDelete={handleProjectDelete}
               templateId={TEMPLATE_ID.PROJECT}
             />
           )
