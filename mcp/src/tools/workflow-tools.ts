@@ -50,11 +50,34 @@ export class WorkflowTools {
           required: ["project_id"],
         },
       } as Tool,
+      {
+        name: "initiate_epic",
+        description: "Analyze an epic and automatically generate appropriate tasks based on epic context and complexity. Creates logical, functional tasks that serve as implementation steps for the epic. Optimized for AI agent applications like Claude Code, Codex CLI, and Gemini CLI.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            epic_id: {
+              type: "number",
+              description: "The numeric ID of the epic to analyze and generate tasks for"
+            },
+            analysis_depth: {
+              type: "string",
+              description: "Analysis depth for task generation: 'basic', 'standard', or 'comprehensive'",
+              enum: ["basic", "standard", "comprehensive"]
+            },
+            max_tasks: {
+              type: "number",
+              description: "Optional maximum number of tasks to create (overrides automatic determination)"
+            }
+          },
+          required: ["epic_id"],
+        },
+      } as Tool,
     ];
   }
 
   canHandle(toolName: string): boolean {
-    return ["execute_task", "initiate_project"].includes(toolName);
+    return ["execute_task", "initiate_project", "initiate_epic"].includes(toolName);
   }
 
   async handle(name: string, toolArgs?: Record<string, any>) {
@@ -63,6 +86,8 @@ export class WorkflowTools {
         return await this.handleExecuteTask(toolArgs);
       case "initiate_project":
         return await this.handleInitiateProject(toolArgs);
+      case "initiate_epic":
+        return await this.handleInitiateEpic(toolArgs);
       default:
         throw new Error(`Unknown workflow tool: ${name}`);
     }
@@ -447,6 +472,129 @@ export class WorkflowTools {
   }
 
   /**
+   * Handle initiate_epic tool - analyze epic and generate tasks with EPIC-centered approach
+   */
+  private async handleInitiateEpic(toolArgs?: Record<string, any>) {
+    const epicId = toolArgs?.epic_id;
+    const analysisDepth = toolArgs?.analysis_depth || 'standard';
+    const maxTasks = toolArgs?.max_tasks;
+
+    // Validate epic ID
+    if (!epicId || typeof epicId !== 'number' || epicId < 1) {
+      return this.createErrorResponse("Valid numeric epic_id is required for analysis.");
+    }
+
+    try {
+      console.log(`🔍 Starting EPIC-centered initiation for epic ${epicId}`);
+
+      // Step 1: Load epic using get_object tool
+      const epicResponse = await this.objectTools.handle('get_object', { object_id: epicId });
+      if (!epicResponse || !epicResponse.content || !epicResponse.content[0]?.text) {
+        return this.createErrorResponse(`Epic with ID ${epicId} not found.`);
+      }
+
+      const epicContext = JSON.parse(epicResponse.content[0].text);
+
+      // Step 2: Load parent project context using epic's parent_id for additional context
+      let projectContext = null;
+      if (epicContext.parent_id) {
+        try {
+          const projectResponse = await this.objectTools.handle('get_object', { object_id: epicContext.parent_id });
+          if (projectResponse && projectResponse.content && projectResponse.content[0]?.text) {
+            projectContext = JSON.parse(projectResponse.content[0].text);
+            console.log(`📁 Retrieved parent project: "${projectContext.blocks?.Title || 'Untitled'}"`);
+          }
+        } catch (error) {
+          console.error('Error loading parent project context:', error);
+          // Continue without project context - not critical for epic initiation
+        }
+      }
+
+      // Step 3: Load epic property schema using list_properties
+      const epicPropertiesResponse = await this.propertyTools.handle('list_properties', { template_id: 3 }); // Epic template ID
+      if (!epicPropertiesResponse || !epicPropertiesResponse.content || !epicPropertiesResponse.content[0]?.text) {
+        return this.createErrorResponse("Failed to load epic property schema.");
+      }
+
+      const epicProperties = JSON.parse(epicPropertiesResponse.content[0].text);
+
+      // Step 4: Load project property schema using list_properties for context
+      let projectProperties = [];
+      try {
+        const projectPropertiesResponse = await this.propertyTools.handle('list_properties', { template_id: 2 }); // Project template ID
+        if (projectPropertiesResponse && projectPropertiesResponse.content && projectPropertiesResponse.content[0]?.text) {
+          projectProperties = JSON.parse(projectPropertiesResponse.content[0].text);
+        }
+      } catch (error) {
+        console.error('Error loading project property schema:', error);
+        // Continue without project properties - not critical
+      }
+
+      // Step 5: Load task property schema using list_properties
+      const taskPropertiesResponse = await this.propertyTools.handle('list_properties', { template_id: 1 }); // Task template ID
+      if (!taskPropertiesResponse || !taskPropertiesResponse.content || !taskPropertiesResponse.content[0]?.text) {
+        return this.createErrorResponse("Failed to load task property schema.");
+      }
+
+      const taskProperties = JSON.parse(taskPropertiesResponse.content[0].text);
+
+      // Step 6: Generate EPIC-centered analysis prompt with task sizing guidelines
+      const analysisPrompt = this.generateEpicAnalysisPrompt(
+        epicContext,
+        projectContext,
+        epicProperties,
+        projectProperties,
+        taskProperties,
+        analysisDepth
+      );
+
+      // Step 7: Return EPIC-centered analysis context for the calling agent to process
+      const analysisContext = {
+        epic_id: epicId,
+        epic_context: epicContext,
+        project_context: projectContext,
+        epic_properties: epicProperties,
+        project_properties: projectProperties,
+        task_properties: taskProperties,
+        analysis_depth: analysisDepth,
+        max_tasks: maxTasks,
+        analysis_prompt: analysisPrompt,
+        instructions: [
+          "Analyze this epic in full detail and create appropriately sized tasks for implementation.",
+          "Use the EPIC context as the primary focus, with project context as supporting information.",
+          "Create tasks optimized for AI agent applications (Claude Code, Codex CLI, Gemini CLI).",
+          `Create tasks using the create_task tool with parent_id: ${epicId}`,
+          "Follow task sizing guidelines to ensure optimal completion in single AI agent application sessions.",
+          "STRICTLY adhere to epic and project scope - create only tasks directly required for epic completion.",
+          "Do NOT add tasks for general improvements or features not explicitly mentioned in the epic.",
+          "Consider the analysis depth and max_tasks parameters for scope."
+        ],
+        available_task_properties: taskProperties.map((prop: any) => prop.key),
+        task_sizing_guidelines: {
+          session_optimization: "Tasks should be sized for completion in single AI agent application session",
+          complexity_balance: "Not too small (avoid session switching) nor too large (avoid overwhelming)",
+          ai_agent_focus: "Optimized for Claude Code, Codex CLI, and Gemini CLI applications",
+          acceptance_criteria: "Each task should have clear, measurable acceptance criteria",
+          scope_adherence: "Tasks must strictly adhere to epic and project scope with no out-of-scope additions"
+        },
+        next_steps: "Analyze the epic and create optimally-sized tasks using create_task tool for each required task."
+      };
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(analysisContext, null, 2),
+          } as TextContent,
+        ],
+      };
+    } catch (error) {
+      console.error(`❌ Epic initiation failed for epic ${epicId}:`, error);
+      return this.createErrorResponse((error as Error).message || "Unknown error during epic initiation");
+    }
+  }
+
+  /**
    * Helper method to generate analysis prompt dynamically based on project properties
    */
   private generateAnalysisPrompt(
@@ -521,6 +669,164 @@ Please provide a structured analysis with the following:
 5. Suggested task count based on project complexity
 
 Important: For each task, ensure you populate all required properties and follow the property types.
+`;
+  }
+
+  /**
+   * Helper method to generate EPIC-centered analysis prompt with task sizing guidelines
+   */
+  private generateEpicAnalysisPrompt(
+    epicContext: any,
+    projectContext: any,
+    epicProperties: any[],
+    projectProperties: any[],
+    taskProperties: any[],
+    analysisDepth: string
+  ): string {
+    // Extract property keys from schemas
+    const epicPropertyKeys = epicProperties.map(prop => prop.key);
+    const projectPropertyKeys = projectProperties.map(prop => prop.key);
+    const taskPropertyKeys = taskProperties.map(prop => prop.key);
+
+    // Build dynamic epic context object with only available properties
+    const dynamicEpicContext: Record<string, any> = {};
+    epicPropertyKeys.forEach(key => {
+      if (epicContext.blocks && epicContext.blocks[key] !== undefined) {
+        dynamicEpicContext[key] = epicContext.blocks[key];
+      }
+    });
+
+    // Build dynamic project context object with only available properties (if project exists)
+    const dynamicProjectContext: Record<string, any> = {};
+    if (projectContext && projectContext.blocks) {
+      projectPropertyKeys.forEach(key => {
+        if (projectContext.blocks[key] !== undefined) {
+          dynamicProjectContext[key] = projectContext.blocks[key];
+        }
+      });
+    }
+
+    // Group task properties by type for better analysis
+    const taskPropertyDetails = taskProperties.map(prop => ({
+      key: prop.key,
+      type: prop.type,
+      description: prop.description,
+      required: prop.fixed || false
+    }));
+
+    // Categorize task properties for better analysis
+    const contentProperties = taskPropertyDetails.filter(p =>
+      ['text', 'markdown', 'string'].includes(p.type.toLowerCase()));
+    const structuralProperties = taskPropertyDetails.filter(p =>
+      ['list', 'array', 'object'].includes(p.type.toLowerCase()));
+    const metadataProperties = taskPropertyDetails.filter(p =>
+      !contentProperties.some(cp => cp.key === p.key) &&
+      !structuralProperties.some(sp => sp.key === p.key));
+
+    // Build EPIC-centered prompt with task sizing optimization guidelines
+    return `
+Analyze the following EPIC and determine appropriately sized tasks optimized for AI agent applications:
+
+=== PRIMARY EPIC CONTEXT ===
+${JSON.stringify(dynamicEpicContext, null, 2)}
+
+=== SUPPORTING PROJECT CONTEXT ===
+${projectContext ? JSON.stringify(dynamicProjectContext, null, 2) : 'No parent project context available'}
+
+=== ANALYSIS PARAMETERS ===
+Analysis Depth: ${analysisDepth}
+
+=== TASK SIZING GUIDELINES FOR AI AGENT APPLICATIONS ===
+
+**Session Optimization:**
+- Tasks should be completable in a single Claude Code, Codex CLI, and Gemini CLI session
+- Avoid micro-tasks that require constant context switching between sessions
+- Avoid mega-tasks that exceed Claude Code, Codex CLI, and Gemini CLI application attention span or context limits
+
+**Complexity Balance:**
+- OPTIMAL: Tasks that include 3-8 implementation steps or checkboxes
+- TOO SMALL: Single-line code changes, trivial file moves, simple config updates
+- TOO LARGE: Complete system implementations, multi-file refactors affecting >10 files
+
+**AI Agent Application Focus:**
+- Optimized for Claude Code, Codex CLI, and Gemini CLI workflows
+- Each task should have clear entry and exit criteria
+- Tasks should be self-contained with minimal external dependencies
+- Include specific file paths, function names, and implementation details
+
+**Acceptance Criteria:**
+- Each task must have measurable, testable completion criteria
+- Include verification steps that can be automated or easily checked
+- Specify expected outputs, file changes, or behavior modifications
+
+**STRICT SCOPE ADHERENCE:**
+- Tasks MUST strictly adhere to the epic and project scope - no additions beyond defined objectives
+- Only create tasks that directly contribute to the epic's stated goals and deliverables
+- Do NOT add tasks for general improvements, refactoring, or features not explicitly mentioned in the epic
+- Focus exclusively on what is required to complete the epic as specified in both epic and project context
+- Validate each task against the epic's description and analysis to ensure relevance and necessity
+
+=== AVAILABLE TASK PROPERTIES ===
+${JSON.stringify(taskPropertyKeys, null, 2)}
+
+=== TASK PROPERTY DETAILS ===
+${JSON.stringify(taskPropertyDetails, null, 2)}
+
+Content Properties (for descriptions, documentation):
+${JSON.stringify(contentProperties.map(p => p.key), null, 2)}
+
+Structural Properties (for checklists, implementation steps):
+${JSON.stringify(structuralProperties.map(p => p.key), null, 2)}
+
+Metadata Properties (for categorization, tracking):
+${JSON.stringify(metadataProperties.map(p => p.key), null, 2)}
+
+=== ANALYSIS REQUIREMENTS ===
+
+Please provide a structured EPIC-centered analysis with the following:
+
+1. **Epic Scope Assessment**
+   - Overall epic complexity and implementation scope
+   - Key technical challenges and risks
+   - Dependencies on external systems or components
+
+2. **Optimal Task Breakdown Strategy**
+   - Recommended task structure optimized for AI agent application completion
+   - Task sizing rationale based on complexity and AI agent application capabilities
+   - Implementation sequence and dependencies
+
+3. **Individual Task Specifications**
+   For each task, provide:
+   - Title (clear, actionable, specific)
+   - Description (context, requirements, constraints)
+   - Items (3-8 specific implementation steps/checkboxes)
+   ${taskPropertyKeys.filter(key => key !== 'Title' && key !== 'Description' && key !== 'Items')
+     .map(key => `   - ${key} (as appropriate)`).join('\n')}
+
+4. **Task Relationship Mapping**
+   - Parent-child relationships and dependencies
+   - Recommended execution order for optimal workflow
+   - Parallel execution opportunities
+
+5. **AI Agent Application Optimization Metrics**
+   - Estimated completion time per task (target: 30-60 minutes)
+   - Complexity score (1-10, target: 4-7 for optimal AI agent application performance)
+   - Self-containment rating (minimal external dependencies)
+   - Scope adherence rating (strict alignment with epic and project objectives)
+
+6. **Quality Assurance Guidelines**
+   - Verification steps for each task
+   - Testing requirements and acceptance criteria
+   - Success metrics and completion indicators
+
+**CRITICAL REQUIREMENTS:**
+- All tasks MUST have parent_id set to the epic ID (${epicContext.id})
+- Follow task sizing guidelines to ensure optimal AI agent application completion
+- Include specific acceptance criteria that can be verified programmatically
+- Ensure each task is self-contained but contributes to the epic's overall goals
+- Balance task granularity: not too small (micro-management) nor too large (overwhelming)
+
+Important: Focus on the EPIC as the primary context, using project context as supporting information only. Ensure all tasks are strictly scoped to the epic's objectives and do not extend beyond the defined scope.
 `;
   }
 
