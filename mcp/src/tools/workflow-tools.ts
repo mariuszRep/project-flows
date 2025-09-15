@@ -8,7 +8,8 @@ export class WorkflowTools {
     private taskTools: any,
     private projectTools: any,
     private objectTools: any,
-    private propertyTools?: any
+    private propertyTools?: any,
+    private epicTools?: any
   ) {}
 
   getToolDefinitions(): Tool[] {
@@ -29,22 +30,22 @@ export class WorkflowTools {
       } as Tool,
       {
         name: "initiate_project",
-        description: "Analyze a project and automatically generate appropriate tasks based on project context and complexity. Dynamically determines task structure without hardcoded properties.",
+        description: "Analyze a project and automatically generate appropriate epics based on project context and complexity. Dynamically determines epic structure without hardcoded properties.",
         inputSchema: {
           type: "object",
           properties: {
             project_id: {
               type: "number",
-              description: "The numeric ID of the project to analyze and generate tasks for"
+              description: "The numeric ID of the project to analyze and generate epics for"
             },
             analysis_depth: {
               type: "string",
-              description: "Analysis depth for task generation: 'basic', 'standard', or 'comprehensive'",
+              description: "Analysis depth for epic generation: 'basic', 'standard', or 'comprehensive'",
               enum: ["basic", "standard", "comprehensive"]
             },
-            max_tasks: {
+            max_epics: {
               type: "number",
-              description: "Optional maximum number of tasks to create (overrides automatic determination)"
+              description: "Optional maximum number of epics to create (overrides automatic determination)"
             }
           },
           required: ["project_id"],
@@ -391,16 +392,21 @@ export class WorkflowTools {
 
 
   /**
-   * Handle initiate_project tool - analyze project and generate tasks
+   * Handle initiate_project tool - analyze project and generate epics
    */
   private async handleInitiateProject(toolArgs?: Record<string, any>) {
     const projectId = toolArgs?.project_id;
     const analysisDepth = toolArgs?.analysis_depth || 'standard';
-    const maxTasks = toolArgs?.max_tasks;
+    const maxEpics = toolArgs?.max_epics;
     
     // Validate project ID
     if (!projectId || typeof projectId !== 'number' || projectId < 1) {
       return this.createErrorResponse("Valid numeric project_id is required for analysis.");
+    }
+
+    // Validate that epic tools are available
+    if (!this.epicTools) {
+      return this.createErrorResponse("Epic tools are required for project initiation but not available.");
     }
     
     try {
@@ -422,19 +428,19 @@ export class WorkflowTools {
       
       const projectProperties = JSON.parse(propertiesResponse.content[0].text);
       
-      // Step 3: Load task property schema using list_properties
-      const taskPropertiesResponse = await this.propertyTools.handle('list_properties', { template_id: 1 }); // Task template ID
-      if (!taskPropertiesResponse || !taskPropertiesResponse.content || !taskPropertiesResponse.content[0]?.text) {
-        return this.createErrorResponse("Failed to load task property schema.");
+      // Step 3: Load epic property schema using list_properties
+      const epicPropertiesResponse = await this.propertyTools.handle('list_properties', { template_id: 3 }); // Epic template ID
+      if (!epicPropertiesResponse || !epicPropertiesResponse.content || !epicPropertiesResponse.content[0]?.text) {
+        return this.createErrorResponse("Failed to load epic property schema.");
       }
+
+      const epicProperties = JSON.parse(epicPropertiesResponse.content[0].text);
       
-      const taskProperties = JSON.parse(taskPropertiesResponse.content[0].text);
-      
-      // Step 4: Generate analysis prompt based on dynamic properties
-      const analysisPrompt = this.generateAnalysisPrompt(
+      // Step 4: Generate epic-focused analysis prompt based on dynamic properties
+      const analysisPrompt = this.generateEpicAnalysisPromptForProject(
         projectContext,
         projectProperties,
-        taskProperties,
+        epicProperties,
         analysisDepth
       );
       
@@ -443,18 +449,20 @@ export class WorkflowTools {
         project_id: projectId,
         project_context: projectContext,
         project_properties: projectProperties,
-        task_properties: taskProperties,
+        epic_properties: epicProperties,
         analysis_depth: analysisDepth,
-        max_tasks: maxTasks,
+        max_epics: maxEpics,
         analysis_prompt: analysisPrompt,
         instructions: [
-          "Analyze this project in full detail and create appropriate tasks so that the project can be completed successfully.",
-          "Use the provided project context and available properties to determine task structure.",
-          `Create tasks using the create_task tool with parent_id: ${projectId}`,
-          "Consider the analysis depth and max_tasks parameters for scope."
+          "Analyze this project in full detail and create appropriate epics so that the project can be completed successfully.",
+          "Use the provided project context and available properties to determine epic structure.",
+          "Each epic should represent a logical, functional component that can be implemented and tested independently.",
+          `Create epics using the create_epic tool with parent_id: ${projectId}`,
+          "Consider the analysis depth and max_epics parameters for scope.",
+          "Focus on identifying functional boundaries that make sense for epic-level groupings."
         ],
-        available_task_properties: taskProperties.map((prop: any) => prop.key),
-        next_steps: "Analyze the project and create tasks using create_task tool for each required task."
+        available_epic_properties: epicProperties.map((prop: any) => prop.key),
+        next_steps: "Analyze the project and create epics using create_epic tool for each required epic."
       };
       
       return {
@@ -831,6 +839,135 @@ Important: Focus on the EPIC as the primary context, using project context as su
   }
 
   /**
+   * Helper method to generate PROJECT-centered epic analysis prompt for initiate_project workflow
+   */
+  private generateEpicAnalysisPromptForProject(
+    projectContext: any,
+    projectProperties: any[],
+    epicProperties: any[],
+    analysisDepth: string
+  ): string {
+    // Extract property keys from schemas
+    const projectPropertyKeys = projectProperties.map(prop => prop.key);
+    const epicPropertyKeys = epicProperties.map(prop => prop.key);
+
+    // Build dynamic project context object with only available properties
+    const dynamicProjectContext: Record<string, any> = {};
+    projectPropertyKeys.forEach(key => {
+      if (projectContext.blocks && projectContext.blocks[key] !== undefined) {
+        dynamicProjectContext[key] = projectContext.blocks[key];
+      }
+    });
+
+    // Group epic properties by type for better analysis
+    const epicPropertyDetails = epicProperties.map(prop => ({
+      key: prop.key,
+      type: prop.type,
+      description: prop.description,
+      required: prop.fixed || false
+    }));
+
+    // Categorize epic properties for better analysis
+    const contentProperties = epicPropertyDetails.filter(p =>
+      ['text', 'markdown', 'string'].includes(p.type.toLowerCase()));
+    const structuralProperties = epicPropertyDetails.filter(p =>
+      ['list', 'array', 'object'].includes(p.type.toLowerCase()));
+    const metadataProperties = epicPropertyDetails.filter(p =>
+      !contentProperties.some(cp => cp.key === p.key) &&
+      !structuralProperties.some(sp => sp.key === p.key));
+
+    // Build PROJECT-centered epic analysis prompt
+    return `
+Analyze the following PROJECT and determine appropriate EPICS to create for successful project completion:
+
+=== PROJECT CONTEXT ===
+${JSON.stringify(dynamicProjectContext, null, 2)}
+
+=== ANALYSIS PARAMETERS ===
+Analysis Depth: ${analysisDepth}
+
+=== EPIC CREATION GUIDELINES FOR PROJECT INITIATION ===
+
+**Epic Definition:**
+- Epics are high-level functional groupings that represent major project components
+- Each epic should be large enough to warrant separate development streams but small enough to be manageable
+- Epics should represent logical business or technical boundaries within the project
+
+**Epic Sizing Guidelines:**
+- OPTIMAL: Epics that represent 2-4 weeks of development work when broken down into tasks
+- TOO SMALL: Features that could be single tasks or minor components
+- TOO LARGE: Entire systems or components that span multiple business domains
+
+**Project-to-Epic Decomposition:**
+- Analyze the project's scope, objectives, and technical requirements
+- Identify major functional areas, technical components, or user-facing features
+- Group related functionality into logical epics
+- Consider dependencies between epics for proper sequencing
+
+**Epic Independence:**
+- Each epic should be implementable and testable as a cohesive unit
+- Minimize cross-epic dependencies where possible
+- Each epic should deliver tangible user or system value when completed
+
+=== AVAILABLE EPIC PROPERTIES ===
+${JSON.stringify(epicPropertyKeys, null, 2)}
+
+=== EPIC PROPERTY DETAILS ===
+${JSON.stringify(epicPropertyDetails, null, 2)}
+
+Content Properties (for epic descriptions, objectives):
+${JSON.stringify(contentProperties.map(p => p.key), null, 2)}
+
+Structural Properties (for epic breakdown, analysis):
+${JSON.stringify(structuralProperties.map(p => p.key), null, 2)}
+
+Metadata Properties (for epic classification, tracking):
+${JSON.stringify(metadataProperties.map(p => p.key), null, 2)}
+
+=== ANALYSIS REQUIREMENTS ===
+
+Please provide a structured PROJECT-centered analysis with the following:
+
+1. **Project Scope Assessment**
+   - Overall project complexity and technical scope
+   - Key functional areas and technical components
+   - Major user-facing features and system capabilities
+
+2. **Epic Decomposition Strategy**
+   - Recommended epic structure based on project analysis
+   - Epic sizing rationale focusing on logical functional boundaries
+   - Epic sequencing and dependency considerations
+
+3. **Individual Epic Specifications**
+   For each epic, provide:
+   - Title (clear, functional, specific to the epic's scope)
+   - Description (epic context, objectives, boundaries)
+   - Analysis (epic breakdown, key components, implementation approach)
+   ${epicPropertyKeys.filter(key => key !== 'Title' && key !== 'Description' && key !== 'Analysis')
+     .map(key => `   - ${key} (as appropriate)`).join('\n')}
+
+4. **Epic Relationship Mapping**
+   - Dependencies between epics
+   - Recommended development sequence
+   - Integration points and shared components
+
+5. **Project Completion Strategy**
+   - How epics collectively address project objectives
+   - Success criteria for each epic
+   - Project-level integration and testing approach
+
+**CRITICAL REQUIREMENTS:**
+- All epics MUST have parent_id set to the project ID (${projectContext.id})
+- Focus on functional decomposition rather than technical implementation details
+- Each epic should represent a meaningful project milestone
+- Epics should be sized appropriately for team-based development
+- Ensure complete project coverage - all project objectives should be addressed by epics
+
+Important: Focus on the PROJECT as the primary context. Create epics that represent major functional areas or technical components that collectively deliver the project's objectives.
+`;
+  }
+
+  /**
    * Helper method to send analysis prompt to the agent
    * The agent using this tool will perform the analysis and return structured tasks
    */
@@ -971,7 +1108,8 @@ export function createWorkflowTools(
   taskTools: any,
   projectTools: any,
   objectTools: any,
-  propertyTools?: any
+  propertyTools?: any,
+  epicTools?: any
 ): WorkflowTools {
-  return new WorkflowTools(sharedDbService, clientId, taskTools, projectTools, objectTools, propertyTools);
+  return new WorkflowTools(sharedDbService, clientId, taskTools, projectTools, objectTools, propertyTools, epicTools);
 }
