@@ -166,11 +166,20 @@ export class WorkflowTools {
         if (objectContext[key] !== undefined) minimalObject[key] = objectContext[key];
       }
 
-      // Build format from list_properties for this template (if available)
+      // Build format from list_properties for mapped template (if available)
+      // Mapping rules:
+      // - if object.template_id = 1 -> use 1
+      // - if object.template_id = 2 -> use 3
+      // - if object.template_id = 3 -> use 1
       let formatValue: any = [];
       try {
         if (this.propertyTools && minimalObject.template_id) {
-          const propsResp = await this.propertyTools.handle('list_properties', { template_id: minimalObject.template_id });
+          let targetTemplateId = minimalObject.template_id;
+          if (minimalObject.template_id === 2) targetTemplateId = 3;
+          else if (minimalObject.template_id === 3) targetTemplateId = 1;
+          else if (minimalObject.template_id === 1) targetTemplateId = 1;
+
+          const propsResp = await this.propertyTools.handle('list_properties', { template_id: targetTemplateId });
           const propsText = propsResp?.content?.[0]?.text;
           if (propsText) {
             const props = JSON.parse(propsText);
@@ -191,11 +200,10 @@ export class WorkflowTools {
           `Your task is to analyze all ${minimalObject.blocks} with in context`,
           "logically break it down into a minimal number of high-level, broad, and executable phases.",
           `Adhere to a development hierarchy, make sure each phases follows format: \n ${formatValue}`,
-          "The final output must be a single JSON",
           "The list items should describe a general group of tasks rather than granular details.",
           "Ensure the response strictly adheres to the provided content without adding any external information (no scope creep)",
-          "Make sure to expose all phases to the user before next step",
-          "For each phase, use create_epic tool to create an epic."
+          "Make sure to expose all phases as single JSON to the user before next step",
+          "For each phase, use create_epic tool to create an epic, make sure you populate all properties."
         ]
       };
 
