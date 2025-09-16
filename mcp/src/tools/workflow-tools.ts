@@ -190,10 +190,11 @@ export class WorkflowTools {
         instructions: [
           `Your task is to analyze all ${minimalObject.blocks} with in context`,
           "logically break it down into a minimal number of high-level, broad, and executable phases.",
-          `Adhere to a development hierarchy, make sure each phases follows: \n ${formatValue}`,
-          "The final output must be a single JSON object containing this breakdown.",
+          `Adhere to a development hierarchy, make sure each phases follows format: \n ${formatValue}`,
+          "The final output must be a single JSON",
           "The list items should describe a general group of tasks rather than granular details.",
-          "Ensure the response strictly adheres to the provided content without adding any external information.",
+          "Ensure the response strictly adheres to the provided content without adding any external information (no scope creep)",
+          "Make sure to expose all phases to the user before next step",
           "For each phase, use create_epic tool to create an epic."
         ]
       };
