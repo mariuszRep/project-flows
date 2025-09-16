@@ -193,18 +193,44 @@ export class WorkflowTools {
         formatValue = [];
       }
 
+      const analaze = `
+      ### Analisys
+      ROLE: You are a senior software engineer with extensive experience in software development, project management.
+      `
+
       const payload = {
         context: minimalObject,
         format: formatValue,
         instructions: [
-          `Your task is to analyze all ${minimalObject.blocks} with in context`,
-          "logically break it down into a minimal number of high-level, broad, and executable phases.",
-          `Adhere to a development hierarchy, make sure each phases follows format: \n ${formatValue}`,
-          "The list items should describe a general group of tasks rather than granular details.",
-          "Ensure the response strictly adheres to the provided content without adding any external information (no scope creep)",
-          "Make sure to expose all phases as single JSON to the user before next step",
-          "For each phase, use create_epic tool to create an epic, make sure you populate all properties."
-        ]
+
+            ` 
+            ROLE: You are a senior software engineer with extensive experience in software development, project management and architecture.
+            CONTEXT: 
+            - ${minimalObject.type}: \n ${minimalObject.blocks}
+            - This is ${minimalObject.type} with in hierarchy (Project → Epics → Tasks - Subtasks/Todos (AI Agents))
+            - All Objects (Project → Epics → Tasks) are created created and executed by AI agents (Claude Code, Codex CLI, Gemini CLI, ...).
+            - AI agents (Claude Code, Codex CLI, Gemini CLI,...) Will add aditional Subtasks/Todos when planning the execution.
+            `,`
+            IMSTACTIONS - Analysis:
+            - Your task is to deeply understand and analyze this ${minimalObject.type} and all it's context: \n ${minimalObject.blocks}
+            - break this ${minimalObject.type} down into next hierarchy level (Project → Epics → Tasks - Subtasks/Todos (AI Agents)).
+            - Adhere to a development hierarchy, fallow logic and dependencies, 
+            - make sure each phases follows format: \n ${formatValue}
+            - make sure the size (biggest possible) is optimal for AI agents (Claude Code, Codex CLI, Gemini CLI,...)
+            - each phase should be selfe contained so it can be worked on in isolation, in parrarel with other phases.
+            - remember task is the lowest level of this system hierarchy but ai agent will have extra planning and subtasks.
+            - Ensure the response strictly adheres to the provided content without adding any external information (no scope creep)
+            `,
+            "OUTPUT BEFORE NEXT STEPS: Make sure to expose all the phases results as single JSON to the user before next step",
+            `
+            NEXT STEPS: 
+              - when braking down project use create_epic tool
+              - when braking down epic use create_task tool
+              - when braking down task use create_task tool
+              - make sure you populate all properties wnen using create_epic or create_task tool.
+              - For each phase, use apropriate tool (create_epic or create_task) 
+          `
+          ]
       };
 
       return {
