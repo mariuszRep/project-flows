@@ -8,7 +8,8 @@ export class WorkflowTools {
     private taskTools: any,
     private projectTools: any,
     private objectTools: any,
-    private propertyTools?: any
+    private propertyTools?: any,
+    private epicTools?: any
   ) {}
 
   getToolDefinitions(): Tool[] {
@@ -28,45 +29,264 @@ export class WorkflowTools {
         },
       } as Tool,
       {
-        name: "initiate_project",
-        description: "Analyze a project and automatically generate appropriate tasks based on project context and complexity. Dynamically determines task structure without hardcoded properties.",
+        name: "analyze_object",
+        description: "Act as a senior software engineer. Your task is to analyze the provided content and logically break it down into a minimal number of high-level, broad, and executable phases, adhering to a development hierarchy. The final output must be a single JSON object containing this breakdown, with the list items describing a general group of tasks rather than granular details. Ensure the response strictly adheres to the provided content without adding any external information.",
         inputSchema: {
           type: "object",
           properties: {
-            project_id: {
-              type: "number",
-              description: "The numeric ID of the project to analyze and generate tasks for"
-            },
-            analysis_depth: {
+            content: {
               type: "string",
-              description: "Analysis depth for task generation: 'basic', 'standard', or 'comprehensive'",
-              enum: ["basic", "standard", "comprehensive"]
+              description: "Content to analyze for breakdown"
             },
-            max_tasks: {
-              type: "number",
-              description: "Optional maximum number of tasks to create (overrides automatic determination)"
+            breakdown: {
+              type: "string",
+              description: "Your analysis of the content as JSON: { \"list\": [\"1. Name — Description\", \"2. Name — Description\"], \"reasoning\": \"Why this breakdown makes sense\" }"
             }
           },
-          required: ["project_id"],
+          required: ["content", "breakdown"],
+        },
+      } as Tool,
+      {
+        name: "initiate_object",
+        description: "Fetch an object by ID using get_object and return its context for further processing.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            object_id: {
+              type: "number",
+              description: "The numeric ID of the object to load"
+            }
+          },
+          required: ["object_id"],
         },
       } as Tool,
     ];
   }
 
   canHandle(toolName: string): boolean {
-    return ["execute_task", "initiate_project"].includes(toolName);
+    return ["execute_task", "analyze_object", "initiate_object"].includes(toolName);
   }
 
   async handle(name: string, toolArgs?: Record<string, any>) {
     switch (name) {
       case "execute_task":
         return await this.handleExecuteTask(toolArgs);
-      case "initiate_project":
-        return await this.handleInitiateProject(toolArgs);
+      case "analyze_object":
+        return await this.handleAnalyzeObject(toolArgs);
+      case "initiate_object":
+        return await this.handleInitiateObject(toolArgs);
       default:
         throw new Error(`Unknown workflow tool: ${name}`);
     }
   }
+
+  /**
+   * Handle initiate_object tool - minimal wrapper over get_object
+   */
+  private async handleInitiateObject(toolArgs?: Record<string, any>) {
+    const objectId = toolArgs?.object_id;
+
+    if (!objectId || typeof objectId !== 'number' || objectId < 1) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: "Error: Valid numeric object_id is required.",
+          } as TextContent,
+        ],
+      };
+    }
+
+    try {
+      const objectResponse = await this.objectTools.handle('get_object', { object_id: objectId });
+      if (!objectResponse || !objectResponse.content || !objectResponse.content[0]?.text) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: Object with ID ${objectId} not found.`,
+            } as TextContent,
+          ],
+        };
+      }
+
+      const objectContext = JSON.parse(objectResponse.content[0].text);
+      const minimalObject: Record<string, any> = {};
+      for (const key of ["id", "template_id", "type", "blocks"]) {
+        if (objectContext[key] !== undefined) minimalObject[key] = objectContext[key];
+      }
+
+      // Build format from list_properties for mapped template (if available)
+      // Mapping rules:
+      // - if object.template_id = 1 -> use 1
+      // - if object.template_id = 2 -> use 3
+      // - if object.template_id = 3 -> use 1
+      let formatValue: any = [];
+      try {
+        if (this.propertyTools && minimalObject.template_id) {
+          let targetTemplateId = minimalObject.template_id;
+          if (minimalObject.template_id === 2) targetTemplateId = 3;
+          else if (minimalObject.template_id === 3) targetTemplateId = 1;
+          else if (minimalObject.template_id === 1) targetTemplateId = 1;
+
+          const propsResp = await this.propertyTools.handle('list_properties', { template_id: targetTemplateId });
+          const propsText = propsResp?.content?.[0]?.text;
+          if (propsText) {
+            const props = JSON.parse(propsText);
+            const simplified = Array.isArray(props)
+              ? props.map((p: any) => ({ key: p.key, description: p.description }))
+              : props;
+            formatValue = simplified;
+          }
+        }
+      } catch (e) {
+        formatValue = [];
+      }
+
+      const analaze = `
+      ### Analisys
+      ROLE: You are a senior software engineer with extensive experience in software development, project management.
+      `
+
+      const payload = {
+        context: minimalObject,
+        format: formatValue,
+        instructions: [
+
+            ` 
+            ROLE: You are a senior software engineer with extensive experience in software development, project management and architecture.
+            CONTEXT: 
+            - ${minimalObject.type}: \n ${minimalObject.blocks}
+            - This is ${minimalObject.type} with in hierarchy (Project → Epics → Tasks - Subtasks/Todos (AI Agents))
+            - All Objects (Project → Epics → Tasks) are created created and executed by AI agents (Claude Code, Codex CLI, Gemini CLI, ...).
+            - AI agents (Claude Code, Codex CLI, Gemini CLI,...) Will add aditional Subtasks/Todos when planning the execution.
+            `,`
+            IMSTACTIONS - Analysis:
+            - Your task is to deeply understand and analyze this ${minimalObject.type} and all it's context: \n ${minimalObject.blocks}
+            - break this ${minimalObject.type} down into next hierarchy level (Project → Epics → Tasks - Subtasks/Todos (AI Agents)).
+            - Adhere to a development hierarchy, fallow logic and dependencies, 
+            - make sure each phases follows format: \n ${formatValue}
+            - make sure the size (biggest possible) is optimal for AI agents (Claude Code, Codex CLI, Gemini CLI,...)
+            - each phase should be selfe contained so it can be worked on in isolation, in parrarel with other phases.
+            - remember task is the lowest level of this system hierarchy but ai agent will have extra planning and subtasks.
+            - Ensure the response strictly adheres to the provided content without adding any external information (no scope creep)
+            `,
+            "OUTPUT BEFORE NEXT STEPS: Make sure to expose all the phases results as single JSON to the user before next step",
+            `
+            NEXT STEPS: 
+              - when braking down project use create_epic tool
+              - when braking down epic use create_task tool
+              - when braking down task use create_task tool
+              - make sure you populate all properties wnen using create_epic or create_task tool.
+              - For each phase, use apropriate tool (create_epic or create_task) 
+          `
+          ]
+      };
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(payload, null, 2),
+          } as TextContent,
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              success: false,
+              object_id: objectId,
+              error: (error as Error).message || 'Unknown error while loading object'
+            }, null, 2),
+          } as TextContent,
+        ],
+      };
+    }
+  }
+
+  private async handleAnalyzeObject(toolArgs?: Record<string, any>) {
+    const content = toolArgs?.content;
+    const breakdown = toolArgs?.breakdown;
+
+    if (!content || typeof content !== 'string') {
+      return {
+        content: [
+          {
+            type: "text",
+            text: "Error: Valid content is required for analysis.",
+          } as TextContent,
+        ],
+      };
+    }
+
+    if (!breakdown || typeof breakdown !== 'string') {
+      return {
+        content: [
+          {
+            type: "text",
+            text: "Error: Valid breakdown is required.",
+          } as TextContent,
+        ],
+      };
+    }
+
+    // Parse and validate the breakdown JSON
+    let parsedBreakdown;
+    try {
+      parsedBreakdown = JSON.parse(breakdown);
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              success: false,
+              error: "Invalid JSON format in breakdown parameter"
+            }, null, 2),
+          } as TextContent,
+        ],
+      };
+    }
+
+    // Validate required fields
+    if (!parsedBreakdown.list || !Array.isArray(parsedBreakdown.list) || !parsedBreakdown.reasoning) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              success: false,
+              error: "Breakdown must contain 'list' array and 'reasoning' string"
+            }, null, 2),
+          } as TextContent,
+        ],
+      };
+    }
+
+    // Return the structured analysis result like create_task returns the created task
+    const result = {
+      success: true,
+      content_analyzed: content,
+      breakdown: {
+        list: parsedBreakdown.list,
+        reasoning: parsedBreakdown.reasoning
+      },
+      analysis_timestamp: new Date().toISOString()
+    };
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(result, null, 2),
+        } as TextContent,
+      ],
+    };
+  }
+
 
   private async handleExecuteTask(toolArgs?: Record<string, any>) {
     const taskId = toolArgs?.task_id;
@@ -365,86 +585,7 @@ export class WorkflowTools {
   }
 
 
-  /**
-   * Handle initiate_project tool - analyze project and generate tasks
-   */
-  private async handleInitiateProject(toolArgs?: Record<string, any>) {
-    const projectId = toolArgs?.project_id;
-    const analysisDepth = toolArgs?.analysis_depth || 'standard';
-    const maxTasks = toolArgs?.max_tasks;
-    
-    // Validate project ID
-    if (!projectId || typeof projectId !== 'number' || projectId < 1) {
-      return this.createErrorResponse("Valid numeric project_id is required for analysis.");
-    }
-    
-    try {
-      console.log(`🔍 Starting project initiation for project ${projectId}`);
-      
-      // Step 1: Load project using get_object tool
-      const projectResponse = await this.objectTools.handle('get_object', { object_id: projectId });
-      if (!projectResponse || !projectResponse.content || !projectResponse.content[0]?.text) {
-        return this.createErrorResponse(`Project with ID ${projectId} not found.`);
-      }
-      
-      const projectContext = JSON.parse(projectResponse.content[0].text);
-      
-      // Step 2: Load project property schema using list_properties
-      const propertiesResponse = await this.propertyTools.handle('list_properties', { template_id: 2 }); // Project template ID
-      if (!propertiesResponse || !propertiesResponse.content || !propertiesResponse.content[0]?.text) {
-        return this.createErrorResponse("Failed to load project property schema.");
-      }
-      
-      const projectProperties = JSON.parse(propertiesResponse.content[0].text);
-      
-      // Step 3: Load task property schema using list_properties
-      const taskPropertiesResponse = await this.propertyTools.handle('list_properties', { template_id: 1 }); // Task template ID
-      if (!taskPropertiesResponse || !taskPropertiesResponse.content || !taskPropertiesResponse.content[0]?.text) {
-        return this.createErrorResponse("Failed to load task property schema.");
-      }
-      
-      const taskProperties = JSON.parse(taskPropertiesResponse.content[0].text);
-      
-      // Step 4: Generate analysis prompt based on dynamic properties
-      const analysisPrompt = this.generateAnalysisPrompt(
-        projectContext,
-        projectProperties,
-        taskProperties,
-        analysisDepth
-      );
-      
-      // Step 5: Return analysis context for the calling agent to process
-      const analysisContext = {
-        project_id: projectId,
-        project_context: projectContext,
-        project_properties: projectProperties,
-        task_properties: taskProperties,
-        analysis_depth: analysisDepth,
-        max_tasks: maxTasks,
-        analysis_prompt: analysisPrompt,
-        instructions: [
-          "Analyze this project in full detail and create appropriate tasks so that the project can be completed successfully.",
-          "Use the provided project context and available properties to determine task structure.",
-          `Create tasks using the create_task tool with parent_id: ${projectId}`,
-          "Consider the analysis depth and max_tasks parameters for scope."
-        ],
-        available_task_properties: taskProperties.map((prop: any) => prop.key),
-        next_steps: "Analyze the project and create tasks using create_task tool for each required task."
-      };
-      
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify(analysisContext, null, 2),
-          } as TextContent,
-        ],
-      };
-    } catch (error) {
-      console.error(`❌ Project initiation failed for project ${projectId}:`, error);
-      return this.createErrorResponse((error as Error).message || "Unknown error during project initiation");
-    }
-  }
+
 
   /**
    * Helper method to generate analysis prompt dynamically based on project properties
@@ -523,6 +664,8 @@ Please provide a structured analysis with the following:
 Important: For each task, ensure you populate all required properties and follow the property types.
 `;
   }
+
+
 
   /**
    * Helper method to send analysis prompt to the agent
@@ -665,7 +808,8 @@ export function createWorkflowTools(
   taskTools: any,
   projectTools: any,
   objectTools: any,
-  propertyTools?: any
+  propertyTools?: any,
+  epicTools?: any
 ): WorkflowTools {
-  return new WorkflowTools(sharedDbService, clientId, taskTools, projectTools, objectTools, propertyTools);
+  return new WorkflowTools(sharedDbService, clientId, taskTools, projectTools, objectTools, propertyTools, epicTools);
 }

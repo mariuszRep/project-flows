@@ -360,8 +360,8 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
     projectTools
   );
 
-  // Inject the correct toolsets: taskTools for task operations and projectTools for project operations
-  const workflowTools = createWorkflowTools(sharedDbService, clientId, taskTools, projectTools, objectTools, propertyTools);
+  // Inject the correct toolsets: taskTools for task operations, projectTools for project operations, and epicTools for epic operations
+  const workflowTools = createWorkflowTools(sharedDbService, clientId, taskTools, projectTools, objectTools, propertyTools, epicTools);
 
   // Set up tool list handler
   server.setRequestHandler(ListToolsRequestSchema, async (request) => {
