@@ -434,10 +434,10 @@ const ObjectView: React.FC<ObjectViewProps> = ({
         command = `execute task ${entityId}`;
         break;
       case 'epic':
-        command = `initiate epic ${entityId}`;
+        command = `initiate object ${entityId}`;
         break;
       case 'project':
-        command = `initiate project ${entityId}`;
+        command = `initiate object ${entityId}`;
         break;
       default:
         command = `execute task ${entityId}`;
@@ -682,8 +682,8 @@ const ObjectView: React.FC<ObjectViewProps> = ({
               variant="outline" 
               size="icon" 
               onClick={handleCopyCommand}
-              title={`Copy ${entityType === 'task' ? 'execute task' : entityType === 'epic' ? 'initiate epic' : 'initiate project'} command`}
-              aria-label={`Copy ${entityType === 'task' ? 'execute task' : entityType === 'epic' ? 'initiate epic' : 'initiate project'} command`}
+              title={`Copy ${entityType === 'task' ? 'execute task' : 'initiate object'} command`}
+              aria-label={`Copy ${entityType === 'task' ? 'execute task' : 'initiate object'} command`}
             >
               <Copy className="h-4 w-4" />
             </Button>
