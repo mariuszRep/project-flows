@@ -29,6 +29,24 @@ export class WorkflowTools {
         },
       } as Tool,
       {
+        name: "analyze_object",
+        description: "Act as a senior software engineer. Your task is to analyze the provided content and logically break it down into a minimal number of high-level, broad, and executable phases, adhering to a development hierarchy. The final output must be a single JSON object containing this breakdown, with the list items describing a general group of tasks rather than granular details. Ensure the response strictly adheres to the provided content without adding any external information.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            content: {
+              type: "string",
+              description: "Content to analyze for breakdown"
+            },
+            breakdown: {
+              type: "string",
+              description: "Your analysis of the content as JSON: { \"list\": [\"1. Name — Description\", \"2. Name — Description\"], \"reasoning\": \"Why this breakdown makes sense\" }"
+            }
+          },
+          required: ["content", "breakdown"],
+        },
+      } as Tool,
+      {
         name: "initiate_project",
         description: "Analyze a project and automatically generate appropriate epics based on project context and complexity. Dynamically determines epic structure without hardcoded properties.",
         inputSchema: {
@@ -78,13 +96,15 @@ export class WorkflowTools {
   }
 
   canHandle(toolName: string): boolean {
-    return ["execute_task", "initiate_project", "initiate_epic"].includes(toolName);
+    return ["execute_task", "analyze_object", "initiate_project", "initiate_epic"].includes(toolName);
   }
 
   async handle(name: string, toolArgs?: Record<string, any>) {
     switch (name) {
       case "execute_task":
         return await this.handleExecuteTask(toolArgs);
+      case "analyze_object":
+        return await this.handleAnalyzeObject(toolArgs);
       case "initiate_project":
         return await this.handleInitiateProject(toolArgs);
       case "initiate_epic":
@@ -93,6 +113,87 @@ export class WorkflowTools {
         throw new Error(`Unknown workflow tool: ${name}`);
     }
   }
+
+  private async handleAnalyzeObject(toolArgs?: Record<string, any>) {
+    const content = toolArgs?.content;
+    const breakdown = toolArgs?.breakdown;
+
+    if (!content || typeof content !== 'string') {
+      return {
+        content: [
+          {
+            type: "text",
+            text: "Error: Valid content is required for analysis.",
+          } as TextContent,
+        ],
+      };
+    }
+
+    if (!breakdown || typeof breakdown !== 'string') {
+      return {
+        content: [
+          {
+            type: "text",
+            text: "Error: Valid breakdown is required.",
+          } as TextContent,
+        ],
+      };
+    }
+
+    // Parse and validate the breakdown JSON
+    let parsedBreakdown;
+    try {
+      parsedBreakdown = JSON.parse(breakdown);
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              success: false,
+              error: "Invalid JSON format in breakdown parameter"
+            }, null, 2),
+          } as TextContent,
+        ],
+      };
+    }
+
+    // Validate required fields
+    if (!parsedBreakdown.list || !Array.isArray(parsedBreakdown.list) || !parsedBreakdown.reasoning) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              success: false,
+              error: "Breakdown must contain 'list' array and 'reasoning' string"
+            }, null, 2),
+          } as TextContent,
+        ],
+      };
+    }
+
+    // Return the structured analysis result like create_task returns the created task
+    const result = {
+      success: true,
+      content_analyzed: content,
+      breakdown: {
+        list: parsedBreakdown.list,
+        reasoning: parsedBreakdown.reasoning
+      },
+      analysis_timestamp: new Date().toISOString()
+    };
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(result, null, 2),
+        } as TextContent,
+      ],
+    };
+  }
+
 
   private async handleExecuteTask(toolArgs?: Record<string, any>) {
     const taskId = toolArgs?.task_id;
