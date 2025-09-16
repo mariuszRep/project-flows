@@ -92,11 +92,25 @@ export class WorkflowTools {
           required: ["epic_id"],
         },
       } as Tool,
+      {
+        name: "initiate_object",
+        description: "Fetch an object by ID using get_object and return its context for further processing.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            object_id: {
+              type: "number",
+              description: "The numeric ID of the object to load"
+            }
+          },
+          required: ["object_id"],
+        },
+      } as Tool,
     ];
   }
 
   canHandle(toolName: string): boolean {
-    return ["execute_task", "analyze_object", "initiate_project", "initiate_epic"].includes(toolName);
+    return ["execute_task", "analyze_object", "initiate_project", "initiate_epic", "initiate_object"].includes(toolName);
   }
 
   async handle(name: string, toolArgs?: Record<string, any>) {
@@ -105,12 +119,106 @@ export class WorkflowTools {
         return await this.handleExecuteTask(toolArgs);
       case "analyze_object":
         return await this.handleAnalyzeObject(toolArgs);
+      case "initiate_object":
+        return await this.handleInitiateObject(toolArgs);
       case "initiate_project":
         return await this.handleInitiateProject(toolArgs);
       case "initiate_epic":
         return await this.handleInitiateEpic(toolArgs);
       default:
         throw new Error(`Unknown workflow tool: ${name}`);
+    }
+  }
+
+  /**
+   * Handle initiate_object tool - minimal wrapper over get_object
+   */
+  private async handleInitiateObject(toolArgs?: Record<string, any>) {
+    const objectId = toolArgs?.object_id;
+
+    if (!objectId || typeof objectId !== 'number' || objectId < 1) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: "Error: Valid numeric object_id is required.",
+          } as TextContent,
+        ],
+      };
+    }
+
+    try {
+      const objectResponse = await this.objectTools.handle('get_object', { object_id: objectId });
+      if (!objectResponse || !objectResponse.content || !objectResponse.content[0]?.text) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: Object with ID ${objectId} not found.`,
+            } as TextContent,
+          ],
+        };
+      }
+
+      const objectContext = JSON.parse(objectResponse.content[0].text);
+      const minimalObject: Record<string, any> = {};
+      for (const key of ["id", "template_id", "type", "blocks"]) {
+        if (objectContext[key] !== undefined) minimalObject[key] = objectContext[key];
+      }
+
+      // Build format from list_properties for this template (if available)
+      let formatValue: any = [];
+      try {
+        if (this.propertyTools && minimalObject.template_id) {
+          const propsResp = await this.propertyTools.handle('list_properties', { template_id: minimalObject.template_id });
+          const propsText = propsResp?.content?.[0]?.text;
+          if (propsText) {
+            const props = JSON.parse(propsText);
+            const simplified = Array.isArray(props)
+              ? props.map((p: any) => ({ key: p.key, description: p.description }))
+              : props;
+            formatValue = simplified;
+          }
+        }
+      } catch (e) {
+        formatValue = [];
+      }
+
+      const payload = {
+        context: minimalObject,
+        format: formatValue,
+        instructions: [
+          `Your task is to analyze all ${minimalObject.blocks} with in context`,
+          "logically break it down into a minimal number of high-level, broad, and executable phases.",
+          `Adhere to a development hierarchy, make sure each phases follows: \n ${formatValue}`,
+          "The final output must be a single JSON object containing this breakdown.",
+          "The list items should describe a general group of tasks rather than granular details.",
+          "Ensure the response strictly adheres to the provided content without adding any external information.",
+          "For each phase, use create_epic tool to create an epic."
+        ]
+      };
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(payload, null, 2),
+          } as TextContent,
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              success: false,
+              object_id: objectId,
+              error: (error as Error).message || 'Unknown error while loading object'
+            }, null, 2),
+          } as TextContent,
+        ],
+      };
     }
   }
 
