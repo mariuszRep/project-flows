@@ -133,22 +133,21 @@ export class WorkflowTools {
         format: formatValue,
         instructions: [
 
-            ` 
-            ROLE: You are a senior software engineer with extensive experience in software development, project management and architecture.
-            CONTEXT: 
-            - ${minimalObject.type}: \n ${minimalObject.blocks}
+            "You are a senior so"ftware engineer with extensive experience in software development, project management and architecture.",
+            `- ${minimalObject.type}: \n ${minimalObject.blocks}`,
             - This is ${minimalObject.type} with in hierarchy (Project → Epics → Tasks - Subtasks/Todos (AI Agents))
-            - All Objects (Project → Epics → Tasks) are created created and executed by AI agents (Claude Code, Codex CLI, Gemini CLI, ...).
+            - All Objects (Project → Epics → Tasks) are created by AI agents (Claude Code, Codex CLI, Gemini CLI, ...).
+
             - AI agents (Claude Code, Codex CLI, Gemini CLI,...) Will add aditional Subtasks/Todos when planning the execution.
             `,`
             IMSTACTIONS - Analysis:
             - Your task is to deeply understand and analyze this ${minimalObject.type} and all it's context: \n ${minimalObject.blocks}
-            - break this ${minimalObject.type} down into next hierarchy level (Project → Epics → Tasks - Subtasks/Todos (AI Agents)).
-            - Adhere to a development hierarchy, fallow logic and dependencies, 
-            - make sure each phases follows format: \n ${formatValue}
+            - break this ${minimalObject.type} down into next hierarchy level (Project → Epics → Tasks - Subtasks/Todos (AI Agents)), JUST 1 NEXT LEVEL!.
+            - Adhere to a development hierarchy, fallow logic and dependencies, when breking down.
+            - CRITICAL! make sure each phases follows format: \n ${formatValue}
             - make sure the size (biggest possible) is optimal for AI agents (Claude Code, Codex CLI, Gemini CLI,...)
             - each phase should be selfe contained so it can be worked on in isolation, in parrarel with other phases.
-            - remember task is the lowest level of this system hierarchy but ai agent will have extra planning and subtasks.
+            - CRITICAL! task is the lowest level of this system hierarchy but ai agent will have extra planning and subtasks, so size as big as possible. 
             - Ensure the response strictly adheres to the provided content without adding any external information (no scope creep)
             `,
             "OUTPUT BEFORE NEXT STEPS: Make sure to expose all the phases results as single JSON to the user before next step",
