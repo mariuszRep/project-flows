@@ -132,34 +132,24 @@ export class WorkflowTools {
         context: minimalObject,
         format: formatValue,
         instructions: [
-
-            "You are a senior so"ftware engineer with extensive experience in software development, project management and architecture.",
-            `- ${minimalObject.type}: \n ${minimalObject.blocks}`,
-            - This is ${minimalObject.type} with in hierarchy (Project → Epics → Tasks - Subtasks/Todos (AI Agents))
-            - All Objects (Project → Epics → Tasks) are created by AI agents (Claude Code, Codex CLI, Gemini CLI, ...).
-
-            - AI agents (Claude Code, Codex CLI, Gemini CLI,...) Will add aditional Subtasks/Todos when planning the execution.
-            `,`
-            IMSTACTIONS - Analysis:
-            - Your task is to deeply understand and analyze this ${minimalObject.type} and all it's context: \n ${minimalObject.blocks}
-            - break this ${minimalObject.type} down into next hierarchy level (Project → Epics → Tasks - Subtasks/Todos (AI Agents)), JUST 1 NEXT LEVEL!.
-            - Adhere to a development hierarchy, fallow logic and dependencies, when breking down.
-            - CRITICAL! make sure each phases follows format: \n ${formatValue}
-            - make sure the size (biggest possible) is optimal for AI agents (Claude Code, Codex CLI, Gemini CLI,...)
-            - each phase should be selfe contained so it can be worked on in isolation, in parrarel with other phases.
-            - CRITICAL! task is the lowest level of this system hierarchy but ai agent will have extra planning and subtasks, so size as big as possible. 
-            - Ensure the response strictly adheres to the provided content without adding any external information (no scope creep)
-            `,
-            "OUTPUT BEFORE NEXT STEPS: Make sure to expose all the phases results as single JSON to the user before next step",
-            `
-            NEXT STEPS: 
-              - when braking down project use create_epic tool
-              - when braking down epic use create_task tool
-              - when braking down task use create_task tool
-              - make sure you populate all properties wnen using create_epic or create_task tool.
-              - For each phase, use apropriate tool (create_epic or create_task) 
-          `
-          ]
+          `ROLE: You are a senior software engineer with extensive experience in software development, project management and architecture.`,
+          `CONTEXT: This is a ${minimalObject.type} with following requierment - \n ${minimalObject.blocks}`,
+          `CONTEXT: This ${minimalObject.type} sits with in hierarchy (Project → Epics → Tasks → Subtasks or Todos)`,
+          `CONTEXT: All Objects (Project → Epics → Tasks) are created by AI agents (Claude Code, Codex CLI, Gemini CLI, ...). for AI Agents`,
+          `CONTEXT: Tasks are executed by AI Agents (Claude Code, Codex CLI, Gemini CLI, ...) where they add extra Subtasks or Todos when planning the execution.`,
+          `INSTRUCTIONS: Analyze and understand this ${minimalObject.type} and all it's requierment DEEPLY: \n ${minimalObject.blocks} `,
+          `INSTRUCTIONS: Breakdown this ${minimalObject.type} into next hierarchy levels, when Project then Epics, when Epic then Tasks, when Task then Tasks`,
+          `CRITICAL INTACTIONS: NEVER Breakdown Project into Epics then Epic into Tasks, we just need one level down.`,
+          `INSTRUCTIONS: Adhere to a development hierarchy, fallow logic and dependencies, when breking down.`,
+          `INSTRUCTIONS: Each breakdown object must be self-contained so it can be worked on in isolation, in parallel with other phases.`,
+          `CRITICAL INSTRUCTIONS: Make sure each breakdown object follows format: \n ${formatValue}`,
+          `INSTRUCTIONS: Make sure to size objects (as biggest possible), so Tasks can be executed by AI agents (Claude Code, Codex CLI, Gemini CLI,...)`,
+          `INSTRUCTIONS: Ensure no scope creep, and each object the response strictly adheres to the provided ${minimalObject.type} content without adding any external information`,
+          `OUTPUT: Provide the breakdown objects strictly in the provided format: \n ${formatValue}`,
+          `OUTPUT: Make sure to expose all breakdown objects results to the user in the response before next steps`,
+          `NEXT STEPS: Ask user to Confirm if you shoud create new Objects`,
+          `NEXT STEPS: Make sure to use apropriate tool for each breakdown objects, when braking down project use create_epic tool, when braking down epic use create_task tool,when braking down task use create_task tool`
+        ]
       };
 
       return {

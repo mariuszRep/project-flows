@@ -170,6 +170,23 @@ args = ["mcp-remote", "http://localhost:3001/sse?clientId=codex-cli"]
 }
 ```
 
+#### CoPilot
+
+```json
+{
+	"servers": {
+		"project-flows": {
+			"url": "http://localhost:3001/sse",
+			"type": "http",
+            "headers": {
+				"X-MCP-Client": "co-pilot"
+			}
+		}
+	},
+	"inputs": []
+}
+```
+
 ### Available MCP Tools
 
 The server exposes Task Tools for creating/updating tasks, Object Tools for retrieval/listing, and Workflow Tools.
