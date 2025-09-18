@@ -102,12 +102,23 @@ export class WorkflowTools {
       // - if object.template_id = 2 -> use 3
       // - if object.template_id = 3 -> use 1
       let formatValue: any = [];
+      let nextLevelType = "task"; // What type should be created next
+
       try {
         if (this.propertyTools && minimalObject.template_id) {
           let targetTemplateId = minimalObject.template_id;
-          if (minimalObject.template_id === 2) targetTemplateId = 3;
-          else if (minimalObject.template_id === 3) targetTemplateId = 1;
-          else if (minimalObject.template_id === 1) targetTemplateId = 1;
+
+          // Set next level type based on current template_id
+          if (minimalObject.template_id === 1) {
+            nextLevelType = "task";
+            targetTemplateId = 1;
+          } else if (minimalObject.template_id === 2) {
+            nextLevelType = "epic";
+            targetTemplateId = 3;
+          } else if (minimalObject.template_id === 3) {
+            nextLevelType = "task";
+            targetTemplateId = 1;
+          }
 
           const propsResp = await this.propertyTools.handle('list_properties', { template_id: targetTemplateId });
           const propsText = propsResp?.content?.[0]?.text;
@@ -132,23 +143,22 @@ export class WorkflowTools {
         context: minimalObject,
         format: formatValue,
         instructions: [
-          `ROLE: You are a senior software engineer with extensive experience in software development, project management and architecture.`,
-          `CONTEXT: This is a ${minimalObject.type} with following requierment - \n ${minimalObject.blocks}`,
-          `CONTEXT: This ${minimalObject.type} sits with in hierarchy (Project → Epics → Tasks → Subtasks or Todos)`,
-          `CONTEXT: All Objects (Project → Epics → Tasks) are created by AI agents (Claude Code, Codex CLI, Gemini CLI, ...). for AI Agents`,
-          `CONTEXT: Tasks are executed by AI Agents (Claude Code, Codex CLI, Gemini CLI, ...) where they add extra Subtasks or Todos when planning the execution.`,
-          `INSTRUCTIONS: Analyze and understand this ${minimalObject.type} and all it's requierment DEEPLY: \n ${minimalObject.blocks} `,
-          `INSTRUCTIONS: Breakdown this ${minimalObject.type} into next hierarchy levels, when Project then Epics, when Epic then Tasks, when Task then Tasks`,
-          `CRITICAL INTACTIONS: NEVER Breakdown Project into Epics then Epic into Tasks, we just need one level down.`,
-          `INSTRUCTIONS: Adhere to a development hierarchy, fallow logic and dependencies, when breking down.`,
-          `INSTRUCTIONS: Each breakdown object must be self-contained so it can be worked on in isolation, in parallel with other phases.`,
-          `CRITICAL INSTRUCTIONS: Make sure each breakdown object follows format: \n ${formatValue}`,
-          `INSTRUCTIONS: Make sure to size objects (as biggest possible), so Tasks can be executed by AI agents (Claude Code, Codex CLI, Gemini CLI,...)`,
-          `INSTRUCTIONS: Ensure no scope creep, and each object the response strictly adheres to the provided ${minimalObject.type} content without adding any external information`,
-          `OUTPUT: Provide the breakdown objects strictly in the provided format: \n ${formatValue}`,
-          `OUTPUT: Make sure to expose all breakdown objects results to the user in the response before next steps`,
-          `NEXT STEPS: Ask user to Confirm if you shoud create new Objects`,
-          `NEXT STEPS: Make sure to use apropriate tool for each breakdown objects, when braking down project use create_epic tool, when braking down epic use create_task tool,when braking down task use create_task tool`
+          `ROLE: You are an Expert Planner for multilayer hierarchy (Project → Epics → Tasks → Subtasks or Todos) AI Workloads.`,
+          `CONTEXT: This is a ${minimalObject.type} requirement - \n ${minimalObject.blocks}`,
+          `CONTEXT: This ${minimalObject.type} sits within hierarchy (Project → Epics → Tasks → Subtasks or Todos)`,
+          `CONTEXT: All Objects (Project → Epics → Tasks) are created by AI agents (Claude Code, Codex CLI, Gemini CLI, ...) for AI Agents`,
+          `CONTEXT: Only Tasks are executed by AI Agents (Claude Code, Codex CLI, Gemini CLI, ...) where they add extra Subtasks or Todos when planning the execution, Make sure to size the ${nextLevelType}s with that in mind.`,
+          `INSTRUCTIONS: Analyze and understand this ${minimalObject.type} and all its requirements DEEPLY: \n ${minimalObject.blocks}, PLAN WELL BEFORE ACTING, 90% of success is in the planning phase.`,
+          `INSTRUCTIONS: Breakdown this ${minimalObject.type} into ${nextLevelType}s - create ${nextLevelType} objects with this stgructure, always include all properties: \n${formatValue}`,
+          `INSTRUCTIONS: Adhere to a development hierarchy, follow logic and dependencies, when breaking down., the ${nextLevelType}s must be in logical order of execution`,
+          `INSTRUCTIONS: Each breakdown ${nextLevelType} must be self-contained so it can be worked on in isolation, in parallel with other phases.`,
+          `CRITICAL INSTRUCTIONS: Make sure each breakdown ${nextLevelType} follows format, and always include all properties: \n ${formatValue}`,
+          `INSTRUCTIONS: Make sure to size ${nextLevelType}s (as biggest possible) accoringly to hireachy structure, as only Tasks can be executed by AI agents (Claude Code, Codex CLI, Gemini CLI,...), AI Agents will add extra Planning and subtasks/todos, so do not create too small ${nextLevelType}s, make sure it fits well in the hierarchy`,
+          `INSTRUCTIONS: Ensure no scope creep, and each ${nextLevelType} in the response strictly adheres to the provided ${minimalObject.type}, nothing more, nothing less.`,
+          `OUTPUT, CRITICAL!: Provide the breakdown ${nextLevelType}s strictly in the provided format: \n ${formatValue}`,
+          `OUTPUT, CRITICAL!: Make sure to expose all breakdown ${nextLevelType}s strictly in the provided format: \n ${formatValue} to the user in the response before next steps`,
+          `NEXT STEPS: Ask user to Confirm if you should create new ${nextLevelType}s as per the breakdown you provided, if not, skip to the next step`,
+          `NEXT STEPS: When confirmed, use create_${nextLevelType} tool to create the new ${nextLevelType}s as per the breakdown you provided`,
         ]
       };
 
