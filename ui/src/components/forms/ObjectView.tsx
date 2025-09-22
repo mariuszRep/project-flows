@@ -874,6 +874,18 @@ const ObjectView: React.FC<ObjectViewProps> = ({
                               <Edit className="h-3 w-3" />
                             </Button>
                           )}
+                          {mode === 'property-edit' && editingProperty === propertyName && (
+                            <>
+                              <Button variant="default" size="sm" onClick={() => savePropertyEdit(propertyName)} className="h-6">
+                                <Save className="h-3 w-3 mr-1" />
+                                Save
+                              </Button>
+                              <Button variant="outline" size="sm" onClick={cancelPropertyEdit} className="h-6">
+                                <XCircle className="h-3 w-3 mr-1" />
+                                Cancel
+                              </Button>
+                            </>
+                          )}
                           {propertyDescriptions[propertyName] && (
                             <TooltipProvider>
                               <Tooltip>
@@ -891,18 +903,6 @@ const ObjectView: React.FC<ObjectViewProps> = ({
                         </div>
                       </div>
                       {renderPropertyContent(propertyName, index)}
-                      {mode === 'property-edit' && editingProperty === propertyName && (
-                        <div className="flex justify-end gap-2 mt-2">
-                          <Button variant="default" size="sm" onClick={() => savePropertyEdit(propertyName)}>
-                            <Save className="h-3 w-3 mr-1" />
-                            Save
-                          </Button>
-                          <Button variant="outline" size="sm" onClick={cancelPropertyEdit}>
-                            <XCircle className="h-3 w-3 mr-1" />
-                            Cancel
-                          </Button>
-                        </div>
-                      )}
                     </div>
                   ))}
                 </div>
