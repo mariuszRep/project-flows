@@ -81,7 +81,7 @@ export type ObjectViewProps = TaskObjectViewProps | ProjectObjectViewProps | Epi
 /**
  * View mode type for the ObjectView component
  */
-type ViewMode = 'view' | 'global-edit';
+type ViewMode = 'view' | 'global-edit' | 'property-edit';
 
 interface Entity {
   id: number;
@@ -179,6 +179,7 @@ const ObjectView: React.FC<ObjectViewProps> = ({
   const [mode, setMode] = useState<ViewMode>('view');
   const [editValues, setEditValues] = useState<Record<string, string>>({});
   const [originalValues, setOriginalValues] = useState<Record<string, string>>({});
+  const [editingProperty, setEditingProperty] = useState<string | null>(null);
   const firstInputRef = useRef<HTMLInputElement>(null);
   const firstTextareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -478,6 +479,81 @@ const ObjectView: React.FC<ObjectViewProps> = ({
   };
 
 
+  const enterPropertyEditMode = (propertyName: string) => {
+    if (!entity) return;
+
+    const value = String(entity.blocks?.[propertyName] || entity[propertyName] || '');
+    setEditingProperty(propertyName);
+    setEditValues({ [propertyName]: value });
+    setOriginalValues({ [propertyName]: value });
+    setMode('property-edit');
+  };
+
+  const savePropertyEdit = async (propertyName: string) => {
+    if (!entity || !callTool) return;
+
+    try {
+      const value = editValues[propertyName];
+      const originalValue = originalValues[propertyName];
+
+      if (value === originalValue) {
+        // No changes to save
+        exitPropertyEditMode();
+        return;
+      }
+
+      // Use the appropriate update tool based on entity type
+      let toolName = 'update_task';
+      if (entityType === 'project') {
+        toolName = 'update_project';
+      } else if (entityType === 'epic') {
+        toolName = 'update_epic';
+      }
+
+      const toolPayload = {
+        [`${entityType}_id`]: entity.id,
+        [propertyName]: value
+      };
+
+      const result = await callTool(toolName, toolPayload);
+
+      if (result) {
+        toast({
+          title: "Success",
+          description: `${propertyName} updated successfully`,
+        });
+
+        // Refresh the entity data
+        await fetchEntityDetails();
+        exitPropertyEditMode();
+      } else {
+        toast({
+          title: "Error",
+          description: "No response from update operation",
+          variant: "destructive",
+        });
+      }
+    } catch (err) {
+      console.error('Error saving property change:', err);
+      toast({
+        title: "Error",
+        description: `Failed to save changes: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const cancelPropertyEdit = () => {
+    exitPropertyEditMode();
+  };
+
+  const exitPropertyEditMode = () => {
+    setMode('view');
+    setEditingProperty(null);
+    setEditValues({});
+    setOriginalValues({});
+  };
+
   const enterEditMode = () => {
     if (!entity) return;
     
@@ -611,14 +687,14 @@ const ObjectView: React.FC<ObjectViewProps> = ({
   };
 
   const renderPropertyContent = (propertyName: string, index: number) => {
-    if (mode === 'global-edit') {
+    if (mode === 'global-edit' || (mode === 'property-edit' && editingProperty === propertyName)) {
       const value = editValues[propertyName] || '';
       const isLongContent = value.length > 100 || value.includes('\n');
-      
+
       if (isLongContent) {
         return (
           <AutoTextarea
-            ref={index === 0 ? firstTextareaRef : undefined}
+            ref={index === 0 && mode === 'global-edit' ? firstTextareaRef : undefined}
             value={value}
             onChange={(e) => handleInputChange(propertyName, e.target.value)}
             placeholder={`Enter ${propertyName.toLowerCase()}...`}
@@ -629,7 +705,7 @@ const ObjectView: React.FC<ObjectViewProps> = ({
       } else {
         return (
           <Input
-            ref={index === 0 ? firstInputRef : undefined}
+            ref={index === 0 && mode === 'global-edit' ? firstInputRef : undefined}
             value={value}
             onChange={(e) => handleInputChange(propertyName, e.target.value)}
             placeholder={`Enter ${propertyName.toLowerCase()}...`}
@@ -640,7 +716,7 @@ const ObjectView: React.FC<ObjectViewProps> = ({
     } else {
       return (
         <div className="prose dark:prose-invert max-w-none">
-          <MarkdownRenderer content={String(entity.blocks?.[propertyName] || entity[propertyName] || '')} />
+          <MarkdownRenderer content={String(entity?.blocks?.[propertyName] || entity?.[propertyName] || '')} />
         </div>
       );
     }
@@ -776,32 +852,57 @@ const ObjectView: React.FC<ObjectViewProps> = ({
               {entity && (
                 <div className="space-y-4">
                   {getPropertiesToRender().map((propertyName, index) => (
-                    <div 
+                    <div
                       key={propertyName}
                       className={`group relative -mx-4 px-4 py-2 border rounded-xl transition-colors duration-200 ${
-                        mode === 'global-edit' 
-                          ? 'border-border bg-muted/10' 
+                        mode === 'global-edit' || (mode === 'property-edit' && editingProperty === propertyName)
+                          ? 'border-border bg-muted/10'
                           : 'border-transparent hover:border-border'
                       }`}
                     >
                       <div className="flex items-center justify-between mb-2">
                         <h3 className="text-sm font-semibold">{propertyName}</h3>
-                        {propertyDescriptions[propertyName] && (
-                          <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <button className="opacity-0 group-hover:opacity-100 hover:opacity-100 transition-opacity duration-200 p-1 rounded-md hover:bg-muted/50">
-                                  <Info className="h-3 w-3 text-muted-foreground" />
-                                </button>
-                              </TooltipTrigger>
-                              <TooltipContent className="bg-surface border-border">
-                                <p className="max-w-xs text-xs">{propertyDescriptions[propertyName]}</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        )}
+                        <div className="flex items-center gap-1">
+                          {mode === 'view' && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6"
+                              onClick={() => enterPropertyEditMode(propertyName)}
+                              title={`Edit ${propertyName}`}
+                            >
+                              <Edit className="h-3 w-3" />
+                            </Button>
+                          )}
+                          {propertyDescriptions[propertyName] && (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button className="opacity-0 group-hover:opacity-100 hover:opacity-100 transition-opacity duration-200 p-1 rounded-md hover:bg-muted/50">
+                                    <Info className="h-3 w-3 text-muted-foreground" />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent className="bg-surface border-border">
+                                  <p className="max-w-xs text-xs">{propertyDescriptions[propertyName]}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          )}
+                        </div>
                       </div>
                       {renderPropertyContent(propertyName, index)}
+                      {mode === 'property-edit' && editingProperty === propertyName && (
+                        <div className="flex justify-end gap-2 mt-2">
+                          <Button variant="default" size="sm" onClick={() => savePropertyEdit(propertyName)}>
+                            <Save className="h-3 w-3 mr-1" />
+                            Save
+                          </Button>
+                          <Button variant="outline" size="sm" onClick={cancelPropertyEdit}>
+                            <XCircle className="h-3 w-3 mr-1" />
+                            Cancel
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
