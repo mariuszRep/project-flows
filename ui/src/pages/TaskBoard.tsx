@@ -5,9 +5,7 @@ import { Task } from '@/types/task';
 import { Project } from '@/types/project';
 import { TaskBoard } from '@/components/board/TaskBoard';
 import { Button } from '@/components/ui/button';
-import UnifiedForm from '@/components/forms/UnifiedForm';
 import ObjectView from '@/components/forms/ObjectView';
-// import ProjectEditForm from '@/components/forms/ProjectEditForm'; // Replaced by UnifiedForm
 import { ProjectSidebar } from '@/components/ui/project-sidebar';
 import { MCPDisconnectedState, NoTasksState } from '@/components/ui/empty-state';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
@@ -452,21 +450,37 @@ export default function Board() {
           </div>
         )}
 
-        <UnifiedForm
-          entityType="task"
-          mode={editingTaskId ? 'edit' : 'create'}
-          entityId={editingTaskId || undefined}
-          templateId={1}
-          initialStage="draft"
-          onSuccess={handleTaskSuccess}
-          onCancel={() => {
-            setShowAddTaskForm(false);
-            setEditingTaskId(null);
-            setError(null);
-          }}
-          onDelete={handleTaskDelete}
-          isOpen={showAddTaskForm || !!editingTaskId}
-        />
+        {/* Task Creation using ObjectView create mode */}
+        {showAddTaskForm && (
+          <ObjectView
+            entityType="task"
+            createMode={true}
+            isOpen={showAddTaskForm}
+            onClose={() => {
+              setShowAddTaskForm(false);
+              setError(null);
+            }}
+            onSuccess={handleTaskSuccess}
+            initialStage="draft"
+            templateId={1}
+          />
+        )}
+
+        {/* Task Editing using ObjectView */}
+        {editingTaskId && (
+          <ObjectView
+            entityType="task"
+            entityId={editingTaskId}
+            isOpen={!!editingTaskId}
+            onClose={() => {
+              setEditingTaskId(null);
+              setError(null);
+            }}
+            onTaskUpdate={handleTaskUpdate}
+            onDelete={handleTaskDelete}
+            templateId={1}
+          />
+        )}
         
         <ObjectView
           entityType="task"
@@ -485,15 +499,35 @@ export default function Board() {
           onDelete={handleProjectDelete}
         />
 
-        <UnifiedForm
-          entityType="project"
-          mode={editingProjectId ? 'edit' : 'create'}
-          entityId={editingProjectId || undefined}
-          onSuccess={handleProjectSuccess}
-          onCancel={handleProjectCancel}
-          onDelete={handleProjectDelete}
-          isOpen={showCreateProjectForm || !!editingProjectId}
-        />
+        {/* Project Creation using ObjectView create mode */}
+        {showCreateProjectForm && !editingProjectId && (
+          <ObjectView
+            entityType="project"
+            createMode={true}
+            isOpen={showCreateProjectForm}
+            onClose={() => {
+              setShowCreateProjectForm(false);
+              setError(null);
+            }}
+            onSuccess={handleProjectSuccess}
+            templateId={2}
+          />
+        )}
+
+        {/* Project Editing using ObjectView */}
+        {editingProjectId && (
+          <ObjectView
+            entityType="project"
+            entityId={editingProjectId}
+            isOpen={!!editingProjectId}
+            onClose={() => {
+              setEditingProjectId(null);
+              setError(null);
+            }}
+            onDelete={handleProjectDelete}
+            templateId={2}
+          />
+        )}
 
         {isLoading ? (
           <div className="flex items-center justify-center h-64">

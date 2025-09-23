@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { EntityPillMenu } from '@/components/ui/entity-pill-menu';
 import { Input } from '@/components/ui/input';
 import { AutoTextarea } from '@/components/ui/auto-textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { 
   DropdownMenu, 
   DropdownMenuContent, 
@@ -14,6 +15,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { X, Edit, MoreHorizontal, ArrowRight, Trash2, Copy, Save, XCircle, Info } from 'lucide-react';
 import { useMCP } from '@/contexts/MCPContext';
+import { useProject } from '@/contexts/ProjectContext';
 import { useToast } from '@/hooks/use-toast';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
@@ -46,42 +48,98 @@ interface BaseObjectViewProps {
 }
 
 /**
- * Task-specific props interface
+ * Base props interface for ObjectView create mode
+ */
+interface BaseCreateObjectViewProps {
+  /** Whether the modal is open/visible */
+  isOpen: boolean;
+  /** Callback when the modal is closed */
+  onClose: () => void;
+  /** Callback for successful entity creation */
+  onSuccess?: (entity: any) => void;
+  /** Create mode flag - when true, skips entity fetch and loads template properties */
+  createMode: true;
+  /** Optional initial stage for tasks */
+  initialStage?: string;
+}
+
+/**
+ * Task-specific props interface for view mode
  */
 interface TaskObjectViewProps extends BaseObjectViewProps {
   entityType: 'task';
   templateId?: typeof TEMPLATE_ID.TASK;
   /** Optional callback for task stage updates */
   onTaskUpdate?: (taskId: number, newStage: string) => void;
+  createMode?: never;
 }
 
 /**
- * Project-specific props interface
+ * Task-specific props interface for create mode
+ */
+interface TaskCreateObjectViewProps extends BaseCreateObjectViewProps {
+  entityType: 'task';
+  templateId?: typeof TEMPLATE_ID.TASK;
+  /** Optional callback for task stage updates */
+  onTaskUpdate?: (taskId: number, newStage: string) => void;
+  entityId?: never;
+}
+
+/**
+ * Project-specific props interface for view mode
  */
 interface ProjectObjectViewProps extends BaseObjectViewProps {
   entityType: 'project';
   templateId?: typeof TEMPLATE_ID.PROJECT;
   onTaskUpdate?: never;
+  createMode?: never;
 }
 
 /**
- * Epic-specific props interface
+ * Project-specific props interface for create mode
+ */
+interface ProjectCreateObjectViewProps extends BaseCreateObjectViewProps {
+  entityType: 'project';
+  templateId?: typeof TEMPLATE_ID.PROJECT;
+  onTaskUpdate?: never;
+  entityId?: never;
+}
+
+/**
+ * Epic-specific props interface for view mode
  */
 interface EpicObjectViewProps extends BaseObjectViewProps {
   entityType: 'epic';
   templateId?: typeof TEMPLATE_ID.EPIC;
   onTaskUpdate?: never;
+  createMode?: never;
+}
+
+/**
+ * Epic-specific props interface for create mode
+ */
+interface EpicCreateObjectViewProps extends BaseCreateObjectViewProps {
+  entityType: 'epic';
+  templateId?: typeof TEMPLATE_ID.EPIC;
+  onTaskUpdate?: never;
+  entityId?: never;
 }
 
 /**
  * Discriminated union for ObjectView props
  */
-export type ObjectViewProps = TaskObjectViewProps | ProjectObjectViewProps | EpicObjectViewProps;
+export type ObjectViewProps =
+  | TaskObjectViewProps
+  | TaskCreateObjectViewProps
+  | ProjectObjectViewProps
+  | ProjectCreateObjectViewProps
+  | EpicObjectViewProps
+  | EpicCreateObjectViewProps;
 
 /**
  * View mode type for the ObjectView component
  */
-type ViewMode = 'view' | 'global-edit' | 'property-edit';
+type ViewMode = 'view' | 'global-edit' | 'property-edit' | 'create';
 
 interface Entity {
   id: number;
@@ -104,71 +162,88 @@ interface Entity {
 }
 
 /**
- * ObjectView - A unified view component for tasks, projects, and epics
- * 
- * This component provides a consistent viewing experience for all entity types,
+ * ObjectView - A unified view and create component for tasks, projects, and epics
+ *
+ * This component provides both viewing and creation experiences for all entity types,
  * using template-driven property ordering and dynamic data fetching. It centralizes
  * MCP calls and provides strong TypeScript typing through discriminated unions.
- * 
+ *
  * Key Features:
  * - Template-driven rendering: Uses database templates to determine property display order
  * - Universal entity type handling: Supports tasks, projects, and epics with unified logic
- * - Centralized MCP integration: All get_object, list_properties, and list_templates calls
+ * - Create and view modes: Unified component for both viewing existing entities and creating new ones
+ * - Centralized MCP integration: All get_object, list_properties, create_*, and update_* calls
  * - Strong TypeScript typing: Discriminated unions prevent invalid prop combinations
- * - Epic-specific styling: Maintains epic color schemes and labels
+ * - Project selection: Task creation includes project assignment capabilities
+ * - Dynamic validation: Validation based on template property definitions
  * - Graceful error handling: Handles missing properties, templates, and network issues
- * - Backward compatibility: API matches existing TaskView/ProjectView patterns
- * 
- * Data Flow:
+ *
+ * Data Flow (View Mode):
  * 1. Fetches entity data via get_object with template-aware parameters
  * 2. Resolves template ID from entity data, props, or defaults
  * 3. Fetches template properties via list_properties for ordering
  * 4. Renders properties excluding meta fields, using MarkdownRenderer
- * 
+ *
+ * Data Flow (Create Mode):
+ * 1. Skips entity fetch, uses template ID from props or defaults
+ * 2. Fetches template properties via list_properties for dynamic form generation
+ * 3. Initializes empty form values with defaults (stage, project_id)
+ * 4. On save, calls create_task/create_project/create_epic with template-driven payload
+ *
  * Template ID Resolution Priority:
- * 1. entity.template_id (from fetched data)
+ * 1. entity.template_id (from fetched data, view mode only)
  * 2. templateId prop (passed as parameter)
  * 3. TEMPLATE_ID constants based on entityType
- * 
+ *
  * @component
  * @example
  * ```tsx
- * // Task view
- * <ObjectView 
- *   entityType="task" 
- *   entityId={123} 
- *   isOpen={true} 
- *   onClose={handleClose} 
+ * // Task view mode
+ * <ObjectView
+ *   entityType="task"
+ *   entityId={123}
+ *   isOpen={true}
+ *   onClose={handleClose}
  *   onTaskUpdate={handleTaskUpdate}
  * />
- * 
- * // Project view
- * <ObjectView 
- *   entityType="project" 
- *   entityId={456} 
- *   isOpen={true} 
- *   onClose={handleClose} 
+ *
+ * // Task create mode
+ * <ObjectView
+ *   entityType="task"
+ *   createMode={true}
+ *   isOpen={true}
+ *   onClose={handleClose}
+ *   onSuccess={handleTaskCreated}
+ *   initialStage="draft"
  * />
- * 
- * // Epic view
- * <ObjectView 
- *   entityType="epic" 
- *   entityId={789} 
- *   isOpen={true} 
- *   onClose={handleClose} 
+ *
+ * // Project create mode
+ * <ObjectView
+ *   entityType="project"
+ *   createMode={true}
+ *   isOpen={true}
+ *   onClose={handleClose}
+ *   onSuccess={handleProjectCreated}
  * />
  * ```
  */
-const ObjectView: React.FC<ObjectViewProps> = ({
-  entityType,
-  entityId,
-  isOpen,
-  onClose,
-  templateId: propTemplateId,
-  onTaskUpdate,
-  onDelete
-}) => {
+const ObjectView: React.FC<ObjectViewProps> = (props) => {
+  const {
+    entityType,
+    isOpen,
+    onClose,
+    templateId: propTemplateId,
+    onTaskUpdate
+  } = props;
+
+  // Destructure specific props based on mode
+  const entityId = 'entityId' in props ? props.entityId : undefined;
+  const createMode = 'createMode' in props ? props.createMode : false;
+  const onSuccess = 'onSuccess' in props ? props.onSuccess : undefined;
+  const onDelete = 'onDelete' in props ? props.onDelete : undefined;
+  const initialStage = 'initialStage' in props ? props.initialStage : 'draft';
   const { callTool, isConnected } = useMCP();
+  const { selectedProjectId, projects, isLoadingProjects } = useProject();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -176,7 +251,7 @@ const ObjectView: React.FC<ObjectViewProps> = ({
   const [orderedProperties, setOrderedProperties] = useState<string[]>([]);
   const [propertyDescriptions, setPropertyDescriptions] = useState<Record<string, string>>({});
   const [templateId, setTemplateId] = useState<number | null>(propTemplateId || null);
-  const [mode, setMode] = useState<ViewMode>('view');
+  const [mode, setMode] = useState<ViewMode>(createMode ? 'create' : 'view');
   const [editValues, setEditValues] = useState<Record<string, string>>({});
   const [originalValues, setOriginalValues] = useState<Record<string, string>>({});
   const [editingProperty, setEditingProperty] = useState<string | null>(null);
@@ -281,16 +356,57 @@ const ObjectView: React.FC<ObjectViewProps> = ({
   }, [callTool, entityId, entityType, propTemplateId, templateId]);
 
   useEffect(() => {
-    if (isOpen && entityId && isConnected) {
-      fetchEntityDetails();
+    if (isOpen && isConnected) {
+      if (createMode) {
+        // In create mode, skip entity fetch and initialize template properties
+        const effectiveTemplateId = propTemplateId || getDefaultTemplateId(entityType);
+        setTemplateId(effectiveTemplateId);
+        setEntity(null); // No entity in create mode
+      } else if (entityId) {
+        fetchEntityDetails();
+      }
     }
-  }, [entityId, isOpen, isConnected, fetchEntityDetails]);
+  }, [entityId, isOpen, isConnected, createMode, propTemplateId, entityType, fetchEntityDetails]);
 
   useEffect(() => {
-    if (entity && templateId) {
+    if (templateId && (entity || createMode)) {
       fetchTemplateProperties();
     }
-  }, [entity, templateId, fetchTemplateProperties]);
+  }, [entity, templateId, createMode, fetchTemplateProperties]);
+
+  // Initialize create mode values after template properties are loaded
+  useEffect(() => {
+    if (createMode && orderedProperties.length > 0) {
+      const initialValues: Record<string, string> = {};
+
+      // Initialize all template properties with empty values
+      orderedProperties.forEach(propName => {
+        initialValues[propName] = '';
+      });
+
+      // Set default values for specific fields
+      if (entityType === 'task') {
+        // Set initial stage for tasks
+        initialValues['stage'] = initialStage;
+        // Set project_id from selected project if available
+        if (selectedProjectId !== null) {
+          initialValues['project_id'] = selectedProjectId.toString();
+        }
+      }
+
+      setEditValues(initialValues);
+      setOriginalValues({ ...initialValues });
+
+      // Focus the first input after initialization
+      setTimeout(() => {
+        if (firstInputRef.current) {
+          firstInputRef.current.focus();
+        } else if (firstTextareaRef.current) {
+          firstTextareaRef.current.focus();
+        }
+      }, 0);
+    }
+  }, [createMode, orderedProperties, entityType, initialStage, selectedProjectId]);
 
   const getDefaultTemplateId = (entityType: EntityType): number => {
     switch (entityType) {
@@ -341,33 +457,51 @@ const ObjectView: React.FC<ObjectViewProps> = ({
   if (!isOpen) return null;
 
   const getEntityTitle = (): string => {
+    if (createMode) {
+      return editValues['Title'] || `New ${entityType.charAt(0).toUpperCase() + entityType.slice(1)}`;
+    }
+
     if (!entity) return `${entityType.charAt(0).toUpperCase() + entityType.slice(1)} #${entityId}`;
-    
+
     // Priority: blocks.Title, title, Title, fallback
     return entity.blocks?.Title || entity.title || entity.Title || `${entityType.charAt(0).toUpperCase() + entityType.slice(1)} #${entityId}`;
   };
 
   const getPropertiesToRender = (): string[] => {
+    if (createMode) {
+      // In create mode, use ordered properties from template
+      return orderedProperties.filter(propertyName => {
+        // Always exclude Title and project_id from body (handled separately)
+        if (propertyName === 'Title' || propertyName === 'project_id') return false;
+
+        // In create mode, show stage only for tasks (handled separately)
+        if (propertyName === 'stage' && entityType === 'task') return false;
+
+        return true;
+      });
+    }
+
     if (!entity) return [];
 
     // Get all available property names from blocks and direct properties
     const blocksProperties = entity.blocks ? Object.keys(entity.blocks) : [];
-    const directProperties = Object.keys(entity).filter(key => 
+    const directProperties = Object.keys(entity).filter(key =>
       !META_KEYS.includes(key)
     );
-    
+
     // Use ordered properties if available, otherwise use all available properties
-    const propertiesToRender = orderedProperties.length > 0 
-      ? orderedProperties 
+    const propertiesToRender = orderedProperties.length > 0
+      ? orderedProperties
       : [...new Set([...blocksProperties, ...directProperties])];
-    
+
     return propertiesToRender.filter(propertyName => {
       // Always exclude Title and project_id from body
       if (propertyName === 'Title' || propertyName === 'project_id') return false;
-      
+
       const blockValue = entity.blocks?.[propertyName];
       const directValue = entity[propertyName];
-      return blockValue || directValue;
+      return blockValue !== undefined && blockValue !== null && blockValue !== '' ||
+             directValue !== undefined && directValue !== null && directValue !== '';
     });
   };
 
@@ -590,13 +724,113 @@ const ObjectView: React.FC<ObjectViewProps> = ({
   };
 
   const handleCancel = () => {
-    setEditValues({ ...originalValues });
-    exitEditMode();
+    if (createMode) {
+      onClose();
+    } else {
+      setEditValues({ ...originalValues });
+      exitEditMode();
+    }
+  };
+
+  const handleCreate = async () => {
+    if (!callTool) return;
+
+    try {
+      // Validate required fields - Title is always required
+      if (!editValues['Title']?.trim()) {
+        setError('Title is required');
+        return;
+      }
+
+      // Prepare the create payload from edit values
+      const createPayload: Record<string, any> = {};
+
+      // Add all template properties to the payload
+      orderedProperties.forEach(propName => {
+        const value = editValues[propName];
+        if (value !== undefined && value !== '') {
+          // Skip meta fields that are handled separately
+          if (propName !== 'stage' && propName !== 'project_id') {
+            createPayload[propName] = value;
+          }
+        }
+      });
+
+      // Handle task-specific fields
+      if (entityType === 'task') {
+        // Map project_id to parent_id for tasks as expected by MCP tools
+        if (editValues['project_id'] && editValues['project_id'] !== '') {
+          createPayload.parent_id = parseInt(editValues['project_id']);
+        }
+      }
+
+      console.log(`Creating ${entityType} with data:`, createPayload);
+
+      let result: any;
+      if (entityType === 'task') {
+        result = await callTool('create_task', createPayload);
+      } else if (entityType === 'project') {
+        result = await callTool('create_project', createPayload);
+      } else if (entityType === 'epic') {
+        result = await callTool('create_epic', createPayload);
+      }
+
+      if (result?.content?.[0]?.text) {
+        try {
+          const responseData = JSON.parse(result.content[0].text);
+          console.log(`${entityType} creation response:`, responseData);
+
+          if (responseData.success) {
+            toast({
+              title: "Success",
+              description: `${entityType.charAt(0).toUpperCase() + entityType.slice(1)} created successfully`,
+            });
+
+            // Call success callback with created entity data
+            if (onSuccess) {
+              const createdEntity = {
+                id: responseData[`${entityType}_id`] || responseData.id,
+                title: createPayload.Title,
+                ...createPayload,
+                stage: entityType === 'task' ? initialStage : undefined,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              };
+              onSuccess(createdEntity);
+            }
+
+            onClose();
+          } else {
+            throw new Error(responseData.message || 'Creation failed');
+          }
+        } catch (parseError) {
+          console.error('Error parsing create response:', parseError);
+          throw new Error('Invalid response from server');
+        }
+      } else {
+        throw new Error('No response from server');
+      }
+    } catch (err) {
+      console.error(`Error creating ${entityType}:`, err);
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      setError(`Failed to create ${entityType}: ${errorMessage}`);
+      toast({
+        title: "Error",
+        description: `Failed to create ${entityType}: ${errorMessage}`,
+        variant: "destructive",
+      });
+    }
   };
 
   const handleSave = async () => {
-    if (!entity || !callTool) return;
-    
+    if (!callTool) return;
+
+    if (createMode) {
+      return await handleCreate();
+    }
+
+    if (!entity) return;
+
     try {
       // Prepare the update payload - only include changed values
       const updatePayload: Record<string, string> = {};
@@ -687,17 +921,22 @@ const ObjectView: React.FC<ObjectViewProps> = ({
   };
 
   const renderPropertyContent = (propertyName: string, index: number) => {
-    if (mode === 'global-edit' || (mode === 'property-edit' && editingProperty === propertyName)) {
+    if (mode === 'create' || mode === 'global-edit' || (mode === 'property-edit' && editingProperty === propertyName)) {
       const value = editValues[propertyName] || '';
       const isLongContent = value.length > 100 || value.includes('\n');
+
+      // Generate placeholder from property description or use default
+      const placeholder = propertyDescriptions[propertyName]
+        ? `Enter ${propertyDescriptions[propertyName].toLowerCase()}...`
+        : `Enter ${propertyName.toLowerCase()}...`;
 
       if (isLongContent) {
         return (
           <AutoTextarea
-            ref={index === 0 && mode === 'global-edit' ? firstTextareaRef : undefined}
+            ref={index === 0 && (mode === 'create' || mode === 'global-edit') ? firstTextareaRef : undefined}
             value={value}
             onChange={(e) => handleInputChange(propertyName, e.target.value)}
-            placeholder={`Enter ${propertyName.toLowerCase()}...`}
+            placeholder={placeholder}
             minRows={2}
             className="w-full"
           />
@@ -705,10 +944,10 @@ const ObjectView: React.FC<ObjectViewProps> = ({
       } else {
         return (
           <Input
-            ref={index === 0 && mode === 'global-edit' ? firstInputRef : undefined}
+            ref={index === 0 && (mode === 'create' || mode === 'global-edit') ? firstInputRef : undefined}
             value={value}
             onChange={(e) => handleInputChange(propertyName, e.target.value)}
-            placeholder={`Enter ${propertyName.toLowerCase()}...`}
+            placeholder={placeholder}
             className="w-full"
           />
         );
@@ -727,9 +966,9 @@ const ObjectView: React.FC<ObjectViewProps> = ({
       <Card className="w-full max-w-3xl mx-auto">
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between mb-2">
-            {entity && (
+            {!createMode && entity && (
               <div className="flex-1">
-                <EntityPillMenu 
+                <EntityPillMenu
                   entity={entity}
                   entityType={entityType}
                   entityId={entityId}
@@ -737,8 +976,26 @@ const ObjectView: React.FC<ObjectViewProps> = ({
                 />
               </div>
             )}
+            {createMode && (
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold">
+                  Create New {entityType.charAt(0).toUpperCase() + entityType.slice(1)}
+                </h3>
+              </div>
+            )}
             <div className="flex gap-2 ml-4">
-            {mode === 'global-edit' ? (
+            {mode === 'create' ? (
+              <>
+                <Button variant="default" size="sm" onClick={handleSave} disabled={!editValues['Title']?.trim()}>
+                  <Save className="h-4 w-4 mr-2" />
+                  Create
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleCancel}>
+                  <XCircle className="h-4 w-4 mr-2" />
+                  Cancel
+                </Button>
+              </>
+            ) : mode === 'global-edit' ? (
               <>
                 <Button variant="default" size="sm" onClick={handleSave}>
                   <Save className="h-4 w-4 mr-2" />
@@ -750,81 +1007,83 @@ const ObjectView: React.FC<ObjectViewProps> = ({
                 </Button>
               </>
             ) : (
-              <Button variant="outline" size="icon" onClick={enterEditMode} title="Edit all properties">
-                <Edit className="h-4 w-4" />
-              </Button>
-            )}
-            <Button 
-              variant="outline" 
-              size="icon" 
-              onClick={handleCopyCommand}
-              title={`Copy ${entityType === 'task' ? 'execute task' : 'initiate object'} command`}
-              aria-label={`Copy ${entityType === 'task' ? 'execute task' : 'initiate object'} command`}
-            >
-              <Copy className="h-4 w-4" />
-            </Button>
-            {(entity?.stage || onDelete) && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="icon">
-                    <MoreHorizontal className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  {entity && entity.stage && (
-                    <>
-                      {entity.stage !== 'doing' && (
-                        <DropdownMenuItem onClick={() => handleStageMove('doing')}>
-                          <ArrowRight className="h-4 w-4 mr-2" />
-                          Move to Doing
+              <>
+                <Button variant="outline" size="icon" onClick={enterEditMode} title="Edit all properties">
+                  <Edit className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={handleCopyCommand}
+                  title={`Copy ${entityType === 'task' ? 'execute task' : 'initiate object'} command`}
+                  aria-label={`Copy ${entityType === 'task' ? 'execute task' : 'initiate object'} command`}
+                >
+                  <Copy className="h-4 w-4" />
+                </Button>
+                {(entity?.stage || onDelete) && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" size="icon">
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      {entity && entity.stage && (
+                        <>
+                          {entity.stage !== 'doing' && (
+                            <DropdownMenuItem onClick={() => handleStageMove('doing')}>
+                              <ArrowRight className="h-4 w-4 mr-2" />
+                              Move to Doing
+                            </DropdownMenuItem>
+                          )}
+                          {entity.stage !== 'review' && (
+                            <DropdownMenuItem onClick={() => handleStageMove('review')}>
+                              <ArrowRight className="h-4 w-4 mr-2" />
+                              Move to Review
+                            </DropdownMenuItem>
+                          )}
+                          {entity.stage !== 'completed' && (
+                            <DropdownMenuItem onClick={() => handleStageMove('completed')}>
+                              <ArrowRight className="h-4 w-4 mr-2" />
+                              Move to Completed
+                            </DropdownMenuItem>
+                          )}
+                          {entity.stage !== 'backlog' && (
+                            <DropdownMenuItem onClick={() => handleStageMove('backlog')}>
+                              <ArrowRight className="h-4 w-4 mr-2" />
+                              Move to Backlog
+                            </DropdownMenuItem>
+                          )}
+                        </>
+                      )}
+                      {onDelete && (
+                        <DropdownMenuItem onClick={handleDelete} className="text-red-600">
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          Delete
                         </DropdownMenuItem>
                       )}
-                      {entity.stage !== 'review' && (
-                        <DropdownMenuItem onClick={() => handleStageMove('review')}>
-                          <ArrowRight className="h-4 w-4 mr-2" />
-                          Move to Review
-                        </DropdownMenuItem>
-                      )}
-                      {entity.stage !== 'completed' && (
-                        <DropdownMenuItem onClick={() => handleStageMove('completed')}>
-                          <ArrowRight className="h-4 w-4 mr-2" />
-                          Move to Completed
-                        </DropdownMenuItem>
-                      )}
-                      {entity.stage !== 'backlog' && (
-                        <DropdownMenuItem onClick={() => handleStageMove('backlog')}>
-                          <ArrowRight className="h-4 w-4 mr-2" />
-                          Move to Backlog
-                        </DropdownMenuItem>
-                      )}
-                    </>
-                  )}
-                  {onDelete && (
-                    <DropdownMenuItem onClick={handleDelete} className="text-red-600">
-                      <Trash2 className="h-4 w-4 mr-2" />
-                      Delete
-                    </DropdownMenuItem>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+              </>
             )}
             <Button variant="outline" size="icon" onClick={onClose}>
               <X className="h-4 w-4" />
             </Button>
             </div>
           </div>
-          <div 
+          <div
             className={`mt-2 group relative -mx-4 px-4 py-2 border rounded-xl transition-colors duration-200 ${
-              mode === 'global-edit' 
-                ? 'border-border bg-muted/10' 
+              mode === 'create' || mode === 'global-edit'
+                ? 'border-border bg-muted/10'
                 : 'border-transparent hover:border-border'
             }`}
           >
-            {mode === 'global-edit' ? (
+            {mode === 'create' || mode === 'global-edit' ? (
               <AutoTextarea
                 value={editValues['Title'] || ''}
                 onChange={(e) => handleInputChange('Title', e.target.value)}
-                placeholder="Enter title..."
+                placeholder={createMode ? "Enter title for new " + entityType : "Enter title..."}
                 className="w-full text-xl font-semibold"
                 minRows={1}
               />
@@ -849,13 +1108,70 @@ const ObjectView: React.FC<ObjectViewProps> = ({
             </div>
           ) : (
             <div>
-              {entity && (
+              {/* Task-specific selectors for create mode */}
+              {createMode && entityType === 'task' && (
+                <div className="space-y-4 mb-6">
+                  {/* Stage Selector */}
+                  <div className="group relative -mx-4 px-4 py-2 border rounded-xl border-border bg-muted/10">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-sm font-semibold">Stage</h3>
+                    </div>
+                    <Select
+                      value={editValues['stage'] || initialStage}
+                      onValueChange={(value) => handleInputChange('stage', value)}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Select stage" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="draft">Draft</SelectItem>
+                        <SelectItem value="backlog">Backlog</SelectItem>
+                        <SelectItem value="doing">Doing</SelectItem>
+                        <SelectItem value="review">Review</SelectItem>
+                        <SelectItem value="completed">Completed</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Project Selector */}
+                  <div className="group relative -mx-4 px-4 py-2 border rounded-xl border-border bg-muted/10">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-sm font-semibold">Project</h3>
+                    </div>
+                    <Select
+                      value={editValues['project_id'] || 'none'}
+                      onValueChange={(value) => handleInputChange('project_id', value === 'none' ? '' : value)}
+                      disabled={isLoadingProjects}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Select project (optional)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">No Project</SelectItem>
+                        {projects.map((project) => (
+                          <SelectItem key={project.id} value={project.id.toString()}>
+                            <div className="flex items-center gap-2">
+                              <div
+                                className="w-3 h-3 rounded-sm"
+                                style={{ backgroundColor: project.color }}
+                              />
+                              <span>{project.name}</span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              )}
+
+              {(entity || createMode) && (
                 <div className="space-y-4">
                   {getPropertiesToRender().map((propertyName, index) => (
                     <div
                       key={propertyName}
                       className={`group relative -mx-4 px-4 py-2 border rounded-xl transition-colors duration-200 ${
-                        mode === 'global-edit' || (mode === 'property-edit' && editingProperty === propertyName)
+                        mode === 'create' || mode === 'global-edit' || (mode === 'property-edit' && editingProperty === propertyName)
                           ? 'border-border bg-muted/10'
                           : 'border-transparent hover:border-border'
                       }`}

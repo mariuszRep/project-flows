@@ -15,7 +15,6 @@ import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { ProjectSidebar } from '@/components/ui/project-sidebar';
 import { parseTaskDate } from '@/lib/utils';
 import { FileText, Plus, ArrowRight, Filter } from 'lucide-react';
-import UnifiedForm from '@/components/forms/UnifiedForm';
 import ObjectView, { TEMPLATE_ID } from '@/components/forms/ObjectView';
 
 const DraftTasks = () => {
@@ -865,17 +864,21 @@ const DraftTasks = () => {
           </div>
         )}
         
-        {/* Edit Task Form */}
-        <UnifiedForm
-          entityType="task"
-          mode="edit"
-          entityId={editingTaskId || undefined}
-          templateId={1}
-          onSuccess={handleEditSuccess}
-          onCancel={handleEditCancel}
-          onDelete={handleTaskDelete}
-          isOpen={!!editingTaskId}
-        />
+        {/* Edit Task Form using ObjectView */}
+        {editingTaskId && (
+          <ObjectView
+            entityType="task"
+            entityId={editingTaskId}
+            isOpen={!!editingTaskId}
+            onClose={() => {
+              setEditingTaskId(null);
+              setError(null);
+            }}
+            onTaskUpdate={handleMoveEntity}
+            onDelete={handleTaskDelete}
+            templateId={1}
+          />
+        )}
         
         <ConfirmationDialog
           isOpen={deleteDialog.isOpen}
@@ -888,42 +891,59 @@ const DraftTasks = () => {
           variant="destructive"
         />
 
-        <UnifiedForm
-          entityType={(() => {
-            // For editing, determine entity type from the actual entity data
-            if (editingProjectId) {
+        {/* Project/Epic Creation using ObjectView create mode */}
+        {showCreateProjectForm && !editingProjectId && (
+          <ObjectView
+            entityType="project"
+            createMode={true}
+            isOpen={showCreateProjectForm}
+            onClose={() => {
+              setShowCreateProjectForm(false);
+              setError(null);
+            }}
+            onSuccess={handleProjectSuccess}
+            templateId={2}
+          />
+        )}
+
+        {/* Project/Epic Editing using ObjectView */}
+        {editingProjectId && (
+          <ObjectView
+            entityType={(() => {
+              // For editing, determine entity type from the actual entity data
               const entity = allEntities.find(e => e.id === editingProjectId);
               if (entity?.type === 'Epic') return 'epic';
               if (entity?.type === 'Project') return 'project';
-            }
-            // Default for create mode
-            return 'project';
-          })()}
-          mode={editingProjectId ? 'edit' : 'create'}
-          entityId={editingProjectId || undefined}
-          templateId={(() => {
-            // For editing, get template_id from the actual entity data  
-            if (editingProjectId) {
+              // Default fallback
+              return 'project';
+            })()}
+            entityId={editingProjectId}
+            isOpen={!!editingProjectId}
+            onClose={() => {
+              setEditingProjectId(null);
+              setError(null);
+            }}
+            onDelete={handleProjectDelete}
+            templateId={(() => {
+              // For editing, get template_id from the actual entity data
               const entity = allEntities.find(e => e.id === editingProjectId);
-              return entity?.template_id;
-            }
-            // Default for create mode (Project = template_id 2)
-            return 2;
-          })()}
-          onSuccess={handleProjectSuccess}
-          onCancel={handleProjectCancel}
-          onDelete={handleProjectDelete}
-          isOpen={showCreateProjectForm || !!editingProjectId}
-        />
+              return entity?.template_id || 2; // Fallback to project template
+            })()}
+          />
+        )}
 
-        <UnifiedForm
+        {/* Task Creation using ObjectView create mode */}
+        <ObjectView
           entityType="task"
-          mode="create"
-          templateId={1}
-          initialStage="draft"
-          onSuccess={handleTaskSuccess}
-          onCancel={handleTaskCancel}
+          createMode={true}
           isOpen={showAddTaskForm}
+          onClose={() => {
+            setShowAddTaskForm(false);
+            setError(null);
+          }}
+          onSuccess={handleTaskSuccess}
+          initialStage="draft"
+          templateId={1}
         />
         
         <ObjectView
