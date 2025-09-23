@@ -920,24 +920,58 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
     }));
   };
 
+  // Infer the appropriate input type based on property name and description
+  const inferInputType = (propertyName: string, description: string): 'input' | 'textarea' => {
+    if (!description) {
+      // Fallback based on common field names
+      const textareaFields = ['description', 'summary', 'analysis', 'items', 'details', 'content', 'body', 'notes'];
+      return textareaFields.some(field => propertyName.toLowerCase().includes(field.toLowerCase())) ? 'textarea' : 'input';
+    }
+
+    const desc = description.toLowerCase();
+
+    // Look for keywords that suggest multi-line content
+    const multiLineIndicators = [
+      'list', 'describe', 'outline', 'explain', 'detail', 'steps',
+      'multiple', 'several', 'examples', 'checklist', 'structure',
+      'sections', 'points', 'items', 'features', 'functionalities',
+      'analysis', 'summary', 'content', 'body', 'notes'
+    ];
+
+    if (multiLineIndicators.some(indicator => desc.includes(indicator))) {
+      return 'textarea';
+    }
+
+    // If description mentions short/brief content, use input
+    if (desc.includes('brief') || desc.includes('short') || desc.includes('single') || desc.includes('name') || desc.includes('title')) {
+      return 'input';
+    }
+
+    // Default to input for short fields
+    return 'input';
+  };
+
   const renderPropertyContent = (propertyName: string, index: number) => {
     if (mode === 'create' || mode === 'global-edit' || (mode === 'property-edit' && editingProperty === propertyName)) {
       const value = editValues[propertyName] || '';
-      const isLongContent = value.length > 100 || value.includes('\n');
+
+      // Determine input type based on property metadata, not current content
+      const inputType = inferInputType(propertyName, propertyDescriptions[propertyName] || '');
 
       // Generate placeholder from property description or use default
       const placeholder = propertyDescriptions[propertyName]
         ? `Enter ${propertyDescriptions[propertyName].toLowerCase()}...`
         : `Enter ${propertyName.toLowerCase()}...`;
 
-      if (isLongContent) {
+      if (inputType === 'textarea') {
         return (
           <AutoTextarea
             ref={index === 0 && (mode === 'create' || mode === 'global-edit') ? firstTextareaRef : undefined}
             value={value}
             onChange={(e) => handleInputChange(propertyName, e.target.value)}
             placeholder={placeholder}
-            minRows={2}
+            minRows={propertyName.toLowerCase().includes('items') ? 3 : 2}
+            maxRows={propertyName.toLowerCase().includes('items') ? 8 : 6}
             className="w-full"
           />
         );
