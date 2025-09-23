@@ -2,6 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { HeaderAndSidebarLayout } from '@/components/layout/HeaderAndSidebarLayout';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu';
 import { UnifiedEntityCard } from '@/components/ui/unified-entity-card';
 import { Badge } from '@/components/ui/badge';
 import { useMCP } from '@/contexts/MCPContext';
@@ -14,7 +20,7 @@ import { MCPDisconnectedState } from '@/components/ui/empty-state';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { ProjectSidebar } from '@/components/ui/project-sidebar';
 import { parseTaskDate } from '@/lib/utils';
-import { FileText, Plus, ArrowRight, Filter } from 'lucide-react';
+import { FileText, Plus, ArrowRight, Filter, ChevronDown, CheckSquare, Layers } from 'lucide-react';
 import ObjectView, { TEMPLATE_ID } from '@/components/forms/ObjectView';
 
 const DraftTasks = () => {
@@ -36,6 +42,7 @@ const DraftTasks = () => {
   const [showCreateProjectForm, setShowCreateProjectForm] = useState(false);
   const [editingProjectId, setEditingProjectId] = useState<number | null>(null);
   const [showAddTaskForm, setShowAddTaskForm] = useState(false);
+  const [showCreateEpicForm, setShowCreateEpicForm] = useState(false);
   const [sidebarRefreshTrigger, setSidebarRefreshTrigger] = useState(0);
   
   // Filter state - default to all stages selected
@@ -607,10 +614,25 @@ const DraftTasks = () => {
         }
       </p>
       <div className="flex gap-3 justify-center">
-        <Button onClick={() => navigate('/task-board')}>
-          <Plus className="h-4 w-4 mr-2" />
-          Create Task
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button>
+              <Plus className="h-4 w-4 mr-2" />
+              Create
+              <ChevronDown className="h-4 w-4 ml-2" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => handleCreateEntity('task')}>
+              <CheckSquare className="h-4 w-4 mr-2" />
+              Task
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleCreateEntity('epic')}>
+              <Layers className="h-4 w-4 mr-2" />
+              Epic
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <Button variant="outline" onClick={() => navigate('/task-board')}>
           View Board
         </Button>
@@ -706,6 +728,24 @@ const DraftTasks = () => {
     await fetchAllEntities();
   };
 
+  const handleEpicSuccess = async (epic: any) => {
+    console.log('Epic created successfully:', epic);
+    setShowCreateEpicForm(false);
+    setError(null);
+    // Trigger sidebar refresh
+    setSidebarRefreshTrigger(prev => prev + 1);
+    // Refresh entities
+    await fetchAllEntities();
+  };
+
+  const handleCreateEntity = (entityType: 'task' | 'epic') => {
+    if (entityType === 'task') {
+      setShowAddTaskForm(true);
+    } else if (entityType === 'epic') {
+      setShowCreateEpicForm(true);
+    }
+  };
+
   const handleTaskCancel = () => {
     setShowAddTaskForm(false);
     setError(null);
@@ -757,10 +797,25 @@ const DraftTasks = () => {
               <ArrowRight className="h-4 w-4 mr-2" />
               View Board
             </Button>
-            <Button onClick={() => setShowAddTaskForm(true)} disabled={!isConnected}>
-              <Plus className="h-4 w-4 mr-2" />
-              Create Task
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button disabled={!isConnected}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create
+                  <ChevronDown className="h-4 w-4 ml-2" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => handleCreateEntity('task')}>
+                  <CheckSquare className="h-4 w-4 mr-2" />
+                  Task
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleCreateEntity('epic')}>
+                  <Layers className="h-4 w-4 mr-2" />
+                  Epic
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
 
@@ -945,6 +1000,21 @@ const DraftTasks = () => {
           initialStage="draft"
           templateId={1}
         />
+
+        {/* Epic Creation using ObjectView create mode */}
+        {showCreateEpicForm && (
+          <ObjectView
+            entityType="epic"
+            createMode={true}
+            isOpen={showCreateEpicForm}
+            onClose={() => {
+              setShowCreateEpicForm(false);
+              setError(null);
+            }}
+            onSuccess={handleEpicSuccess}
+            templateId={3}
+          />
+        )}
         
         <ObjectView
           entityType="task"

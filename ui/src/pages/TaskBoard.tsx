@@ -5,11 +5,17 @@ import { Task } from '@/types/task';
 import { Project } from '@/types/project';
 import { TaskBoard } from '@/components/board/TaskBoard';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu';
 import ObjectView from '@/components/forms/ObjectView';
 import { ProjectSidebar } from '@/components/ui/project-sidebar';
 import { MCPDisconnectedState, NoTasksState } from '@/components/ui/empty-state';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
-import { Plus, X, Filter } from 'lucide-react';
+import { Plus, X, Filter, ChevronDown, CheckSquare, Layers } from 'lucide-react';
 import { useMCP } from '@/contexts/MCPContext';
 import { useProject } from '@/contexts/ProjectContext';
 import { useChangeEvents } from '@/hooks/useChangeEvents';
@@ -32,6 +38,8 @@ export default function Board() {
   const [error, setError] = useState<string | null>(null);
   const [showAddTaskForm, setShowAddTaskForm] = useState(false);
   const [showCreateProjectForm, setShowCreateProjectForm] = useState(false);
+  const [createEntityType, setCreateEntityType] = useState<'task' | 'epic'>('task');
+  const [showCreateEpicForm, setShowCreateEpicForm] = useState(false);
   const [editingProjectId, setEditingProjectId] = useState<number | null>(null);
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
   const [sidebarRefreshTrigger, setSidebarRefreshTrigger] = useState(0);
@@ -324,6 +332,23 @@ export default function Board() {
     // No need to manually refresh - the event system will handle it
   };
 
+  const handleEpicSuccess = async (epic: any) => {
+    console.log('Epic created/updated successfully:', epic);
+    setShowCreateEpicForm(false);
+    setError(null);
+    // Trigger sidebar refresh
+    setSidebarRefreshTrigger(prev => prev + 1);
+    // No need to manually refresh - the event system will handle it
+  };
+
+  const handleCreateEntity = (entityType: 'task' | 'epic') => {
+    if (entityType === 'task') {
+      setShowAddTaskForm(true);
+    } else if (entityType === 'epic') {
+      setShowCreateEpicForm(true);
+    }
+  };
+
   const handleProjectSuccess = async (project: Project) => {
     console.log('Project created/updated successfully:', project);
     setShowCreateProjectForm(false);
@@ -437,10 +462,25 @@ export default function Board() {
               <Filter className="h-4 w-4 mr-2" />
               Task Manager
             </Button>
-            <Button onClick={() => setShowAddTaskForm(true)} disabled={!isConnected}>
-              <Plus className="h-4 w-4 mr-2" />
-              Create Task
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button disabled={!isConnected}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create
+                  <ChevronDown className="h-4 w-4 ml-2" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => handleCreateEntity('task')}>
+                  <CheckSquare className="h-4 w-4 mr-2" />
+                  Task
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleCreateEntity('epic')}>
+                  <Layers className="h-4 w-4 mr-2" />
+                  Epic
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
 
@@ -479,6 +519,21 @@ export default function Board() {
             onTaskUpdate={handleTaskUpdate}
             onDelete={handleTaskDelete}
             templateId={1}
+          />
+        )}
+
+        {/* Epic Creation using ObjectView create mode */}
+        {showCreateEpicForm && (
+          <ObjectView
+            entityType="epic"
+            createMode={true}
+            isOpen={showCreateEpicForm}
+            onClose={() => {
+              setShowCreateEpicForm(false);
+              setError(null);
+            }}
+            onSuccess={handleEpicSuccess}
+            templateId={3}
           />
         )}
         
