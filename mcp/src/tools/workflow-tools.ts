@@ -152,7 +152,7 @@ export class WorkflowTools {
           `INSTRUCTIONS: Breakdown this ${minimalObject.type} into ${nextLevelType}s - create ${nextLevelType} objects with this stgructure, always include all properties: \n${formatValue}`,
           `INSTRUCTIONS: Adhere to a development hierarchy, follow logic and dependencies, when breaking down., the ${nextLevelType}s must be in logical order of execution`,
           `INSTRUCTIONS: Each breakdown ${nextLevelType} must be self-contained so it can be worked on in isolation, in parallel with other phases.`,
-          `INTRTUCTIONS: When brakingdown Project into Epics, the first Epic shoud be Prototype(Project Scaffold, Frontend Core) → MVP(Frontend + Backend + Storage + API's) → Epics to cover ENTIRE PROJECT SCOPE (all features and release raedy).`,
+          `INTRTUCTIONS: When brakingdown Project into Epics, the first Epic shoud be Prototype/POC/Demo(Project Scaffold, Frontend Core) → MVP(Frontend + Backend + Storage + API's) → Epics to cover ENTIRE PROJECT SCOPE (all features and release raedy).`,
           `CRITICAL INSTRUCTIONS: Make sure each breakdown ${nextLevelType} follows format, and always include all properties: \n ${formatValue}`,
           `INSTRUCTIONS: Make sure to size ${nextLevelType}s (as biggest possible) accoringly to hireachy structure, as only Tasks can be executed by AI agents (Claude Code, Codex CLI, Gemini CLI,...), AI Agents will add extra Planning and subtasks/todos, so do not create too small ${nextLevelType}s, make sure it fits well in the hierarchy`,
           `INSTRUCTIONS: Ensure no scope creep, and each ${nextLevelType} in the response strictly adheres to the provided ${minimalObject.type}, nothing more, nothing less.`,
