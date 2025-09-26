@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import MarkdownRenderer from '@/components/ui/MarkdownRenderer';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -1031,8 +1032,8 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 overflow-y-auto p-4">
+  return createPortal(
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black bg-opacity-50 overflow-y-auto p-4">
       <Card className="w-full max-w-3xl mx-auto">
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between mb-2">
@@ -1297,7 +1298,8 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
           )}
         </CardContent>
       </Card>
-    </div>
+    </div>,
+    document.body
   );
 };
 
