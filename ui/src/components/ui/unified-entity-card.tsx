@@ -5,7 +5,7 @@ import { KeyValuePill } from '@/components/ui/key-value-pill';
 import { TaskStage } from '@/types/task';
 import { UnifiedEntity } from '@/types/unified-entity';
 import MarkdownRenderer from '@/components/ui/MarkdownRenderer';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 import { useSlidable } from '@/hooks/use-slidable';
 import { useDraggable, UseDraggableConfig } from '@/hooks/use-draggable';
 
@@ -157,7 +157,7 @@ export const UnifiedEntityCard: React.FC<UnifiedEntityCardProps> = ({
         <CardContent 
           className="p-4 w-full cursor-pointer"
           onDoubleClick={() => {
-            if (entity.type === 'Task' && onTaskDoubleClick) {
+            if ((entity.type === 'Task' || entity.type === 'Rule') && onTaskDoubleClick) {
               onTaskDoubleClick(entity.id);
             } else if (onDoubleClick) {
               onDoubleClick(entity.id);
@@ -165,7 +165,7 @@ export const UnifiedEntityCard: React.FC<UnifiedEntityCardProps> = ({
           }}
         >
           <div className="flex items-center justify-between w-full">
-            <div className="flex-1 min-w-0 pr-4">
+            <div className="flex-1 min-w-0">
               <div className="flex justify-between items-start">
                 <div className="flex-1">
                   <h3 className="text-lg font-semibold mb-2">
@@ -177,22 +177,6 @@ export const UnifiedEntityCard: React.FC<UnifiedEntityCardProps> = ({
                     </div>
                   )}
                 </div>
-                {showExpandToggle && (
-                  <div className="flex items-center space-x-4 ml-4">
-                    <span className="text-sm text-muted-foreground whitespace-nowrap">
-                      {completedChildTasks.length} / {totalChildTasks} tasks
-                    </span>
-                    <button 
-                      className="text-muted-foreground hover:text-foreground transition-colors"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setIsExpanded(!isExpanded);
-                      }}
-                    >
-                      {isExpanded ? <ChevronDown className="h-6 w-6" /> : <ChevronRight className="h-6 w-6" />}
-                    </button>
-                  </div>
-                )}
               </div>
               
               {/* Progress bar for Epic/Project cards - always show if has child tasks */}
@@ -219,10 +203,10 @@ export const UnifiedEntityCard: React.FC<UnifiedEntityCardProps> = ({
                     typePrimary = 'hsl(var(--gradient-to))';
                   }
                   return (
-                    <KeyValuePill 
-                      keyName={entity.type} 
-                      value={`${entity.id}`} 
-                      size="sm" 
+                    <KeyValuePill
+                      keyName={entity.type}
+                      value={`${entity.id}`}
+                      size="sm"
                       primaryColor={typePrimary}
                       secondaryColor={'hsl(var(--surface))'}
                     />
@@ -240,6 +224,19 @@ export const UnifiedEntityCard: React.FC<UnifiedEntityCardProps> = ({
                 {entity.updated_at && (
                   <KeyValuePill keyName="updated" value={new Date(entity.updated_at).toLocaleDateString()} size="sm" />
                 )}
+                <div className="flex-1"></div>
+                {showExpandToggle && (
+                  <button 
+                    className="flex items-center gap-1 px-2 py-1 text-xs bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground rounded-md transition-colors"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsExpanded(!isExpanded);
+                    }}
+                  >
+                    <span>{completedChildTasks.length} / {totalChildTasks}</span>
+                    {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -247,7 +244,8 @@ export const UnifiedEntityCard: React.FC<UnifiedEntityCardProps> = ({
         
         {/* Expanded children section */}
         {isExpanded && showExpandToggle && (
-          <div className="bg-muted/30 border-t border-border">
+          <div className="bg-muted/30">
+            <div className="border-t border-border mx-4"></div>
             <div className="px-4 py-3 space-y-2">
               {filteredChildren.length > 0 ? (
                 filteredChildren.map(child => {

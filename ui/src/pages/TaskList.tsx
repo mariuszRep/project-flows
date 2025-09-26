@@ -2,6 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { HeaderAndSidebarLayout } from '@/components/layout/HeaderAndSidebarLayout';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu';
 import { UnifiedEntityCard } from '@/components/ui/unified-entity-card';
 import { Badge } from '@/components/ui/badge';
 import { useMCP } from '@/contexts/MCPContext';
@@ -14,8 +20,7 @@ import { MCPDisconnectedState } from '@/components/ui/empty-state';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { ProjectSidebar } from '@/components/ui/project-sidebar';
 import { parseTaskDate } from '@/lib/utils';
-import { FileText, Plus, ArrowRight, Filter } from 'lucide-react';
-import UnifiedForm from '@/components/forms/UnifiedForm';
+import { FileText, Plus, ArrowRight, Filter, ChevronDown, CheckSquare, Layers } from 'lucide-react';
 import ObjectView, { TEMPLATE_ID } from '@/components/forms/ObjectView';
 
 const DraftTasks = () => {
@@ -37,6 +42,7 @@ const DraftTasks = () => {
   const [showCreateProjectForm, setShowCreateProjectForm] = useState(false);
   const [editingProjectId, setEditingProjectId] = useState<number | null>(null);
   const [showAddTaskForm, setShowAddTaskForm] = useState(false);
+  const [showCreateEpicForm, setShowCreateEpicForm] = useState(false);
   const [sidebarRefreshTrigger, setSidebarRefreshTrigger] = useState(0);
   
   // Filter state - default to all stages selected
@@ -44,7 +50,7 @@ const DraftTasks = () => {
   
   // Entity viewing state
   const [viewingEntityId, setViewingEntityId] = useState<number | null>(null);
-  const [viewingEntityType, setViewingEntityType] = useState<'Task' | 'Project' | 'Epic' | null>(null);
+  const [viewingEntityType, setViewingEntityType] = useState<'Task' | 'Project' | 'Epic' | 'Rule' | null>(null);
   
   // Edit entity state
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
@@ -608,10 +614,25 @@ const DraftTasks = () => {
         }
       </p>
       <div className="flex gap-3 justify-center">
-        <Button onClick={() => navigate('/task-board')}>
-          <Plus className="h-4 w-4 mr-2" />
-          Create Task
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button>
+              <Plus className="h-4 w-4 mr-2" />
+              Create
+              <ChevronDown className="h-4 w-4 ml-2" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => handleCreateEntity('task')}>
+              <CheckSquare className="h-4 w-4 mr-2" />
+              Task
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleCreateEntity('epic')}>
+              <Layers className="h-4 w-4 mr-2" />
+              Epic
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <Button variant="outline" onClick={() => navigate('/task-board')}>
           View Board
         </Button>
@@ -707,6 +728,24 @@ const DraftTasks = () => {
     await fetchAllEntities();
   };
 
+  const handleEpicSuccess = async (epic: any) => {
+    console.log('Epic created successfully:', epic);
+    setShowCreateEpicForm(false);
+    setError(null);
+    // Trigger sidebar refresh
+    setSidebarRefreshTrigger(prev => prev + 1);
+    // Refresh entities
+    await fetchAllEntities();
+  };
+
+  const handleCreateEntity = (entityType: 'task' | 'epic') => {
+    if (entityType === 'task') {
+      setShowAddTaskForm(true);
+    } else if (entityType === 'epic') {
+      setShowCreateEpicForm(true);
+    }
+  };
+
   const handleTaskCancel = () => {
     setShowAddTaskForm(false);
     setError(null);
@@ -758,10 +797,25 @@ const DraftTasks = () => {
               <ArrowRight className="h-4 w-4 mr-2" />
               View Board
             </Button>
-            <Button onClick={() => setShowAddTaskForm(true)} disabled={!isConnected}>
-              <Plus className="h-4 w-4 mr-2" />
-              Create Task
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button disabled={!isConnected}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create
+                  <ChevronDown className="h-4 w-4 ml-2" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => handleCreateEntity('task')}>
+                  <CheckSquare className="h-4 w-4 mr-2" />
+                  Task
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleCreateEntity('epic')}>
+                  <Layers className="h-4 w-4 mr-2" />
+                  Epic
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
 
@@ -865,17 +919,21 @@ const DraftTasks = () => {
           </div>
         )}
         
-        {/* Edit Task Form */}
-        <UnifiedForm
-          entityType="task"
-          mode="edit"
-          entityId={editingTaskId || undefined}
-          templateId={1}
-          onSuccess={handleEditSuccess}
-          onCancel={handleEditCancel}
-          onDelete={handleTaskDelete}
-          isOpen={!!editingTaskId}
-        />
+        {/* Edit Task Form using ObjectView */}
+        {editingTaskId && (
+          <ObjectView
+            entityType="task"
+            entityId={editingTaskId}
+            isOpen={!!editingTaskId}
+            onClose={() => {
+              setEditingTaskId(null);
+              setError(null);
+            }}
+            onTaskUpdate={handleMoveEntity}
+            onDelete={handleTaskDelete}
+            templateId={1}
+          />
+        )}
         
         <ConfirmationDialog
           isOpen={deleteDialog.isOpen}
@@ -888,43 +946,75 @@ const DraftTasks = () => {
           variant="destructive"
         />
 
-        <UnifiedForm
-          entityType={(() => {
-            // For editing, determine entity type from the actual entity data
-            if (editingProjectId) {
+        {/* Project/Epic Creation using ObjectView create mode */}
+        {showCreateProjectForm && !editingProjectId && (
+          <ObjectView
+            entityType="project"
+            createMode={true}
+            isOpen={showCreateProjectForm}
+            onClose={() => {
+              setShowCreateProjectForm(false);
+              setError(null);
+            }}
+            onSuccess={handleProjectSuccess}
+            templateId={2}
+          />
+        )}
+
+        {/* Project/Epic Editing using ObjectView */}
+        {editingProjectId && (
+          <ObjectView
+            entityType={(() => {
+              // For editing, determine entity type from the actual entity data
               const entity = allEntities.find(e => e.id === editingProjectId);
               if (entity?.type === 'Epic') return 'epic';
               if (entity?.type === 'Project') return 'project';
-            }
-            // Default for create mode
-            return 'project';
-          })()}
-          mode={editingProjectId ? 'edit' : 'create'}
-          entityId={editingProjectId || undefined}
-          templateId={(() => {
-            // For editing, get template_id from the actual entity data  
-            if (editingProjectId) {
+              // Default fallback
+              return 'project';
+            })()}
+            entityId={editingProjectId}
+            isOpen={!!editingProjectId}
+            onClose={() => {
+              setEditingProjectId(null);
+              setError(null);
+            }}
+            onDelete={handleProjectDelete}
+            templateId={(() => {
+              // For editing, get template_id from the actual entity data
               const entity = allEntities.find(e => e.id === editingProjectId);
-              return entity?.template_id;
-            }
-            // Default for create mode (Project = template_id 2)
-            return 2;
-          })()}
-          onSuccess={handleProjectSuccess}
-          onCancel={handleProjectCancel}
-          onDelete={handleProjectDelete}
-          isOpen={showCreateProjectForm || !!editingProjectId}
+              return entity?.template_id || 2; // Fallback to project template
+            })()}
+          />
+        )}
+
+        {/* Task Creation using ObjectView create mode */}
+        <ObjectView
+          entityType="task"
+          createMode={true}
+          isOpen={showAddTaskForm}
+          onClose={() => {
+            setShowAddTaskForm(false);
+            setError(null);
+          }}
+          onSuccess={handleTaskSuccess}
+          initialStage="draft"
+          templateId={1}
         />
 
-        <UnifiedForm
-          entityType="task"
-          mode="create"
-          templateId={1}
-          initialStage="draft"
-          onSuccess={handleTaskSuccess}
-          onCancel={handleTaskCancel}
-          isOpen={showAddTaskForm}
-        />
+        {/* Epic Creation using ObjectView create mode */}
+        {showCreateEpicForm && (
+          <ObjectView
+            entityType="epic"
+            createMode={true}
+            isOpen={showCreateEpicForm}
+            onClose={() => {
+              setShowCreateEpicForm(false);
+              setError(null);
+            }}
+            onSuccess={handleEpicSuccess}
+            templateId={3}
+          />
+        )}
         
         <ObjectView
           entityType="task"
@@ -961,6 +1051,21 @@ const DraftTasks = () => {
               templateId={TEMPLATE_ID.PROJECT}
             />
           )
+        )}
+
+        {/* Rule viewing using ObjectView */}
+        {viewingEntityId && viewingEntityType === 'Rule' && (
+          <ObjectView
+            entityType="rule"
+            entityId={viewingEntityId}
+            isOpen={!!viewingEntityId}
+            onClose={() => {
+              setViewingEntityId(null);
+              setViewingEntityType(null);
+            }}
+            onDelete={handleTaskDelete}
+            templateId={TEMPLATE_ID.RULE}
+          />
         )}
       </div>
     </HeaderAndSidebarLayout>

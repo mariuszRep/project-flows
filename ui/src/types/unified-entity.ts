@@ -5,7 +5,7 @@ export interface UnifiedEntity {
   title: string;
   summary: string;
   stage?: TaskStage;
-  type: 'Task' | 'Project' | 'Epic';
+  type: 'Task' | 'Project' | 'Epic' | 'Rule';
   template_id: number;
   parent_id?: number;
   created_at?: string;
@@ -22,16 +22,18 @@ export const mapToUnifiedEntity = (obj: any): UnifiedEntity => {
     title: obj?.blocks?.Title || obj.title || obj.Title || 'Untitled',
     summary: obj?.blocks?.Summary || obj.summary || obj.Summary || obj.description || obj?.blocks?.Description || '',
     stage: obj.stage as TaskStage,
-    type: (obj.type === 'Epic' || obj.type === 'Project' || obj.type === 'Task') 
-      ? obj.type 
+    type: (obj.type === 'Epic' || obj.type === 'Project' || obj.type === 'Task' || obj.type === 'Rule')
+      ? obj.type
       : (obj.type ? (obj.type.charAt(0).toUpperCase() + obj.type.slice(1)) : (
-          obj.template_id === 3 ? 'Epic' : 
-          obj.template_id === 2 ? 'Project' : 
+          obj.template_id === 4 ? 'Rule' :
+          obj.template_id === 3 ? 'Epic' :
+          obj.template_id === 2 ? 'Project' :
           'Task'
         )),
     template_id: obj.template_id ?? (
-      obj.type === 'Epic' ? 3 : 
-      obj.type === 'Project' ? 2 : 
+      obj.type === 'Rule' ? 4 :
+      obj.type === 'Epic' ? 3 :
+      obj.type === 'Project' ? 2 :
       1
     ),
     parent_id: obj.parent_id ?? obj.project_id,

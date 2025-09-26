@@ -115,8 +115,10 @@ export class ObjectTools {
         const parentObject = await this.sharedDbService.getTask(object.parent_id);
         if (parentObject) {
           parentName = parentObject.Title || 'Untitled';
-          parentType = parentObject.template_id === 1 ? 'task' : 
-                       parentObject.template_id === 2 ? 'project' : 'epic';
+          parentType = parentObject.template_id === 1 ? 'task' :
+                       parentObject.template_id === 2 ? 'project' :
+                       parentObject.template_id === 3 ? 'epic' :
+                       parentObject.template_id === 4 ? 'rule' : 'unknown';
         }
       } catch (error) {
         parentName = 'Unknown';
@@ -134,7 +136,10 @@ export class ObjectTools {
       }
     }
     
-    const typeDisplay = object.template_id === 1 ? 'task' : object.template_id === 2 ? 'project' : 'epic';
+    const typeDisplay = object.template_id === 1 ? 'task' :
+                        object.template_id === 2 ? 'project' :
+                        object.template_id === 3 ? 'epic' :
+                        object.template_id === 4 ? 'rule' : 'unknown';
     
     const jsonData = {
       id: object.id,
@@ -189,7 +194,10 @@ export class ObjectTools {
     try {
       const deleted = await this.sharedDbService.deleteTask(objectId);
       if (deleted) {
-        const typeDisplay = existingObject.template_id === 1 ? 'Task' : existingObject.template_id === 2 ? 'Project' : 'Epic';
+        const typeDisplay = existingObject.template_id === 1 ? 'Task' :
+                            existingObject.template_id === 2 ? 'Project' :
+                            existingObject.template_id === 3 ? 'Epic' :
+                            existingObject.template_id === 4 ? 'Rule' : 'Unknown';
         const jsonResponse = {
           success: true,
           object_id: objectId,
@@ -248,7 +256,10 @@ export class ObjectTools {
       const objects = await this.sharedDbService.listTasks(stage, parentId, templateId);
       
       const formattedObjects = objects.map(object => {
-        const typeDisplay = object.template_id === 1 ? 'Task' : object.template_id === 2 ? 'Project' : 'Epic';
+        const typeDisplay = object.template_id === 1 ? 'Task' :
+                            object.template_id === 2 ? 'Project' :
+                            object.template_id === 3 ? 'Epic' :
+                            object.template_id === 4 ? 'Rule' : 'Unknown';
         return {
           id: object.id,
           title: object.Title || 'Untitled',

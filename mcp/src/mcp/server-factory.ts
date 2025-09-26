@@ -1,6 +1,6 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { SchemaProperties, SchemaProperty, ExecutionChainItem, ToolContext } from "../types/property.js";
+import { SchemaProperties, ExecutionChainItem, ToolContext } from "../types/property.js";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
@@ -10,6 +10,7 @@ import { createObjectTools } from "../tools/object-tools.js";
 import { createTaskTools } from "../tools/task-tools.js";
 import { createProjectTools } from "../tools/project-tools.js";
 import { createEpicTools } from "../tools/epic-tools.js";
+import { createRuleTools } from "../tools/rule-tools.js";
 import { createWorkflowTools } from "../tools/workflow-tools.js";
 import pg from 'pg';
 
@@ -249,10 +250,10 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
       const properties = context
         ? await sharedDbService.getSchemaProperties(3, context)
         : await sharedDbService.getSchemaProperties(3);
-      
+
       // Cache the result
       setCachedSchema(3, properties, context);
-      
+
       return properties;
     } catch (error) {
       console.error('Error loading epic schema properties from database:', error);
@@ -260,30 +261,31 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
     }
   }
 
-  async function loadGenericSchemaProperties(templateId: number): Promise<SchemaProperties>;
-  async function loadGenericSchemaProperties(templateId: number, context: ToolContext): Promise<SchemaProperties>;
-  async function loadGenericSchemaProperties(templateId: number, context?: ToolContext): Promise<SchemaProperties> {
+  async function loadRuleSchemaProperties(): Promise<SchemaProperties>;
+  async function loadRuleSchemaProperties(context: ToolContext): Promise<SchemaProperties>;
+  async function loadRuleSchemaProperties(context?: ToolContext): Promise<SchemaProperties> {
     // Check cache first
-    const cached = getCachedSchema(templateId, context);
+    const cached = getCachedSchema(4, context);
     if (cached) {
       return cached;
     }
 
     try {
-      // Load properties for any template_id
+      // Load rule properties (template_id = 4)
       const properties = context
-        ? await sharedDbService.getSchemaProperties(templateId, context)
-        : await sharedDbService.getSchemaProperties(templateId);
-      
+        ? await sharedDbService.getSchemaProperties(4, context)
+        : await sharedDbService.getSchemaProperties(4);
+
       // Cache the result
-      setCachedSchema(templateId, properties, context);
-      
+      setCachedSchema(4, properties, context);
+
       return properties;
     } catch (error) {
-      console.error(`Error loading schema properties for template_id ${templateId} from database:`, error);
+      console.error('Error loading rule schema properties from database:', error);
       return {};
     }
   }
+
 
   function createExecutionChain(properties: SchemaProperties): ExecutionChainItem[] {
     const sortedProps: ExecutionChainItem[] = [];
@@ -360,11 +362,20 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
     projectTools
   );
 
+  const ruleTools = createRuleTools(
+    sharedDbService,
+    clientId,
+    loadRuleSchemaProperties,
+    createExecutionChain,
+    validateDependencies,
+    projectTools
+  );
+
   // Inject the correct toolsets: taskTools for task operations, projectTools for project operations, and epicTools for epic operations
   const workflowTools = createWorkflowTools(sharedDbService, clientId, taskTools, projectTools, objectTools, propertyTools, epicTools);
 
   // Set up tool list handler
-  server.setRequestHandler(ListToolsRequestSchema, async (request) => {
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
     // Detect context from request if available (future enhancement)
     // For now, we could check for custom headers or other indicators
     let context: ToolContext | undefined = undefined;
@@ -392,6 +403,11 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
     const epicProperties = context
       ? await loadEpicSchemaProperties(context)
       : await sharedDbService.getSchemaProperties(3);
+
+    // Get rule properties (template_id = 4) with optional context
+    const ruleProperties = context
+      ? await loadRuleSchemaProperties(context)
+      : await sharedDbService.getSchemaProperties(4);
 
     // Clean properties for schema (remove execution metadata and convert types)
     function cleanSchemaProperties(properties: SchemaProperties): Record<string, any> {
@@ -432,6 +448,7 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
     const taskSchemaProperties = cleanSchemaProperties(taskProperties);
     const projectSchemaProperties = cleanSchemaProperties(projectProperties);
     const epicSchemaProperties = cleanSchemaProperties(epicProperties);
+    const ruleSchemaProperties = cleanSchemaProperties(ruleProperties);
 
     return {
       tools: [
@@ -441,6 +458,8 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
         ...projectTools.getToolDefinitions(projectSchemaProperties),
         // Add epic tools
         ...epicTools.getToolDefinitions(epicSchemaProperties),
+        // Add rule tools
+        ...ruleTools.getToolDefinitions(ruleSchemaProperties),
         // Keep generic object tools available
         ...objectTools.getToolDefinitions(),
         ...workflowTools.getToolDefinitions(),
@@ -470,6 +489,11 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
     // Handle epic tools
     if (epicTools.canHandle(name)) {
       return await epicTools.handle(name, toolArgs);
+    }
+
+    // Handle rule tools
+    if (ruleTools.canHandle(name)) {
+      return await ruleTools.handle(name, toolArgs);
     }
 
     // Handle generic object tools

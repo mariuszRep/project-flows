@@ -5,13 +5,17 @@ import { Task } from '@/types/task';
 import { Project } from '@/types/project';
 import { TaskBoard } from '@/components/board/TaskBoard';
 import { Button } from '@/components/ui/button';
-import UnifiedForm from '@/components/forms/UnifiedForm';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu';
 import ObjectView from '@/components/forms/ObjectView';
-// import ProjectEditForm from '@/components/forms/ProjectEditForm'; // Replaced by UnifiedForm
 import { ProjectSidebar } from '@/components/ui/project-sidebar';
 import { MCPDisconnectedState, NoTasksState } from '@/components/ui/empty-state';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
-import { Plus, X, Filter } from 'lucide-react';
+import { Plus, X, Filter, ChevronDown, CheckSquare, Layers } from 'lucide-react';
 import { useMCP } from '@/contexts/MCPContext';
 import { useProject } from '@/contexts/ProjectContext';
 import { useChangeEvents } from '@/hooks/useChangeEvents';
@@ -34,6 +38,8 @@ export default function Board() {
   const [error, setError] = useState<string | null>(null);
   const [showAddTaskForm, setShowAddTaskForm] = useState(false);
   const [showCreateProjectForm, setShowCreateProjectForm] = useState(false);
+  const [createEntityType, setCreateEntityType] = useState<'task' | 'epic'>('task');
+  const [showCreateEpicForm, setShowCreateEpicForm] = useState(false);
   const [editingProjectId, setEditingProjectId] = useState<number | null>(null);
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
   const [sidebarRefreshTrigger, setSidebarRefreshTrigger] = useState(0);
@@ -326,6 +332,23 @@ export default function Board() {
     // No need to manually refresh - the event system will handle it
   };
 
+  const handleEpicSuccess = async (epic: any) => {
+    console.log('Epic created/updated successfully:', epic);
+    setShowCreateEpicForm(false);
+    setError(null);
+    // Trigger sidebar refresh
+    setSidebarRefreshTrigger(prev => prev + 1);
+    // No need to manually refresh - the event system will handle it
+  };
+
+  const handleCreateEntity = (entityType: 'task' | 'epic') => {
+    if (entityType === 'task') {
+      setShowAddTaskForm(true);
+    } else if (entityType === 'epic') {
+      setShowCreateEpicForm(true);
+    }
+  };
+
   const handleProjectSuccess = async (project: Project) => {
     console.log('Project created/updated successfully:', project);
     setShowCreateProjectForm(false);
@@ -439,10 +462,25 @@ export default function Board() {
               <Filter className="h-4 w-4 mr-2" />
               Task Manager
             </Button>
-            <Button onClick={() => setShowAddTaskForm(true)} disabled={!isConnected}>
-              <Plus className="h-4 w-4 mr-2" />
-              Create Task
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button disabled={!isConnected}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create
+                  <ChevronDown className="h-4 w-4 ml-2" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => handleCreateEntity('task')}>
+                  <CheckSquare className="h-4 w-4 mr-2" />
+                  Task
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleCreateEntity('epic')}>
+                  <Layers className="h-4 w-4 mr-2" />
+                  Epic
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
 
@@ -452,21 +490,52 @@ export default function Board() {
           </div>
         )}
 
-        <UnifiedForm
-          entityType="task"
-          mode={editingTaskId ? 'edit' : 'create'}
-          entityId={editingTaskId || undefined}
-          templateId={1}
-          initialStage="draft"
-          onSuccess={handleTaskSuccess}
-          onCancel={() => {
-            setShowAddTaskForm(false);
-            setEditingTaskId(null);
-            setError(null);
-          }}
-          onDelete={handleTaskDelete}
-          isOpen={showAddTaskForm || !!editingTaskId}
-        />
+        {/* Task Creation using ObjectView create mode */}
+        {showAddTaskForm && (
+          <ObjectView
+            entityType="task"
+            createMode={true}
+            isOpen={showAddTaskForm}
+            onClose={() => {
+              setShowAddTaskForm(false);
+              setError(null);
+            }}
+            onSuccess={handleTaskSuccess}
+            initialStage="draft"
+            templateId={1}
+          />
+        )}
+
+        {/* Task Editing using ObjectView */}
+        {editingTaskId && (
+          <ObjectView
+            entityType="task"
+            entityId={editingTaskId}
+            isOpen={!!editingTaskId}
+            onClose={() => {
+              setEditingTaskId(null);
+              setError(null);
+            }}
+            onTaskUpdate={handleTaskUpdate}
+            onDelete={handleTaskDelete}
+            templateId={1}
+          />
+        )}
+
+        {/* Epic Creation using ObjectView create mode */}
+        {showCreateEpicForm && (
+          <ObjectView
+            entityType="epic"
+            createMode={true}
+            isOpen={showCreateEpicForm}
+            onClose={() => {
+              setShowCreateEpicForm(false);
+              setError(null);
+            }}
+            onSuccess={handleEpicSuccess}
+            templateId={3}
+          />
+        )}
         
         <ObjectView
           entityType="task"
@@ -485,15 +554,35 @@ export default function Board() {
           onDelete={handleProjectDelete}
         />
 
-        <UnifiedForm
-          entityType="project"
-          mode={editingProjectId ? 'edit' : 'create'}
-          entityId={editingProjectId || undefined}
-          onSuccess={handleProjectSuccess}
-          onCancel={handleProjectCancel}
-          onDelete={handleProjectDelete}
-          isOpen={showCreateProjectForm || !!editingProjectId}
-        />
+        {/* Project Creation using ObjectView create mode */}
+        {showCreateProjectForm && !editingProjectId && (
+          <ObjectView
+            entityType="project"
+            createMode={true}
+            isOpen={showCreateProjectForm}
+            onClose={() => {
+              setShowCreateProjectForm(false);
+              setError(null);
+            }}
+            onSuccess={handleProjectSuccess}
+            templateId={2}
+          />
+        )}
+
+        {/* Project Editing using ObjectView */}
+        {editingProjectId && (
+          <ObjectView
+            entityType="project"
+            entityId={editingProjectId}
+            isOpen={!!editingProjectId}
+            onClose={() => {
+              setEditingProjectId(null);
+              setError(null);
+            }}
+            onDelete={handleProjectDelete}
+            templateId={2}
+          />
+        )}
 
         {isLoading ? (
           <div className="flex items-center justify-center h-64">
