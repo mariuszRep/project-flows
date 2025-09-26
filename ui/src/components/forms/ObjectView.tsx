@@ -26,12 +26,13 @@ export const TEMPLATE_ID = {
   TASK: 1,
   PROJECT: 2,
   EPIC: 3,
+  RULE: 4,
 } as const;
 
 /**
  * Entity type discriminated union
  */
-export type EntityType = 'task' | 'project' | 'epic';
+export type EntityType = 'task' | 'project' | 'epic' | 'rule';
 
 /**
  * Base props interface for ObjectView component
@@ -126,6 +127,26 @@ interface EpicCreateObjectViewProps extends BaseCreateObjectViewProps {
 }
 
 /**
+ * Rule-specific props interface for view mode
+ */
+interface RuleObjectViewProps extends BaseObjectViewProps {
+  entityType: 'rule';
+  templateId?: typeof TEMPLATE_ID.RULE;
+  onTaskUpdate?: never;
+  createMode?: never;
+}
+
+/**
+ * Rule-specific props interface for create mode
+ */
+interface RuleCreateObjectViewProps extends BaseCreateObjectViewProps {
+  entityType: 'rule';
+  templateId?: typeof TEMPLATE_ID.RULE;
+  onTaskUpdate?: never;
+  entityId?: never;
+}
+
+/**
  * Discriminated union for ObjectView props
  */
 export type ObjectViewProps =
@@ -134,7 +155,9 @@ export type ObjectViewProps =
   | ProjectObjectViewProps
   | ProjectCreateObjectViewProps
   | EpicObjectViewProps
-  | EpicCreateObjectViewProps;
+  | EpicCreateObjectViewProps
+  | RuleObjectViewProps
+  | RuleCreateObjectViewProps;
 
 /**
  * View mode type for the ObjectView component
@@ -416,6 +439,8 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
         return TEMPLATE_ID.PROJECT;
       case 'epic':
         return TEMPLATE_ID.EPIC;
+      case 'rule':
+        return TEMPLATE_ID.RULE;
       default:
         return TEMPLATE_ID.TASK;
     }
@@ -515,6 +540,8 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
         toolName = 'update_project';
       } else if (entityType === 'epic') {
         toolName = 'update_epic';
+      } else if (entityType === 'rule') {
+        toolName = 'update_rule';
       }
       
       const toolPayload = {
@@ -572,6 +599,9 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
         command = `initiate object ${entityId}`;
         break;
       case 'project':
+        command = `initiate object ${entityId}`;
+        break;
+      case 'rule':
         command = `initiate object ${entityId}`;
         break;
       default:
@@ -642,6 +672,8 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
         toolName = 'update_project';
       } else if (entityType === 'epic') {
         toolName = 'update_epic';
+      } else if (entityType === 'rule') {
+        toolName = 'update_rule';
       }
 
       const toolPayload = {
@@ -773,6 +805,8 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
         result = await callTool('create_project', createPayload);
       } else if (entityType === 'epic') {
         result = await callTool('create_epic', createPayload);
+      } else if (entityType === 'rule') {
+        result = await callTool('create_rule', createPayload);
       }
 
       if (result?.content?.[0]?.text) {
@@ -862,6 +896,8 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
         toolName = 'update_project';
       } else if (entityType === 'epic') {
         toolName = 'update_epic';
+      } else if (entityType === 'rule') {
+        toolName = 'update_rule';
       }
       
       const toolPayload = {

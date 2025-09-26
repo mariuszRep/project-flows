@@ -9,6 +9,7 @@
 INSERT INTO public.templates VALUES (1, 'Task', 'Default template for managing tasks', '2025-07-24T08:49:24.200Z', '2025-07-24T08:49:24.200Z', 'system', 'system');
 INSERT INTO public.templates VALUES (2, 'Project', 'Template for project-type parent tasks', '2025-08-04T10:42:31.309Z', '2025-08-04T10:42:31.309Z', 'system', 'system');
 INSERT INTO public.templates VALUES (3, 'Epic', 'Simplified template for organizing tasks under projects', '2025-08-28T00:00:00.000Z', '2025-08-28T00:00:00.000Z', 'system', 'system');
+INSERT INTO public.templates VALUES (4, 'Rule', 'Template for defining and managing project rules', '2025-09-25T00:00:00.000Z', '2025-09-25T00:00:00.000Z', 'claude-code', 'claude-code');
 
 
 --
@@ -32,6 +33,9 @@ INSERT INTO public.template_properties VALUES (22, 3, 'Title', 'text', 'Epic tit
 INSERT INTO public.template_properties VALUES (23, 3, 'Summary', 'text', 'Brief description of the epic scope and goals', '[]', 2, false, 'system', 'system', '2025-08-28T00:00:00.000Z', '2025-08-28T00:00:00.000Z');
 INSERT INTO public.template_properties VALUES (24, 3, 'Tasks', 'text', 'List of related tasks that comprise this epic', '[]', 3, false, 'system', 'system', '2025-08-28T00:00:00.000Z', '2025-08-28T00:00:00.000Z');
 INSERT INTO public.template_properties VALUES (25, 3, 'Priority', 'text', 'Priority level of this epic (High, Medium, Low)', '[]', 4, false, 'system', 'system', '2025-08-28T00:00:00.000Z', '2025-08-28T00:00:00.000Z');
+INSERT INTO public.template_properties VALUES (26, 4, 'Title', 'text', 'Generate a precise, actionable task title using format: [Action Verb] + [Specific Component] + [Technology/Framework]. Use verbs like ''Implement'', ''Fix'', ''Add'', ''Refactor''. Example: ''Implement JWT authentication in Express.js''', '{}', 1, false, 'claude-code', 'claude-code', '2025-09-25T00:00:00.000Z', '2025-09-25T00:00:00.000Z');
+INSERT INTO public.template_properties VALUES (27, 4, 'Description', 'text', 'SYSTEM CONSTRAINT: You are a prompt transformation machine. ABSOLUTE RULES: OUTPUT: Only the rewritten prompt - nothing else. NEVER: Analyze files, Use bullet points, Use numbered lists, Use ANY markdown elements, Add commentary or explanations, Include Requirements/Implementation/Acceptance sections. FORMAT: File paths as [path](@filename), Links as [link](name). STYLE: Professional, precise language only. YOUR ENTIRE RESPONSE = PLAIN TEXT REWRITTEN PROMPT ONLY', '{}', 2, false, 'claude-code', 'claude-code', '2025-09-25T00:00:00.000Z', '2025-09-25T00:00:00.000Z');
+
 
 
 --
@@ -45,7 +49,7 @@ SELECT pg_catalog.setval('public.object_properties_id_seq', 755, true);
 -- Name: template_properties_id_seq; Type: SEQUENCE SET; Schema: public; Owner: mcp_user
 --
 
-SELECT pg_catalog.setval('public.template_properties_id_seq', 25, true);
+SELECT pg_catalog.setval('public.template_properties_id_seq', 28, true);
 
 
 --
@@ -59,7 +63,26 @@ SELECT pg_catalog.setval('public.objects_id_seq', 115, true);
 -- Name: templates_id_seq; Type: SEQUENCE SET; Schema: public; Owner: mcp_user
 --
 
-SELECT pg_catalog.setval('public.templates_id_seq', 3, true);
+SELECT pg_catalog.setval('public.templates_id_seq', 4, true);
+
+
+--
+-- Data patch: ensure project 83 has all Project template properties
+-- This is safe to run on existing databases; it does nothing if project 83
+-- does not exist, or if properties already exist for it.
+DO $$
+DECLARE
+  proj_id integer := 83;
+BEGIN
+  -- Only proceed if the object exists and uses the Project template (id=2)
+  IF EXISTS (SELECT 1 FROM public.objects WHERE id = proj_id AND template_id = 2) THEN
+    INSERT INTO public.object_properties (task_id, property_id, content, position, created_by, updated_by)
+    SELECT proj_id, tp.id, '', tp.execution_order, 'seed', 'seed'
+    FROM public.template_properties tp
+    WHERE tp.template_id = 2
+    ON CONFLICT (task_id, property_id) DO NOTHING;
+  END IF;
+END $$;
 
 
 --

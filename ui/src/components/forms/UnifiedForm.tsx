@@ -10,7 +10,7 @@ import { useMCP } from '@/contexts/MCPContext';
 import { useProject } from '@/contexts/ProjectContext';
 import { TaskStage } from '@/types/task';
 
-export type EntityType = 'task' | 'project' | 'epic';
+export type EntityType = 'task' | 'project' | 'epic' | 'rule';
 export type FormMode = 'create' | 'edit';
 
 interface UnifiedFormProps {
@@ -62,15 +62,16 @@ const UnifiedForm: React.FC<UnifiedFormProps> = ({
   
   // Determine template ID based on entity type if not provided
   const effectiveTemplateId = templateId ?? (
-    entityType === 'task' ? 1 : 
-    entityType === 'epic' ? 3 : 
+    entityType === 'task' ? 1 :
+    entityType === 'epic' ? 3 :
+    entityType === 'rule' ? 4 :
     2  // project
   );
   
   const [formFields, setFormFields] = useState<FormField[]>([]);
   const [formData, setFormData] = useState<Record<string, any>>({
     stage: initialStage,
-    project_id: entityType === 'task' ? selectedProjectId : undefined
+    project_id: (entityType === 'task' || entityType === 'rule') ? selectedProjectId : undefined
   });
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -87,8 +88,8 @@ const UnifiedForm: React.FC<UnifiedFormProps> = ({
 
   // Infer the appropriate input type based on property type and description
   const inferInputType = (fieldName: string, propertyType: string, description: string): 'input' | 'textarea' | 'select' => {
-    // Stage is always a select for tasks
-    if (fieldName.toLowerCase() === 'stage' && entityType === 'task') return 'select';
+    // Stage is always a select for tasks and rules
+    if (fieldName.toLowerCase() === 'stage' && (entityType === 'task' || entityType === 'rule')) return 'select';
     
     // Use property type as primary indicator
     if (propertyType === 'text') {
@@ -189,8 +190,8 @@ const UnifiedForm: React.FC<UnifiedFormProps> = ({
             order: property.execution_order || 999
           }));
 
-        // Add stage field if this is a task and not present
-        if (entityType === 'task' && !fields.some(field => field.name.toLowerCase() === 'stage')) {
+        // Add stage field if this is a task or rule and not present
+        if ((entityType === 'task' || entityType === 'rule') && !fields.some(field => field.name.toLowerCase() === 'stage')) {
           fields.push({
             name: 'stage',
             label: 'Stage',
@@ -206,7 +207,7 @@ const UnifiedForm: React.FC<UnifiedFormProps> = ({
         console.log('Generated form fields:', fields);
         
         // Initialize form data with empty values
-        const initialData: Record<string, any> = entityType === 'task' 
+        const initialData: Record<string, any> = (entityType === 'task' || entityType === 'rule')
           ? { stage: initialStage, project_id: selectedProjectId }
           : {};
         
@@ -216,8 +217,8 @@ const UnifiedForm: React.FC<UnifiedFormProps> = ({
           }
         });
         
-        // Ensure project_id is set for task create mode
-        if (entityType === 'task' && mode === 'create' && selectedProjectId !== null) {
+        // Ensure project_id is set for task/rule create mode
+        if ((entityType === 'task' || entityType === 'rule') && mode === 'create' && selectedProjectId !== null) {
           initialData.project_id = selectedProjectId;
           console.log(`Setting initial project_id to ${selectedProjectId} for task create mode`);
         }
@@ -245,7 +246,7 @@ const UnifiedForm: React.FC<UnifiedFormProps> = ({
     try {
       console.log(`Fetching ${entityType} data for entityId:`, entityId);
       let result: any;
-      if (entityType === 'task') {
+      if (entityType === 'task' || entityType === 'rule') {
         result = await callTool('get_object', { object_id: entityId });
       } else if (entityType === 'project') {
         result = await callTool('get_object', { object_id: entityId });
@@ -257,7 +258,7 @@ const UnifiedForm: React.FC<UnifiedFormProps> = ({
         const responseContent = result.content[0].text;
         console.log('Raw response content:', responseContent.substring(0, 200));
         
-        let entityData: Record<string, any> = entityType === 'task' 
+        let entityData: Record<string, any> = (entityType === 'task' || entityType === 'rule')
           ? { stage: 'draft', project_id: null }
           : {};
         
@@ -267,7 +268,7 @@ const UnifiedForm: React.FC<UnifiedFormProps> = ({
           console.log(`Parsed JSON ${entityType} data:`, jsonData);
           
           // Map the JSON fields to form data
-          if (entityType === 'task') {
+          if (entityType === 'task' || entityType === 'rule') {
             entityData = {
               stage: jsonData.stage || 'draft',
               project_id: jsonData.parent_id || null,
@@ -329,9 +330,9 @@ const UnifiedForm: React.FC<UnifiedFormProps> = ({
     }
   }, [formFields, mode, fetchEntityData]);
 
-  // Update project_id when selectedProjectId changes for task create mode
+  // Update project_id when selectedProjectId changes for task/rule create mode
   useEffect(() => {
-    if (entityType === 'task' && mode === 'create' && selectedProjectId !== null && formData.project_id !== selectedProjectId) {
+    if ((entityType === 'task' || entityType === 'rule') && mode === 'create' && selectedProjectId !== null && formData.project_id !== selectedProjectId) {
       console.log(`Setting project_id to ${selectedProjectId} for task create mode`);
       setFormData(prev => ({
         ...prev,
@@ -340,9 +341,9 @@ const UnifiedForm: React.FC<UnifiedFormProps> = ({
     }
   }, [selectedProjectId, mode, entityType]);
 
-  // Ensure project is set when projects finish loading (for task create mode)
+  // Ensure project is set when projects finish loading (for task/rule create mode)
   useEffect(() => {
-    if (entityType === 'task' && mode === 'create' && !isLoadingProjects && selectedProjectId !== null && formData.project_id !== selectedProjectId) {
+    if ((entityType === 'task' || entityType === 'rule') && mode === 'create' && !isLoadingProjects && selectedProjectId !== null && formData.project_id !== selectedProjectId) {
       console.log(`Projects loaded, ensuring project_id is set to ${selectedProjectId}`);
       setFormData(prev => ({
         ...prev,
@@ -391,8 +392,8 @@ const UnifiedForm: React.FC<UnifiedFormProps> = ({
           }
         });
         
-        // Add parent_id for tasks (project_id becomes parent_id in the database)
-        if (entityType === 'task' && formData.project_id !== undefined && formData.project_id !== null) {
+        // Add parent_id for tasks and rules (project_id becomes parent_id in the database)
+        if ((entityType === 'task' || entityType === 'rule') && formData.project_id !== undefined && formData.project_id !== null) {
           createData.parent_id = formData.project_id;
         }
         
@@ -400,6 +401,8 @@ const UnifiedForm: React.FC<UnifiedFormProps> = ({
         
         if (entityType === 'task') {
           result = await callTool('create_task', createData);
+        } else if (entityType === 'rule') {
+          result = await callTool('create_rule', createData);
         } else if (entityType === 'project') {
           result = await callTool('create_project', createData);
         } else if (entityType === 'epic') {
@@ -416,8 +419,8 @@ const UnifiedForm: React.FC<UnifiedFormProps> = ({
           }
         });
         
-        // Add parent_id for tasks (project_id becomes parent_id in the database)
-        if (entityType === 'task' && formData.project_id !== undefined) {
+        // Add parent_id for tasks and rules (project_id becomes parent_id in the database)
+        if ((entityType === 'task' || entityType === 'rule') && formData.project_id !== undefined) {
           updateData.parent_id = formData.project_id;
         }
         
@@ -426,6 +429,9 @@ const UnifiedForm: React.FC<UnifiedFormProps> = ({
         if (entityType === 'task') {
           updateData.task_id = entityId;
           result = await callTool('update_task', updateData);
+        } else if (entityType === 'rule') {
+          updateData.rule_id = entityId;
+          result = await callTool('update_rule', updateData);
         } else if (entityType === 'project') {
           updateData.project_id = entityId;
           result = await callTool('update_project', updateData);
@@ -439,7 +445,7 @@ const UnifiedForm: React.FC<UnifiedFormProps> = ({
         console.log(`${entityType} operation successful:`, result.content);
         
         // Create a mock entity object for the callback
-        const entity = entityType === 'task' ? {
+        const entity = (entityType === 'task' || entityType === 'rule') ? {
           id: entityId || Date.now(),
           title: formData.Title || formData.title || `Untitled ${entityType}`,
           body: formData.Description || formData.description || formData.Summary || '',
@@ -499,7 +505,7 @@ const UnifiedForm: React.FC<UnifiedFormProps> = ({
 
   if (!isOpen) return null;
 
-  const entityDisplayName = entityType === 'task' ? 'Task' : entityType === 'epic' ? 'Epic' : 'Project';
+  const entityDisplayName = entityType === 'task' ? 'Task' : entityType === 'epic' ? 'Epic' : entityType === 'rule' ? 'Rule' : 'Project';
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-40">
@@ -566,8 +572,8 @@ const UnifiedForm: React.FC<UnifiedFormProps> = ({
             </div>
           ) : (
             <form id="unified-form" onSubmit={handleSubmit} className="space-y-4">
-              {/* Stage field - render first for tasks only */}
-              {entityType === 'task' && formFields.find(field => field.name.toLowerCase() === 'stage') && (
+              {/* Stage field - render first for tasks and rules only */}
+              {(entityType === 'task' || entityType === 'rule') && formFields.find(field => field.name.toLowerCase() === 'stage') && (
                 <div>
                   <Label htmlFor="stage">
                     Stage *
@@ -591,8 +597,8 @@ const UnifiedForm: React.FC<UnifiedFormProps> = ({
                 </div>
               )}
 
-              {/* Project selector for tasks only */}
-              {entityType === 'task' && (
+              {/* Project selector for tasks and rules only */}
+              {(entityType === 'task' || entityType === 'rule') && (
                 <div>
                   <Label htmlFor="project_id">
                     Project

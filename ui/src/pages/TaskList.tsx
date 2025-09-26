@@ -50,7 +50,7 @@ const DraftTasks = () => {
   
   // Entity viewing state
   const [viewingEntityId, setViewingEntityId] = useState<number | null>(null);
-  const [viewingEntityType, setViewingEntityType] = useState<'Task' | 'Project' | 'Epic' | null>(null);
+  const [viewingEntityType, setViewingEntityType] = useState<'Task' | 'Project' | 'Epic' | 'Rule' | null>(null);
   
   // Edit entity state
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
@@ -1051,6 +1051,21 @@ const DraftTasks = () => {
               templateId={TEMPLATE_ID.PROJECT}
             />
           )
+        )}
+
+        {/* Rule viewing using ObjectView */}
+        {viewingEntityId && viewingEntityType === 'Rule' && (
+          <ObjectView
+            entityType="rule"
+            entityId={viewingEntityId}
+            isOpen={!!viewingEntityId}
+            onClose={() => {
+              setViewingEntityId(null);
+              setViewingEntityType(null);
+            }}
+            onDelete={handleTaskDelete}
+            templateId={TEMPLATE_ID.RULE}
+          />
         )}
       </div>
     </HeaderAndSidebarLayout>

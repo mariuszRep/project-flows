@@ -157,7 +157,7 @@ export const UnifiedEntityCard: React.FC<UnifiedEntityCardProps> = ({
         <CardContent 
           className="p-4 w-full cursor-pointer"
           onDoubleClick={() => {
-            if (entity.type === 'Task' && onTaskDoubleClick) {
+            if ((entity.type === 'Task' || entity.type === 'Rule') && onTaskDoubleClick) {
               onTaskDoubleClick(entity.id);
             } else if (onDoubleClick) {
               onDoubleClick(entity.id);
@@ -203,10 +203,10 @@ export const UnifiedEntityCard: React.FC<UnifiedEntityCardProps> = ({
                     typePrimary = 'hsl(var(--gradient-to))';
                   }
                   return (
-                    <KeyValuePill 
-                      keyName={entity.type} 
-                      value={`${entity.id}`} 
-                      size="sm" 
+                    <KeyValuePill
+                      keyName={entity.type}
+                      value={`${entity.id}`}
+                      size="sm"
                       primaryColor={typePrimary}
                       secondaryColor={'hsl(var(--surface))'}
                     />

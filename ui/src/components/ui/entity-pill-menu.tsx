@@ -16,7 +16,7 @@ interface Entity {
 
 interface EntityPillMenuProps {
   entity: Entity;
-  entityType: 'task' | 'project' | 'epic';
+  entityType: 'task' | 'project' | 'epic' | 'rule';
   entityId: number;
   templateId?: number | null;
   stages?: { key: string; title: string; color: string }[];
@@ -26,6 +26,7 @@ const TEMPLATE_ID = {
   TASK: 1,
   PROJECT: 2,
   EPIC: 3,
+  RULE: 4,
 } as const;
 
 export const EntityPillMenu: React.FC<EntityPillMenuProps> = ({
@@ -35,7 +36,7 @@ export const EntityPillMenu: React.FC<EntityPillMenuProps> = ({
   templateId,
   stages
 }) => {
-  const getDefaultTemplateId = (entityType: 'task' | 'project' | 'epic'): number => {
+  const getDefaultTemplateId = (entityType: 'task' | 'project' | 'epic' | 'rule'): number => {
     switch (entityType) {
       case 'task':
         return TEMPLATE_ID.TASK;
@@ -43,6 +44,8 @@ export const EntityPillMenu: React.FC<EntityPillMenuProps> = ({
         return TEMPLATE_ID.PROJECT;
       case 'epic':
         return TEMPLATE_ID.EPIC;
+      case 'rule':
+        return TEMPLATE_ID.RULE;
       default:
         return TEMPLATE_ID.TASK;
     }
@@ -74,7 +77,7 @@ export const EntityPillMenu: React.FC<EntityPillMenuProps> = ({
         } else if (effectiveTemplateId === TEMPLATE_ID.EPIC || entity?.type === 'Epic') {
           typePrimary = 'hsl(var(--gradient-to))';
         }
-        
+
         // Determine entity type label
         let typeLabel = 'Entity';
         if (effectiveTemplateId === TEMPLATE_ID.TASK || entity?.type === 'Task') {
@@ -83,6 +86,8 @@ export const EntityPillMenu: React.FC<EntityPillMenuProps> = ({
           typeLabel = 'Project';
         } else if (effectiveTemplateId === TEMPLATE_ID.EPIC || entity?.type === 'Epic') {
           typeLabel = 'Epic';
+        } else if (effectiveTemplateId === TEMPLATE_ID.RULE || entity?.type === 'Rule') {
+          typeLabel = 'Rule';
         }
         
         return (
