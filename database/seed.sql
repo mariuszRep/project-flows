@@ -67,24 +67,5 @@ SELECT pg_catalog.setval('public.templates_id_seq', 4, true);
 
 
 --
--- Data patch: ensure project 83 has all Project template properties
--- This is safe to run on existing databases; it does nothing if project 83
--- does not exist, or if properties already exist for it.
-DO $$
-DECLARE
-  proj_id integer := 83;
-BEGIN
-  -- Only proceed if the object exists and uses the Project template (id=2)
-  IF EXISTS (SELECT 1 FROM public.objects WHERE id = proj_id AND template_id = 2) THEN
-    INSERT INTO public.object_properties (task_id, property_id, content, position, created_by, updated_by)
-    SELECT proj_id, tp.id, '', tp.execution_order, 'seed', 'seed'
-    FROM public.template_properties tp
-    WHERE tp.template_id = 2
-    ON CONFLICT (task_id, property_id) DO NOTHING;
-  END IF;
-END $$;
-
-
---
 -- PostgreSQL database dump complete
 --
