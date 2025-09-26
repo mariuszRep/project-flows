@@ -21,7 +21,7 @@ import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { ProjectSidebar } from '@/components/ui/project-sidebar';
 import { parseTaskDate } from '@/lib/utils';
 import { FileText, Plus, ArrowRight, Filter, ChevronDown, CheckSquare, Layers } from 'lucide-react';
-import ObjectView, { TEMPLATE_ID } from '@/components/forms/ObjectView';
+import ObjectView, { TEMPLATE_ID } from '@/components/forms/ObjectForm';
 
 const DraftTasks = () => {
   const navigate = useNavigate();

@@ -11,7 +11,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
-import ObjectView from '@/components/forms/ObjectView';
+import ObjectView from '@/components/forms/ObjectForm';
 import { ProjectSidebar } from '@/components/ui/project-sidebar';
 import { MCPDisconnectedState, NoTasksState } from '@/components/ui/empty-state';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
