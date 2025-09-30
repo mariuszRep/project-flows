@@ -339,8 +339,8 @@ const NewTemplateForm: React.FC<NewTemplateFormProps> = ({ isOpen, onClose, temp
   return createPortal(
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black bg-opacity-50 overflow-y-auto p-4">
       <Card className="w-full max-w-3xl mx-auto">
-        <div className="sticky top-0 bg-background border-b border-border p-6 flex items-center justify-between rounded-t-lg">
-          <h2 className="text-2xl font-semibold">
+        <div className="sticky top-0 bg-transparent p-6 flex items-center justify-between rounded-t-lg">
+          <h2 className="text-2xl font-semibold text-foreground">
             {templateName} Template Properties
           </h2>
           <Button variant="ghost" size="icon" onClick={onClose}>
