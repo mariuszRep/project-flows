@@ -4,7 +4,7 @@ import { useSession } from '@/contexts/SessionContext';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { TemplateForm } from '@/components/forms/TemplateForm';
+import NewTemplateForm from '@/components/forms/TemplateForm';
 import { useMCP } from '@/contexts/MCPContext';
 
 interface Template {
@@ -161,7 +161,7 @@ export default function Template() {
       </div>
 
       {/* Template Form Modal */}
-      <TemplateForm 
+      <NewTemplateForm
         isOpen={isTaskFormOpen}
         onClose={() => {
           setIsTaskFormOpen(false);
