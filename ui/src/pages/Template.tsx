@@ -4,7 +4,7 @@ import { useSession } from '@/contexts/SessionContext';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import NewTemplateForm from '@/components/forms/NewTemplateForm';
+import NewTemplateForm from '@/components/forms/TemplateForm';
 import { useMCP } from '@/contexts/MCPContext';
 
 interface Template {
