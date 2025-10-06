@@ -40,6 +40,11 @@ export class TaskTools {
               type: "number",
               description: "The numeric ID of the task to update"
             },
+            stage: {
+              type: "string",
+              description: "Optional stage: 'draft', 'backlog', 'doing', 'review', or 'completed'",
+              enum: ["draft", "backlog", "doing", "review", "completed"]
+            },
             parent_id: {
               type: "number",
               description: "Optional parent task ID for hierarchical relationships"

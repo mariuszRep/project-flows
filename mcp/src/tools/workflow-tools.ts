@@ -511,9 +511,9 @@ export class WorkflowTools {
         description: rule.description
       })),
       analysis_instructions: [
-        "1. Review the task requirements in task_context",
-        "2. Consider epic context (if available) for broader feature scope",
-        "3. Apply project context including stack, architecture, and guidelines",
+        "1. Review the task requirements in task_context (includes all task properties/blocks)",
+        "2. Consider epic context (if available) for broader feature scope and epic-level properties",
+        "3. Apply project context (includes all project properties/blocks - structure, guidelines, stack, etc.)",
         "4. Follow all project_rules during implementation",
         "5. Present a detailed implementation plan for user approval",
         "6. Wait for explicit approval before proceeding with execution"
