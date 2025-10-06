@@ -189,7 +189,7 @@ export class WorkflowTools {
 
   private async handleExecuteTask(toolArgs?: Record<string, any>) {
     const taskId = toolArgs?.task_id;
-    
+
     // Validate task ID
     if (!taskId || typeof taskId !== 'number' || taskId < 1) {
       return {
@@ -204,14 +204,14 @@ export class WorkflowTools {
 
     // Store original task state for rollback purposes
     let originalTaskState: any = null;
-    
+
     try {
       console.log(`🚀 Starting task execution workflow for task ${taskId}`);
-      
+
       // Step 1: Load task context using get_object tool
       const taskResponse = await this.objectTools.handle('get_object', { object_id: taskId });
       const taskContextText = taskResponse.content[0].text;
-      
+
       let taskContext;
       try {
         taskContext = JSON.parse(taskContextText);
@@ -228,21 +228,7 @@ export class WorkflowTools {
         };
       }
 
-      // Step 2: Load project context using get_object tool if task has parent_id
-      let projectContext = null;
-      if (taskContext.parent_id) {
-        try {
-          const projectResponse = await this.objectTools.handle('get_object', { object_id: taskContext.parent_id });
-          const projectContextText = projectResponse.content[0].text;
-          projectContext = JSON.parse(projectContextText);
-          console.log(`📁 Retrieved project: \"${projectContext.blocks?.Title || 'Untitled'}\"`);
-        } catch (error) {
-          console.error('Error loading project context:', error);
-          // Continue without project context - not critical for execution
-        }
-      }
-
-      // Step 3: Update task status to 'doing' using update_task tool (if not already doing)
+      // Step 2: Move task to 'doing' if not already
       if (taskContext.stage !== 'doing') {
         try {
           await this.taskTools.handle('update_task', { task_id: taskId, stage: 'doing' });
@@ -261,9 +247,9 @@ export class WorkflowTools {
         }
       }
 
-      // Step 4: Check if branch creation is needed before proceeding
-      const branchInfo = await this.checkCurrentBranchInfo();
-      
+      // Step 3: Enforce branch validation
+      const branchInfo = await this.checkCurrentBranchInfo(taskId);
+
       if (branchInfo.requiresBranch) {
         // Return branch creation instructions and exit early
         const branchCreationContext = this.generateBranchCreationContext(taskContext, branchInfo);
@@ -277,17 +263,24 @@ export class WorkflowTools {
         };
       }
 
-      // Step 5: Parse checkboxes from Items field and track progress
-      const checkboxProgress = this.parseCheckboxes(taskContext.blocks?.Items || '');
-      console.log(`📊 Found ${checkboxProgress.total} checkboxes, ${checkboxProgress.completed} completed`);
-      
-      // Step 6: Track checkbox progress and auto-transition if needed
-      if (checkboxProgress.total > 0) {
-        await this.trackCheckboxProgress(taskId, checkboxProgress);
+      // Step 4: Load hierarchical context (epic + project)
+      const hierarchicalContext = await this.loadHierarchicalContext(taskContext);
+      console.log(`📁 Loaded hierarchical context: Epic=${hierarchicalContext.epic?.id || 'none'}, Project=${hierarchicalContext.project?.id || 'none'}`);
+
+      // Step 5: Load project rules (template_id: 4)
+      let projectRules: any[] = [];
+      if (hierarchicalContext.project) {
+        projectRules = await this.loadProjectRules(hierarchicalContext.project.id);
+        console.log(`📋 Loaded ${projectRules.length} project rules`);
       }
 
-      // Step 7: Generate execution context with progress information
-      const executionContext = this.generateExecutionContext(taskContext, projectContext, checkboxProgress);
+      // Step 6-10: Generate execution context with analysis, planning, and execution instructions
+      const executionContext = this.generateExecutionContext(
+        taskContext,
+        hierarchicalContext.project,
+        hierarchicalContext.epic,
+        projectRules
+      );
 
       return {
         content: [
@@ -297,17 +290,17 @@ export class WorkflowTools {
           } as TextContent,
         ],
       };
-      
+
     } catch (error) {
       console.error(`❌ Workflow failed for task ${taskId}:`, error);
-      
+
       // Attempt rollback if we have original state and made changes
       if (originalTaskState && originalTaskState.stage !== 'doing') {
         try {
           console.log(`🔄 Attempting rollback for task ${taskId} to stage '${originalTaskState.stage}'`);
-          await this.taskTools.handle('update_task', { 
+          await this.taskTools.handle('update_task', {
             task_id: taskId,
-            stage: originalTaskState.stage 
+            stage: originalTaskState.stage
           });
           console.log(`✅ Successfully rolled back task ${taskId} to original stage`);
         } catch (rollbackError) {
@@ -315,7 +308,7 @@ export class WorkflowTools {
           // Don't throw rollback errors - just log them
         }
       }
-      
+
       return {
         content: [
           {
@@ -333,30 +326,99 @@ export class WorkflowTools {
   }
 
   /**
+   * Load hierarchical context by traversing parent chain (task → epic → project)
+   */
+  private async loadHierarchicalContext(taskContext: any): Promise<{ epic: any | null; project: any | null }> {
+    let epic: any | null = null;
+    let project: any | null = null;
+
+    // If task has no parent, return empty context
+    if (!taskContext.parent_id) {
+      return { epic, project };
+    }
+
+    try {
+      // Load immediate parent
+      const parentResponse = await this.objectTools.handle('get_object', { object_id: taskContext.parent_id });
+      const parentText = parentResponse.content[0].text;
+      const parent = JSON.parse(parentText);
+
+      // Determine parent type and traverse upward
+      if (parent.template_id === 2) {
+        // Parent is a project
+        project = parent;
+      } else if (parent.template_id === 3) {
+        // Parent is an epic
+        epic = parent;
+
+        // Load epic's parent (should be a project)
+        if (epic.parent_id) {
+          try {
+            const projectResponse = await this.objectTools.handle('get_object', { object_id: epic.parent_id });
+            const projectText = projectResponse.content[0].text;
+            project = JSON.parse(projectText);
+          } catch (error) {
+            console.error('Error loading project from epic parent:', error);
+          }
+        }
+      } else if (parent.template_id === 1) {
+        // Parent is a task (subtask scenario)
+        // Load task's parent recursively to find epic/project
+        const grandparentContext = await this.loadHierarchicalContext(parent);
+        epic = grandparentContext.epic;
+        project = grandparentContext.project;
+      }
+    } catch (error) {
+      console.error('Error loading hierarchical context:', error);
+    }
+
+    return { epic, project };
+  }
+
+  /**
+   * Load project rules by querying objects with template_id: 4 and parent_id: projectId
+   */
+  private async loadProjectRules(projectId: number): Promise<any[]> {
+    try {
+      const rulesResponse = await this.objectTools.handle('list_objects', {
+        parent_id: projectId,
+        template_id: 4
+      });
+
+      const rulesText = rulesResponse.content[0].text;
+      const rulesData = JSON.parse(rulesText);
+
+      return rulesData.objects || [];
+    } catch (error) {
+      console.error('Error loading project rules:', error);
+      return [];
+    }
+  }
+
+  /**
    * Generate branch creation context when user needs to create a new branch
    */
   private generateBranchCreationContext(task: any, branchInfo: any): string {
-    const branchName = this.generateBranchName(task.id);
-    
+    const expectedBranch = branchInfo.expectedBranch;
+
     const context = {
       task_id: task.id,
       status: "Branch creation required",
       current_branch: branchInfo.currentBranch,
-      suggested_branch_name: branchName,
+      expected_branch: expectedBranch,
       task_title: task.blocks?.Title || `Task ${task.id}`,
-      warning: `You are currently on '${branchInfo.currentBranch}' branch. Working directly on this branch may commit changes to main/master.`,
+      warning: `You are currently on '${branchInfo.currentBranch}' branch. Expected branch: '${expectedBranch}'.`,
       instructions: [
-        "1. **IMPORTANT**: Create a new Git branch before executing this task",
-        `2. Run the following command to create and switch to a new branch:`,
-        `   git checkout -b ${branchName}`,
-        "3. Alternative: Modify the branch name if needed (follow Git naming conventions)",
-        "4. Once the branch is created successfully, re-run execute_task to continue",
-        "5. All task work will be isolated in the new branch for safe development"
+        "1. **IMPORTANT**: Create the expected Git branch before executing this task",
+        `2. Run the following command to create and switch to the expected branch:`,
+        `   git checkout -b ${expectedBranch}`,
+        "3. Once the branch is created successfully, re-run execute_task to continue",
+        "4. All task work will be isolated in the branch for safe development"
       ],
       branch_naming_guidelines: [
         "- Branch names follow the format: task-{task_id}",
         "- Simple, consistent naming for easy identification",
-        `- Example: ${branchName}, task-42, etc.`
+        `- Example: ${expectedBranch}`
       ],
       task_context: task,
       next_steps: "After creating the branch, execute this task again to proceed with implementation"
@@ -367,321 +429,63 @@ export class WorkflowTools {
 
   /**
    * Generate execution context for implementation when branch is ready
-   * Focus on implementation, progress tracking, and completion guidance
+   * Includes hierarchical context, project rules, and execution workflow instructions
    */
-  private generateExecutionContext(task: any, projectContext: any, checkboxProgress?: { total: number, completed: number, items: Array<{ text: string, completed: boolean }> }): string {
+  private generateExecutionContext(task: any, projectContext: any, epicContext: any, projectRules: any[]): string {
     const context = {
       task_id: task.id,
-      status: "Task updated to 'doing' - ready for execution",
+      status: "Ready for execution",
       task_title: task.blocks?.Title || `Task ${task.id}`,
-      instructions: [
-        "1. Analyze the loaded task and project context",
-        "2. Plan your implementation approach based on the requirements", 
-        "3. Execute the plan step by step",
-        "4. CRITICAL: Update Items section checkboxes as you complete each step",
-        "5. Use update_task tool to save progress in real-time",
-        "6. Task will automatically transition to 'review' status upon completion"
+      workflow_steps: [
+        "Step 6: Analyze task requirements with full context (task, epic, project, rules)",
+        "Step 7: Plan implementation approach - present plan for user approval",
+        "Step 8: Request explicit permission to execute",
+        "Step 9: Execute implementation after approval",
+        "Step 10: After completion, task will be moved to 'review' stage"
       ],
       task_context: task,
-      project_context: projectContext,
-      checkbox_progress: checkboxProgress ? {
-        total: checkboxProgress.total,
-        completed: checkboxProgress.completed,
-        remaining: checkboxProgress.total - checkboxProgress.completed,
-        completion_percentage: checkboxProgress.total > 0 ? Math.round((checkboxProgress.completed / checkboxProgress.total) * 100) : 0,
-        auto_review_enabled: checkboxProgress.total > 0,
-        items: checkboxProgress.items
-      } : {
-        total: 0,
-        completed: 0,
-        remaining: 0,
-        completion_percentage: 0,
-        auto_review_enabled: false,
-        message: "No checkboxes found in Items section"
-      },
-      progress_tracking_requirements: {
-        mandatory: "You MUST update Items section checkboxes as work progresses",
-        format: "Change [ ] to [x] immediately after completing each step",
-        tool: "Use update_task tool to save checkbox progress", 
-        purpose: "Provides visibility for multi-agent coordination and handoffs",
-        auto_transition: "Task will automatically move to 'review' when all checkboxes are completed"
-      },
-      completion_instructions: [
-        "1. When all implementation steps are complete:",
-        "2. Update all remaining checkboxes to [x] in the Items section", 
-        "3. Use update_task tool to save final progress",
-        "4. The system will automatically detect completion and move task to 'review'",
-        "5. Task will then be ready for code review and testing"
+      epic_context: epicContext || null,
+      project_context: projectContext || null,
+      project_rules: projectRules.map(rule => ({
+        id: rule.id,
+        title: rule.title,
+        description: rule.description
+      })),
+      analysis_instructions: [
+        "1. Review the task requirements in task_context",
+        "2. Consider epic context (if available) for broader feature scope",
+        "3. Apply project context including stack, architecture, and guidelines",
+        "4. Follow all project_rules during implementation",
+        "5. Present a detailed implementation plan for user approval",
+        "6. Wait for explicit approval before proceeding with execution"
       ],
-      next_steps: checkboxProgress && checkboxProgress.total > 0 
-        ? `Progress: ${checkboxProgress.completed}/${checkboxProgress.total} completed. Continue with remaining tasks.`
-        : "All context loaded. Begin planning and implementation now."
+      execution_instructions: [
+        "1. After user approves the plan, request permission to execute",
+        "2. Implement changes according to approved plan",
+        "3. Follow project guidelines and best practices",
+        "4. Test implementation to ensure quality",
+        "5. When complete, manually transition task to 'review' stage using update_task"
+      ],
+      completion_requirements: [
+        "- All task requirements must be fulfilled",
+        "- Code must follow project guidelines and rules",
+        "- Implementation must be tested and verified",
+        "- Task stage must be updated to 'review' using update_task tool"
+      ],
+      next_steps: "Analyze context and present implementation plan for approval"
     };
 
     return JSON.stringify(context, null, 2);
   }
 
-  /**
-   * Generate a branch name for the given task ID following the format: task-{task_id}
-   * Note: This method does not execute any shell commands - it's a pure helper for guidance
-   */
-  private generateBranchName(taskId: number): string {
-    return `task-${taskId}`;
-  }
-
-  /**
-   * Parse checkbox items from markdown Items field
-   * Returns comprehensive checkbox analysis with individual item details
-   */
-  private parseCheckboxes(itemsContent: string): { total: number, completed: number, items: Array<{ text: string, completed: boolean }> } {
-    if (!itemsContent || typeof itemsContent !== 'string') {
-      return { total: 0, completed: 0, items: [] };
-    }
-
-    const lines = itemsContent.split('\n');
-    const items: Array<{ text: string; completed: boolean }> = [];
-    let completed = 0;
-    
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed.startsWith('- [ ]') || trimmed.startsWith('- [x]') || trimmed.startsWith('- [X]')) {
-        const isCompleted = trimmed.startsWith('- [x]') || trimmed.startsWith('- [X]');
-        const text = trimmed.substring(5).trim();
-        
-        items.push({ text, completed: isCompleted });
-        if (isCompleted) completed++;
-      }
-    }
-    
-    return {
-      total: items.length,
-      completed,
-      items
-    };
-  }
-
-  /**
-   * Track checkbox progress and auto-transition to review if all completed
-   * This implements the core auto-completion logic from Task 176
-   */
-  private async trackCheckboxProgress(taskId: number, progress: { total: number, completed: number, items: Array<{ text: string, completed: boolean }> }): Promise<void> {
-    console.log(`📊 Task ${taskId} progress: ${progress.completed}/${progress.total} checkboxes completed`);
-    
-    // If all checkboxes are completed, move task to review stage
-    if (progress.total > 0 && progress.completed === progress.total) {
-      console.log(`✅ All checkboxes completed for task ${taskId}, moving to Review stage`);
-      try {
-        await this.taskTools.handle("update_task", { 
-          task_id: taskId,
-          stage: 'review'
-        });
-        console.log(`🎉 Task ${taskId} automatically transitioned to 'review' stage`);
-      } catch (error) {
-        console.error(`❌ Failed to auto-transition task ${taskId} to review:`, error);
-        throw error; // Re-throw to trigger rollback
-      }
-    }
-  }
-
-
-
-
-  /**
-   * Helper method to generate analysis prompt dynamically based on project properties
-   */
-  private generateAnalysisPrompt(
-    projectContext: any,
-    projectProperties: any[],
-    taskProperties: any[],
-    analysisDepth: string
-  ): string {
-    // Extract property keys from schema
-    const projectPropertyKeys = projectProperties.map(prop => prop.key);
-    const taskPropertyKeys = taskProperties.map(prop => prop.key);
-    
-    // Build dynamic project context object with only available properties
-    const dynamicProjectContext: Record<string, any> = {};
-    projectPropertyKeys.forEach(key => {
-      if (projectContext.blocks && projectContext.blocks[key] !== undefined) {
-        dynamicProjectContext[key] = projectContext.blocks[key];
-      }
-    });
-    
-    // Group task properties by type for better analysis
-    const taskPropertyDetails = taskProperties.map(prop => ({
-      key: prop.key,
-      type: prop.type,
-      description: prop.description,
-      required: prop.fixed || false
-    }));
-
-    // Categorize task properties for better analysis
-    const contentProperties = taskPropertyDetails.filter(p => 
-      ['text', 'markdown', 'string'].includes(p.type.toLowerCase()));
-    const structuralProperties = taskPropertyDetails.filter(p => 
-      ['list', 'array', 'object'].includes(p.type.toLowerCase()));
-    const metadataProperties = taskPropertyDetails.filter(p => 
-      !contentProperties.some(cp => cp.key === p.key) && 
-      !structuralProperties.some(sp => sp.key === p.key));
-    
-    // Build prompt with dynamic properties and detailed task property information
-    return `
-Analyze the following project and determine appropriate tasks to create:
-
-Project Context:
-${JSON.stringify(dynamicProjectContext, null, 2)}
-
-Analysis Depth: ${analysisDepth}
-
-Available Task Properties:
-${JSON.stringify(taskPropertyKeys, null, 2)}
-
-Task Property Details:
-${JSON.stringify(taskPropertyDetails, null, 2)}
-
-Content Properties (for task descriptions, notes, etc.):
-${JSON.stringify(contentProperties.map(p => p.key), null, 2)}
-
-Structural Properties (for checklists, structured data):
-${JSON.stringify(structuralProperties.map(p => p.key), null, 2)}
-
-Metadata Properties:
-${JSON.stringify(metadataProperties.map(p => p.key), null, 2)}
-
-Please provide a structured analysis with the following:
-1. Overall project complexity assessment
-2. Recommended task breakdown structure
-3. For each task, provide:
-   - Title
-   - Description
-   - Items (checklist)
-   ${taskPropertyKeys.filter(key => key !== 'Title' && key !== 'Description' && key !== 'Items')
-     .map(key => `   - ${key}`).join('\n')}
-4. Recommended task relationships (parent-child)
-5. Suggested task count based on project complexity
-
-Important: For each task, ensure you populate all required properties and follow the property types.
-`;
-  }
-
-
-
-  /**
-   * Helper method to send analysis prompt to the agent
-   * The agent using this tool will perform the analysis and return structured tasks
-   */
-  private async sendToAgent(prompt: string): Promise<any> {
-    console.log(`🤖 Requesting analysis from calling agent for project initiation`);
-    
-    // The calling agent (Claude) should analyze the project and return structured tasks
-    // This method should trigger the agent to perform analysis and return tasks in the expected format
-    
-    // Return the analysis prompt for the agent to process
-    // The agent will need to analyze and return a structured response with tasks
-    throw new Error(`AGENT_ANALYSIS_REQUIRED: ${prompt}`);
-  }
-
-  /**
-   * Helper method to parse agent's analysis result
-   */
-  private parseAnalysisResult(analysisResult: any): any[] {
-    // In a real implementation, this would parse the agent's response
-    // into a structured format for task creation
-    
-    return analysisResult.tasks || [];
-  }
-
-  /**
-   * Helper method to determine appropriate task count based on project complexity
-   */
-  private determineTaskCount(
-    projectContext: any,
-    taskStructure: any[],
-    analysisDepth: string
-  ): number {
-    // Log project context usage for debugging
-    console.log(`Determining task count for project: ${projectContext.blocks?.Title || 'Untitled'}`);
-    
-    // This would be determined by the agent's analysis
-    // For now, use a simple mapping based on analysis depth
-    const depthMultiplier: Record<string, number> = {
-      'basic': 1,
-      'standard': 1.5,
-      'comprehensive': 2.5
-    };
-    
-    const baseCount = taskStructure.length || 5;
-    const multiplier = depthMultiplier[analysisDepth] || 1;
-    return Math.ceil(baseCount * multiplier);
-  }
-
-  /**
-   * Helper method to create tasks from analysis using create_task
-   */
-  private async createTasksFromAnalysis(
-    taskStructure: any[],
-    projectId: number,
-    taskCount: number,
-    taskProperties: any[]
-  ): Promise<any[]> {
-    const createdTasks = [];
-    const validTaskPropertyKeys = taskProperties.map(prop => prop.key);
-    
-    // Limit to specified task count
-    const tasksToCreate = taskStructure.slice(0, taskCount);
-    
-    for (const taskTemplate of tasksToCreate) {
-      // Filter task properties to only include valid ones from schema
-      const taskData: Record<string, any> = {
-        parent_id: projectId,
-        stage: 'backlog'
-      };
-      
-      // Only include properties that exist in the schema
-      Object.keys(taskTemplate).forEach(key => {
-        if (validTaskPropertyKeys.includes(key)) {
-          taskData[key] = taskTemplate[key];
-        }
-      });
-      
-      // Create task using create_task tool
-      try {
-        const taskData_with_template: Record<string, any> = { ...taskData, template_id: 1 };
-        const taskResponse = await this.taskTools.handle('create_task', taskData_with_template);
-        if (taskResponse && taskResponse.content && taskResponse.content[0]?.text) {
-          const createdTask = JSON.parse(taskResponse.content[0].text);
-          createdTasks.push(createdTask);
-        }
-      } catch (error) {
-        console.error(`Failed to create task:`, error);
-        // Continue with other tasks even if one fails
-      }
-    }
-    
-    return createdTasks;
-  }
-
-  /**
-   * Helper method to create error response
-   */
-  private createErrorResponse(message: string) {
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify({ error: message }, null, 2),
-        } as TextContent,
-      ],
-    };
-  }
 
   /**
    * Check current branch information with actual git command execution
-   * Improved from environment-based detection to real git status
+   * Validates that current branch matches expected task branch format: task-{taskId}
    */
-  private async checkCurrentBranchInfo(): Promise<{ currentBranch: string; requiresBranch: boolean }> {
+  private async checkCurrentBranchInfo(taskId: number): Promise<{ currentBranch: string; expectedBranch: string; requiresBranch: boolean }> {
     let currentBranch = "unknown";
-    
+
     try {
       // Execute git command to get current branch
       const { execSync } = await import('child_process');
@@ -690,12 +494,18 @@ Important: For each task, ensure you populate all required properties and follow
       console.error('Error detecting git branch:', error);
       currentBranch = "main"; // Safe fallback
     }
-    
+
+    const expectedBranch = `task-${taskId}`;
     const mainBranches = ["main", "master", "develop", "dev"];
-    const requiresBranch = mainBranches.includes(currentBranch);
-    
+
+    // Require branch creation if:
+    // 1. Currently on a main branch, OR
+    // 2. Current branch doesn't match expected task branch
+    const requiresBranch = mainBranches.includes(currentBranch) || currentBranch !== expectedBranch;
+
     return {
       currentBranch,
+      expectedBranch,
       requiresBranch
     };
   }
