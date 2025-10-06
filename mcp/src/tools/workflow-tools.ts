@@ -396,32 +396,91 @@ export class WorkflowTools {
   }
 
   /**
-   * Generate branch creation context when user needs to create a new branch
+   * Generate branch action context when user needs to create/switch branch
    */
-  private generateBranchCreationContext(task: any, branchInfo: any): string {
-    const expectedBranch = branchInfo.expectedBranch;
+  private generateBranchCreationContext(task: any, branchInfo: {
+    currentBranch: string;
+    expectedBranch: string;
+    branchExists: boolean;
+    suggestion: 'create' | 'switch' | 'continue';
+  }): string {
+    const { currentBranch, expectedBranch, branchExists, suggestion } = branchInfo;
+
+    // Build options based on branch state
+    const options = [];
+
+    if (branchExists) {
+      // Option 1: Switch to existing branch
+      options.push({
+        action: "switch",
+        command: `git checkout ${expectedBranch}`,
+        description: `Switch to existing branch '${expectedBranch}'`,
+        recommended: suggestion === 'switch'
+      });
+    } else {
+      // Option 1: Create new branch
+      options.push({
+        action: "create",
+        command: `git checkout -b ${expectedBranch}`,
+        description: `Create and switch to new branch '${expectedBranch}'`,
+        recommended: suggestion === 'create'
+      });
+    }
+
+    // Option 2: Continue on current branch (always available as override)
+    options.push({
+      action: "continue",
+      command: null,
+      description: `Continue working on current branch '${currentBranch}'`,
+      recommended: false,
+      warning: "This may mix task work with other changes on this branch"
+    });
 
     const context = {
       task_id: task.id,
-      status: "Branch creation required",
-      current_branch: branchInfo.currentBranch,
+      status: "Branch action required",
+      current_branch: currentBranch,
       expected_branch: expectedBranch,
+      branch_exists: branchExists,
       task_title: task.blocks?.Title || `Task ${task.id}`,
-      warning: `You are currently on '${branchInfo.currentBranch}' branch. Expected branch: '${expectedBranch}'.`,
+
+      options,
+
+      recommended_action: suggestion === 'switch'
+        ? `Switch to existing branch '${expectedBranch}'`
+        : `Create new branch '${expectedBranch}'`,
+
       instructions: [
-        "1. **IMPORTANT**: Create the expected Git branch before executing this task",
-        `2. Run the following command to create and switch to the expected branch:`,
-        `   git checkout -b ${expectedBranch}`,
-        "3. Once the branch is created successfully, re-run execute_task to continue",
-        "4. All task work will be isolated in the branch for safe development"
+        `**Current Situation**: You are on branch '${currentBranch}'`,
+        `**Expected Branch**: task-${task.id}`,
+        `**Branch Status**: ${branchExists ? 'Already exists' : 'Does not exist'}`,
+        "",
+        "**Choose one of the following options:**",
+        "",
+        branchExists
+          ? `1. **Switch to existing branch** (Recommended):`
+          : `1. **Create new branch** (Recommended):`,
+        branchExists
+          ? `   git checkout ${expectedBranch}`
+          : `   git checkout -b ${expectedBranch}`,
+        "",
+        `2. **Continue on current branch** '${currentBranch}':`,
+        `   Re-run execute_task to proceed without changing branches`,
+        `   ⚠️ Warning: Task work may mix with other changes`,
+        "",
+        "After taking action, re-run execute_task to continue with implementation"
       ],
+
       branch_naming_guidelines: [
         "- Branch names follow the format: task-{task_id}",
         "- Simple, consistent naming for easy identification",
         `- Example: ${expectedBranch}`
       ],
+
       task_context: task,
-      next_steps: "After creating the branch, execute this task again to proceed with implementation"
+      next_steps: branchExists
+        ? `Switch to branch '${expectedBranch}' or continue on current branch, then re-run execute_task`
+        : `Create branch '${expectedBranch}' or continue on current branch, then re-run execute_task`
     };
 
     return JSON.stringify(context, null, 2);
@@ -480,10 +539,30 @@ export class WorkflowTools {
 
 
   /**
+   * Check if a git branch exists locally
+   */
+  private async checkBranchExists(branchName: string): Promise<boolean> {
+    try {
+      const { execSync } = await import('child_process');
+      const output = execSync(`git branch --list ${branchName}`).toString().trim();
+      return output.length > 0;
+    } catch (error) {
+      console.error('Error checking branch existence:', error);
+      return false;
+    }
+  }
+
+  /**
    * Check current branch information with actual git command execution
    * Validates that current branch matches expected task branch format: task-{taskId}
    */
-  private async checkCurrentBranchInfo(taskId: number): Promise<{ currentBranch: string; expectedBranch: string; requiresBranch: boolean }> {
+  private async checkCurrentBranchInfo(taskId: number): Promise<{
+    currentBranch: string;
+    expectedBranch: string;
+    branchExists: boolean;
+    requiresBranch: boolean;
+    suggestion: 'create' | 'switch' | 'continue';
+  }> {
     let currentBranch = "unknown";
 
     try {
@@ -496,17 +575,32 @@ export class WorkflowTools {
     }
 
     const expectedBranch = `task-${taskId}`;
-    const mainBranches = ["main", "master", "develop", "dev"];
+    const branchExists = await this.checkBranchExists(expectedBranch);
 
-    // Require branch creation if:
-    // 1. Currently on a main branch, OR
-    // 2. Current branch doesn't match expected task branch
-    const requiresBranch = mainBranches.includes(currentBranch) || currentBranch !== expectedBranch;
+    // Determine if branch action is required and what action to suggest
+    let requiresBranch = false;
+    let suggestion: 'create' | 'switch' | 'continue' = 'continue';
+
+    if (currentBranch === expectedBranch) {
+      // Already on correct branch - continue
+      requiresBranch = false;
+      suggestion = 'continue';
+    } else if (branchExists) {
+      // Expected branch exists but not on it - suggest switch
+      requiresBranch = true;
+      suggestion = 'switch';
+    } else {
+      // Expected branch doesn't exist - suggest create
+      requiresBranch = true;
+      suggestion = 'create';
+    }
 
     return {
       currentBranch,
       expectedBranch,
-      requiresBranch
+      branchExists,
+      requiresBranch,
+      suggestion
     };
   }
 }
