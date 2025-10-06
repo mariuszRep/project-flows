@@ -16,7 +16,7 @@ export class WorkflowTools {
     return [
       {
         name: "execute_task",
-        description: "Load task and project context, then provide guided execution with real-time progress tracking through checkbox updates. This tool orchestrates task execution by loading all necessary context and providing clear guidance for planning and implementation.",
+        description: "Load task and project context, then provide guided execution with explicit approval gates. This tool orchestrates task execution by loading all necessary context (task, epic, project, rules) and providing clear guidance for planning and implementation through a 10-step workflow.",
         inputSchema: {
           type: "object",
           properties: {
@@ -523,15 +523,16 @@ export class WorkflowTools {
         "2. Implement changes according to approved plan",
         "3. Follow project guidelines and best practices",
         "4. Test implementation to ensure quality",
-        "5. When complete, manually transition task to 'review' stage using update_task"
+        "5. REQUIRED: When all work is complete, you MUST call update_task tool with task_id and stage='review' to transition this task to review stage"
       ],
       completion_requirements: [
         "- All task requirements must be fulfilled",
         "- Code must follow project guidelines and rules",
         "- Implementation must be tested and verified",
-        "- Task stage must be updated to 'review' using update_task tool"
+        "- CRITICAL: Task stage MUST be updated to 'review' by calling: update_task with parameters {task_id: " + task.id + ", stage: 'review'}"
       ],
-      next_steps: "Analyze context and present implementation plan for approval"
+      next_steps: "Analyze context and present implementation plan for approval",
+      reminder: "IMPORTANT: At the end of implementation, you must call update_task to move this task to 'review' stage, just as it was automatically moved to 'doing' at the start."
     };
 
     return JSON.stringify(context, null, 2);
