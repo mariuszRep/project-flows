@@ -3,6 +3,8 @@ import { TaskData } from "../types/task.js";
 import { SchemaProperties, ExecutionChainItem } from "../types/property.js";
 import DatabaseService from "../database.js";
 import { stateEvents, StateChangeEvent } from "../events/state-events.js";
+import { handleCreate } from "./create-handler.js";
+import { handleUpdate } from "./update-handler.js";
 
 export class ProjectTools {
   constructor(
@@ -17,13 +19,13 @@ export class ProjectTools {
     return [
       {
         name: "create_project",
-        description: "Create a detailed project plan with markdown formatting, make sure you populate 'Title' and 'Description' and later all the rest of the properties. Use parent_id to create hierarchical projects (e.g., subprojects under a project).",
+        description: "Create a detailed project plan by following each property's individual prompt instructions exactly. Each field (Title, Description, etc.) has specific formatting requirements - read and follow each property's prompt precisely. Do not impose your own formatting or structure. Each property prompt defines exactly what content and format is required for that field. Use parent_id to create hierarchical projects (e.g., subprojects under a project).",
         inputSchema: {
           type: "object",
           properties: {
             parent_id: {
               type: "number",
-              description: "Optional parent project ID to create hierarchical relationships (subprojects under parent projects)"
+              description: "Optional parent project ID to create hierarchical relationships (subprojects under a parent project)"
             },
             ...allProperties
           },
@@ -40,9 +42,14 @@ export class ProjectTools {
               type: "number",
               description: "The numeric ID of the project to update"
             },
+            stage: {
+              type: "string",
+              description: "Optional stage: 'draft', 'backlog', 'doing', 'review', or 'completed'",
+              enum: ["draft", "backlog", "doing", "review", "completed"]
+            },
             parent_id: {
               type: "number",
-              description: "Optional parent project ID for hierarchical relationships"
+              description: "Optional parent ID for hierarchical relationships"
             },
             ...allProperties
           },
@@ -95,268 +102,34 @@ export class ProjectTools {
   }
 
   private async handleCreateProject(toolArgs?: Record<string, any>) {
-    const dynamicProperties = await this.loadProjectSchemaProperties();
-
-    // Validate dependencies
-    if (!this.validateDependencies(dynamicProperties, toolArgs || {}, false)) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: "Error: Dependency validation failed. Check logs for details.",
-          } as TextContent,
-        ],
-      };
-    }
-
-    // Create execution chain
-    const executionChain = this.createExecutionChain(dynamicProperties);
-
-    // Prepare task data - all properties go into blocks now
-    const taskData: Omit<TaskData, 'id'> = {};
-
-    // Handle parent_id for hierarchical projects
-    if (toolArgs?.parent_id !== undefined) {
-      taskData.parent_id = toolArgs.parent_id;
-      console.log(`Creating project with parent_id ${toolArgs.parent_id}`);
-    } else {
-      // If no parent_id is provided, use the selected project from global state
-      try {
-        // Get the selected project ID from global state
-        const selectedProjectId = await this.sharedDbService.getGlobalState('selected_project_id');
-        if (selectedProjectId !== null) {
-          taskData.parent_id = selectedProjectId;
-          console.log(`Using selected project ID ${selectedProjectId} as parent_id`);
-        }
-      } catch (error) {
-        console.error('Error getting selected project:', error);
-      }
-    }
-
-    // Set template_id to 2 for projects (create_project always creates projects, not tasks)
-    taskData.template_id = 2;
-
-    // Add all properties (including Title and Summary/Description) to task data
-    for (const { prop_name } of executionChain) {
-      const value = toolArgs?.[prop_name] || "";
-      if (value) {
-        taskData[prop_name] = value;
-      }
-    }
-    
-    // Also add any properties not in the execution chain (exclude parent_id as it's already handled)
-    for (const [key, value] of Object.entries(toolArgs || {})) {
-      if (value && key !== 'parent_id' && !taskData[key]) {
-        taskData[key] = value;
-      }
-    }
-
-    // Store task in database
-    let taskId: number;
-    try {
-      taskId = await this.sharedDbService.createTask(taskData, this.clientId);
-    } catch (error) {
-      console.error('Error creating project:', error);
-      return {
-        content: [
-          {
-            type: "text",
-            text: "Error: Failed to create project in database.",
-          } as TextContent,
-        ],
-      };
-    }
-
-    // Create JSON response with project data
-    const title = toolArgs?.Title || "";
-    const description = toolArgs?.Description || toolArgs?.Summary || "";
-  
-    // Get project/parent information if task has parent_id
-    let projectInfo = 'None';
-    let projectId = taskData.parent_id;
-  
-    if (projectId) {
-      try {
-        const parentTask = await this.sharedDbService.getTask(projectId);
-        projectInfo = parentTask ? `${parentTask.Title || 'Untitled'}` : 'Unknown';
-      } catch (error) {
-        console.error('Error loading parent/project task:', error);
-        projectInfo = 'Unknown';
-      }
-    }
-  
-    const templateId = taskData.template_id || 2;
-    const typeDisplay = templateId === 2 ? 'Project' : 'Task';
-  
-    // Build JSON response with structured data
-    const jsonResponse = {
-      success: true,
-      project_id: taskId,
-      type: typeDisplay.toLowerCase(),
-      title: title,
-      description: description,
-      parent_id: projectId,
-      parent_name: projectInfo,
-      template_id: templateId,
-      stage: taskData.stage || 'draft',
-      // Add all dynamic properties
-      ...Object.fromEntries(
-        executionChain
-          .filter(({ prop_name }) => 
-            toolArgs?.[prop_name] && 
-            prop_name !== 'Title' && 
-            prop_name !== 'Description'
-          )
-          .map(({ prop_name }) => [prop_name, toolArgs?.[prop_name]])
-      )
-    };
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(jsonResponse, null, 2),
-        } as TextContent,
-      ],
-    };
+    return handleCreate(
+      {
+        templateId: 2,
+        typeName: "Project",
+        responseIdField: "project_id",
+        loadSchema: this.loadProjectSchemaProperties,
+      },
+      toolArgs,
+      this.sharedDbService,
+      this.clientId,
+      this.createExecutionChain,
+      this.validateDependencies
+    );
   }
 
   private async handleUpdateProject(toolArgs?: Record<string, any>) {
-    // Handle updating an existing project by ID
-    const projectId = toolArgs?.project_id;
-    
-    // Validate project ID
-    if (!projectId || typeof projectId !== 'number' || projectId < 1) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: "Error: Valid numeric project_id is required for update.",
-          } as TextContent,
-        ],
-      };
-    }
-
-    // Check if project exists
-    const existingProject = await this.sharedDbService.getTask(projectId);
-    if (!existingProject) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Error: Project with ID ${projectId} not found.`,
-          } as TextContent,
-        ],
-      };
-    }
-
-    const dynamicProperties = await this.loadProjectSchemaProperties();
-
-    // Filter out project_id from validation since it's not a content field
-    const contentArgs = { ...toolArgs };
-    delete contentArgs.project_id;
-
-    // Prepare update data - all non-stage properties go to blocks
-    const updateData: Partial<TaskData> = {};
-    
-    // Handle stage, parent_id, and template_id explicitly as they're columns in tasks table
-    if (toolArgs?.stage !== undefined) {
-      // Validate stage value
-      const validStages = ['draft', 'backlog', 'doing', 'review', 'completed'];
-      if (validStages.includes(String(toolArgs.stage))) {
-        updateData.stage = String(toolArgs.stage) as any;
-      }
-    }
-    
-    if (toolArgs?.parent_id !== undefined) {
-      updateData.parent_id = toolArgs.parent_id;
-    }
-    
-    // Set template_id to 2 for projects (consistent with create_project)
-    updateData.template_id = 2;
-
-    // Create execution chain to order fields when building markdown
-    const executionChain = this.createExecutionChain(dynamicProperties);
-
-    // Add all properties (including Title, Description) to update data
-    for (const { prop_name } of executionChain) {
-      const value = toolArgs?.[prop_name];
-      if (value !== undefined) {
-        updateData[prop_name] = value;
-      }
-    }
-    
-    // Also add any properties not in the execution chain (except project_id, stage, parent_id, and template_id)
-    for (const [key, value] of Object.entries(toolArgs || {})) {
-      if (key !== 'project_id' && key !== 'stage' && key !== 'parent_id' && key !== 'template_id' && value !== undefined && !updateData.hasOwnProperty(key)) {
-        updateData[key] = value;
-      }
-    }
-
-    // Update project in database
-    try {
-      const updateResult = await this.sharedDbService.updateTask(projectId, updateData, this.clientId);
-      if (!updateResult) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify({ success: false, message: "No updates were applied." }, null, 2),
-            } as TextContent,
-          ],
-        };
-      }
-    } catch (error) {
-      console.error('Error updating project:', error);
-      return {
-        content: [
-          {
-            type: "text",
-            text: "Error: Failed to update project in database.",
-          } as TextContent,
-        ],
-      };
-    }
-
-    // After successful update, return the updated project details in JSON format
-    const updatedTask = await this.sharedDbService.getTask(projectId);
-    if (!updatedTask) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify({ success: false, message: "Project not found after update." }, null, 2),
-          } as TextContent,
-        ],
-      };
-    }
-
-    // Build blocks object dynamically from task properties
-    const blocks: Record<string, string> = {};
-    const systemFields = ['id', 'stage', 'template_id', 'parent_id', 'created_at', 'updated_at', 'created_by', 'updated_by'];
-    for (const [key, value] of Object.entries(updatedTask)) {
-      if (!systemFields.includes(key) && value) {
-        blocks[key] = String(value);
-      }
-    }
-
-    const jsonResponse = {
-      success: true,
-      id: updatedTask.id,
-      stage: updatedTask.stage || 'draft',
-      template_id: 2,
-      parent_id: updatedTask.parent_id,
-      blocks: blocks
-    };
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(jsonResponse, null, 2),
-        } as TextContent,
-      ],
-    };
+    return handleUpdate(
+      {
+        templateId: 2,
+        typeName: "Project",
+        idField: "project_id",
+        loadSchema: this.loadProjectSchemaProperties,
+      },
+      toolArgs,
+      this.sharedDbService,
+      this.clientId,
+      this.createExecutionChain
+    );
   }
 
 
