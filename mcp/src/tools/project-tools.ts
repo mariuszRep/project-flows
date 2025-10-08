@@ -124,6 +124,7 @@ export class ProjectTools {
         typeName: "Project",
         idField: "project_id",
         loadSchema: this.loadProjectSchemaProperties,
+        validateTemplateId: true, // Prevent cross-type updates (e.g., using project_id on a task)
       },
       toolArgs,
       this.sharedDbService,

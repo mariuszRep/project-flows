@@ -105,9 +105,9 @@ export class EpicTools {
         typeName: "Epic",
         idField: "epic_id",
         loadSchema: this.loadDynamicSchemaProperties,
-        validateTemplateId: true,
+        validateTemplateId: true, // Prevent cross-type updates (e.g., using epic_id on a task)
         validateParent: async (parentId: number, dbService: DatabaseService) => {
-          // Validate that parent is a project (template_id=2)
+          // Validate that parent is a project (template_id=2) - epics must belong to projects
           const parentProject = await dbService.getObject(parentId);
           if (!parentProject || parentProject.template_id !== 2) {
             throw new Error("Error: Epics must have a project as parent (template_id=2).");

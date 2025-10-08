@@ -98,7 +98,7 @@ export class RuleTools {
         typeName: "Rule",
         idField: "rule_id",
         loadSchema: this.loadRuleSchemaProperties,
-        validateTemplateId: true,
+        validateTemplateId: true, // Prevent cross-type updates (e.g., using rule_id on a project)
       },
       toolArgs,
       this.sharedDbService,
