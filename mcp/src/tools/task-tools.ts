@@ -2,6 +2,7 @@ import { Tool, TextContent } from "@modelcontextprotocol/sdk/types.js";
 import { TaskData, TaskStage } from "../types/task.js";
 import { SchemaProperties, ExecutionChainItem } from "../types/property.js";
 import DatabaseService from "../database.js";
+import { handleCreate } from "./create-handler.js";
 
 export class TaskTools {
   constructor(
@@ -73,132 +74,20 @@ export class TaskTools {
   }
 
   private async handleCreateTask(toolArgs?: Record<string, any>) {
-    const dynamicProperties = await this.loadDynamicSchemaProperties();
-
-    // Validate dependencies
-    if (!this.validateDependencies(dynamicProperties, toolArgs || {}, false)) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: "Error: Dependency validation failed. Check logs for details.",
-          } as TextContent,
-        ],
-      };
-    }
-
-    // Create execution chain
-    const executionChain = this.createExecutionChain(dynamicProperties);
-
-    // Prepare task data - all properties go into blocks now
-    const taskData: Omit<TaskData, 'id'> = {};
-
-    // Handle parent_id for hierarchical tasks
-    if (toolArgs?.parent_id !== undefined) {
-      taskData.parent_id = toolArgs.parent_id;
-      console.log(`Creating task with parent_id ${toolArgs.parent_id}`);
-    } else {
-      // If no parent_id is provided, use the selected project from global state
-      if (this.projectTools) {
-        try {
-          // Get the selected project ID from global state
-          const selectedProjectId = await this.sharedDbService.getGlobalState('selected_project_id');
-          if (selectedProjectId !== null) {
-            taskData.parent_id = selectedProjectId;
-            console.log(`Using selected project ID ${selectedProjectId} as parent_id`);
-          }
-        } catch (error) {
-          console.error('Error getting selected project:', error);
-        }
-      }
-    }
-
-    // Set template_id to 1 for tasks (create_task always creates tasks, not projects)
-    taskData.template_id = 1;
-
-    // Add all properties (including Title and Summary/Description) to task data
-    for (const { prop_name } of executionChain) {
-      const value = toolArgs?.[prop_name] || "";
-      if (value) {
-        taskData[prop_name] = value;
-      }
-    }
-    
-    // Also add any properties not in the execution chain (exclude parent_id as it's already handled)
-    for (const [key, value] of Object.entries(toolArgs || {})) {
-      if (value && key !== 'parent_id' && !taskData[key]) {
-        taskData[key] = value;
-      }
-    }
-
-    // Store task in database
-    let taskId: number;
-    try {
-      taskId = await this.sharedDbService.createTask(taskData, this.clientId);
-    } catch (error) {
-      console.error('Error creating task:', error);
-      return {
-        content: [
-          {
-            type: "text",
-            text: "Error: Failed to create task in database.",
-          } as TextContent,
-        ],
-      };
-    }
-
-    // Create JSON response with task data
-    const title = toolArgs?.Title || "";
-    const description = toolArgs?.Description || toolArgs?.Summary || "";
-  
-    // Get project/parent information if task has parent_id
-    let projectInfo = 'None';
-    let projectId = taskData.parent_id;
-  
-    if (projectId) {
-      try {
-        const parentTask = await this.sharedDbService.getTask(projectId);
-        projectInfo = parentTask ? `${parentTask.Title || 'Untitled'}` : 'Unknown';
-      } catch (error) {
-        console.error('Error loading parent/project task:', error);
-        projectInfo = 'Unknown';
-      }
-    }
-  
-    const templateId = taskData.template_id || 1;
-    const typeDisplay = templateId === 2 ? 'Project' : 'Task';
-  
-    // Build JSON response with structured data
-    const jsonResponse = {
-      success: true,
-      task_id: taskId,
-      type: typeDisplay.toLowerCase(),
-      title: title,
-      description: description,
-      project_id: projectId,
-      project_name: projectInfo,
-      template_id: templateId,
-      stage: taskData.stage || 'draft',
-      // Add all dynamic properties
-      ...Object.fromEntries(
-        executionChain
-          .filter(({ prop_name }) => 
-            toolArgs?.[prop_name] && 
-            prop_name !== 'Title' && 
-            prop_name !== 'Description'
-          )
-          .map(({ prop_name }) => [prop_name, toolArgs?.[prop_name]])
-      )
-    };
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(jsonResponse, null, 2),
-        } as TextContent,
-      ],
-    };
+    return handleCreate(
+      {
+        templateId: 1,
+        typeName: "Task",
+        responseIdField: "task_id",
+        loadSchema: this.loadDynamicSchemaProperties,
+      },
+      toolArgs,
+      this.sharedDbService,
+      this.clientId,
+      this.createExecutionChain,
+      this.validateDependencies,
+      this.projectTools
+    );
   }
 
   private async handleUpdateTask(toolArgs?: Record<string, any>) {

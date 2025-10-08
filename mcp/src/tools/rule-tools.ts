@@ -2,6 +2,7 @@ import { Tool, TextContent } from "@modelcontextprotocol/sdk/types.js";
 import { TaskData, TaskStage } from "../types/task.js";
 import { SchemaProperties, ExecutionChainItem } from "../types/property.js";
 import DatabaseService from "../database.js";
+import { handleCreate } from "./create-handler.js";
 
 export class RuleTools {
   constructor(
@@ -68,132 +69,20 @@ export class RuleTools {
   }
 
   private async handleCreateRule(toolArgs?: Record<string, any>) {
-    const dynamicProperties = await this.loadRuleSchemaProperties();
-
-    // Validate dependencies
-    if (!this.validateDependencies(dynamicProperties, toolArgs || {}, false)) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: "Error: Dependency validation failed. Check logs for details.",
-          } as TextContent,
-        ],
-      };
-    }
-
-    // Create execution chain
-    const executionChain = this.createExecutionChain(dynamicProperties);
-
-    // Prepare rule data - all properties go into blocks now
-    const ruleData: Omit<TaskData, 'id'> = {};
-
-    // Handle parent_id for hierarchical rules
-    if (toolArgs?.parent_id !== undefined) {
-      ruleData.parent_id = toolArgs.parent_id;
-      console.log(`Creating rule with parent_id ${toolArgs.parent_id}`);
-    } else {
-      // If no parent_id is provided, use the selected project from global state
-      if (this.projectTools) {
-        try {
-          // Get the selected project ID from global state
-          const selectedProjectId = await this.sharedDbService.getGlobalState('selected_project_id');
-          if (selectedProjectId !== null) {
-            ruleData.parent_id = selectedProjectId;
-            console.log(`Using selected project ID ${selectedProjectId} as parent_id`);
-          }
-        } catch (error) {
-          console.error('Error getting selected project:', error);
-        }
-      }
-    }
-
-    // Set template_id to 4 for rules (create_rule always creates rules)
-    ruleData.template_id = 4;
-
-    // Add all properties (including Title and Description) to rule data
-    for (const { prop_name } of executionChain) {
-      const value = toolArgs?.[prop_name] || "";
-      if (value) {
-        ruleData[prop_name] = value;
-      }
-    }
-
-    // Also add any properties not in the execution chain (exclude parent_id as it's already handled)
-    for (const [key, value] of Object.entries(toolArgs || {})) {
-      if (value && key !== 'parent_id' && !ruleData[key]) {
-        ruleData[key] = value;
-      }
-    }
-
-    // Store rule in database
-    let ruleId: number;
-    try {
-      ruleId = await this.sharedDbService.createTask(ruleData, this.clientId);
-    } catch (error) {
-      console.error('Error creating rule:', error);
-      return {
-        content: [
-          {
-            type: "text",
-            text: "Error: Failed to create rule in database.",
-          } as TextContent,
-        ],
-      };
-    }
-
-    // Create JSON response with rule data
-    const title = toolArgs?.Title || "";
-    const description = toolArgs?.Description || "";
-
-    // Get project/parent information if rule has parent_id
-    let projectInfo = 'None';
-    let projectId = ruleData.parent_id;
-
-    if (projectId) {
-      try {
-        const parentTask = await this.sharedDbService.getTask(projectId);
-        projectInfo = parentTask ? `${parentTask.Title || 'Untitled'}` : 'Unknown';
-      } catch (error) {
-        console.error('Error loading parent/project task:', error);
-        projectInfo = 'Unknown';
-      }
-    }
-
-    const templateId = ruleData.template_id || 4;
-    const typeDisplay = 'Rule';
-
-    // Build JSON response with structured data
-    const jsonResponse = {
-      success: true,
-      rule_id: ruleId,
-      type: typeDisplay.toLowerCase(),
-      title: title,
-      description: description,
-      project_id: projectId,
-      project_name: projectInfo,
-      template_id: templateId,
-      stage: ruleData.stage || 'draft',
-      // Add all dynamic properties
-      ...Object.fromEntries(
-        executionChain
-          .filter(({ prop_name }) =>
-            toolArgs?.[prop_name] &&
-            prop_name !== 'Title' &&
-            prop_name !== 'Description'
-          )
-          .map(({ prop_name }) => [prop_name, toolArgs?.[prop_name]])
-      )
-    };
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(jsonResponse, null, 2),
-        } as TextContent,
-      ],
-    };
+    return handleCreate(
+      {
+        templateId: 4,
+        typeName: "Rule",
+        responseIdField: "rule_id",
+        loadSchema: this.loadRuleSchemaProperties,
+      },
+      toolArgs,
+      this.sharedDbService,
+      this.clientId,
+      this.createExecutionChain,
+      this.validateDependencies,
+      this.projectTools
+    );
   }
 
   private async handleUpdateRule(toolArgs?: Record<string, any>) {

@@ -2,6 +2,7 @@ import { Tool, TextContent } from "@modelcontextprotocol/sdk/types.js";
 import { EpicData, EpicStage } from "../types/epic.js";
 import { SchemaProperties, ExecutionChainItem } from "../types/property.js";
 import DatabaseService from "../database.js";
+import { handleCreate } from "./create-handler.js";
 
 export class EpicTools {
   constructor(
@@ -68,159 +69,27 @@ export class EpicTools {
   }
 
   private async handleCreateEpic(toolArgs?: Record<string, any>) {
-    const dynamicProperties = await this.loadDynamicSchemaProperties();
-
-    // Validate dependencies
-    if (!this.validateDependencies(dynamicProperties, toolArgs || {}, false)) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: "Error: Dependency validation failed. Check logs for details.",
-          } as TextContent,
-        ],
-      };
-    }
-
-    // Create execution chain
-    const executionChain = this.createExecutionChain(dynamicProperties);
-
-    // Prepare epic data - all properties go into blocks now
-    const epicData: Omit<EpicData, 'id'> = {};
-
-    // Handle parent_id for hierarchical epics (epics must have projects as parents)
-    if (toolArgs?.parent_id !== undefined) {
-      // Validate that parent is a project (template_id=2)
-      try {
-        const parentProject = await this.sharedDbService.getTask(toolArgs.parent_id);
-        if (!parentProject || parentProject.template_id !== 2) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: "Error: Epics must have a project as parent (template_id=2).",
-              } as TextContent,
-            ],
-          };
-        }
-      } catch (error) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: "Error: Parent project not found or invalid.",
-            } as TextContent,
-          ],
-        };
-      }
-      epicData.parent_id = toolArgs.parent_id;
-      console.log(`Creating epic with parent project ID ${toolArgs.parent_id}`);
-    } else {
-      // If no parent_id is provided, use the selected project from global state
-      if (this.projectTools) {
-        try {
-          // Get the selected project ID from global state
-          const selectedProjectId = await this.sharedDbService.getGlobalState('selected_project_id');
-          if (selectedProjectId !== null) {
-            // Validate that selected project exists and is a project
-            const parentProject = await this.sharedDbService.getTask(selectedProjectId);
-            if (parentProject && parentProject.template_id === 2) {
-              epicData.parent_id = selectedProjectId;
-              console.log(`Using selected project ID ${selectedProjectId} as parent_id`);
-            }
+    return handleCreate(
+      {
+        templateId: 3,
+        typeName: "Epic",
+        responseIdField: "epic_id",
+        loadSchema: this.loadDynamicSchemaProperties,
+        validateParent: async (parentId: number, dbService: DatabaseService) => {
+          // Validate that parent is a project (template_id=2)
+          const parentProject = await dbService.getTask(parentId);
+          if (!parentProject || parentProject.template_id !== 2) {
+            throw new Error("Error: Epics must have a project as parent (template_id=2).");
           }
-        } catch (error) {
-          console.error('Error getting selected project:', error);
-        }
-      }
-    }
-
-    // Set template_id to 3 for epics (create_epic always creates epics)
-    epicData.template_id = 3;
-
-    // Add all properties (including Title and Description) to epic data
-    for (const { prop_name } of executionChain) {
-      const value = toolArgs?.[prop_name] || "";
-      if (value) {
-        epicData[prop_name] = value;
-      }
-    }
-    
-    // Also add any properties not in the execution chain (exclude parent_id as it's already handled)
-    for (const [key, value] of Object.entries(toolArgs || {})) {
-      if (value && key !== 'parent_id' && !epicData[key]) {
-        epicData[key] = value;
-      }
-    }
-
-    // Store epic in database
-    let epicId: number;
-    try {
-      epicId = await this.sharedDbService.createTask(epicData, this.clientId);
-    } catch (error) {
-      console.error('Error creating epic:', error);
-      return {
-        content: [
-          {
-            type: "text",
-            text: "Error: Failed to create epic in database.",
-          } as TextContent,
-        ],
-      };
-    }
-
-    // Create JSON response with epic data
-    const title = toolArgs?.Title || "";
-    const description = toolArgs?.Description || "";
-  
-    // Get project/parent information if epic has parent_id
-    let projectInfo = 'None';
-    let projectId = epicData.parent_id;
-  
-    if (projectId) {
-      try {
-        const parentProject = await this.sharedDbService.getTask(projectId);
-        projectInfo = parentProject ? `${parentProject.Title || 'Untitled'}` : 'Unknown';
-      } catch (error) {
-        console.error('Error loading parent project:', error);
-        projectInfo = 'Unknown';
-      }
-    }
-  
-    const templateId = epicData.template_id || 3;
-    const typeDisplay = 'Epic';
-  
-    // Build JSON response with structured data
-    const jsonResponse = {
-      success: true,
-      epic_id: epicId,
-      type: typeDisplay.toLowerCase(),
-      title: title,
-      description: description,
-      project_id: projectId,
-      project_name: projectInfo,
-      template_id: templateId,
-      stage: epicData.stage || 'draft',
-      // Add all dynamic properties
-      ...Object.fromEntries(
-        executionChain
-          .filter(({ prop_name }) => 
-            toolArgs?.[prop_name] && 
-            prop_name !== 'Title' && 
-            prop_name !== 'Description'
-          )
-          .map(({ prop_name }) => [prop_name, toolArgs?.[prop_name]])
-      )
-    };
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(jsonResponse, null, 2),
-        } as TextContent,
-      ],
-    };
+        },
+      },
+      toolArgs,
+      this.sharedDbService,
+      this.clientId,
+      this.createExecutionChain,
+      this.validateDependencies,
+      this.projectTools
+    );
   }
 
   private async handleUpdateEpic(toolArgs?: Record<string, any>) {
