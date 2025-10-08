@@ -160,11 +160,8 @@ export async function handleCreate(
     type: typeDisplay.toLowerCase(),
     title: title,
     description: description,
-    // Use appropriate field names based on entity type
-    ...(config.typeName === "Project"
-      ? { parent_id: projectId, parent_name: projectInfo }
-      : { project_id: projectId, project_name: projectInfo }
-    ),
+    parent_id: projectId,
+    parent_name: projectInfo,
     template_id: templateId,
     stage: taskData.stage || 'draft',
     // Add all dynamic properties
