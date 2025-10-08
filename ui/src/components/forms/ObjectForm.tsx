@@ -521,13 +521,11 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
       : [...new Set([...blocksProperties, ...directProperties])];
 
     return propertiesToRender.filter(propertyName => {
-      // Always exclude Title and project_id from body
+      // Always exclude Title and project_id from body (handled separately)
       if (propertyName === 'Title' || propertyName === 'project_id') return false;
-
-      const blockValue = entity.blocks?.[propertyName];
-      const directValue = entity[propertyName];
-      return blockValue !== undefined && blockValue !== null && blockValue !== '' ||
-             directValue !== undefined && directValue !== null && directValue !== '';
+      
+      // Show all other template properties regardless of whether they have values
+      return true;
     });
   };
 
