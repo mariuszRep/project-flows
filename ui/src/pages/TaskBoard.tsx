@@ -138,8 +138,8 @@ export default function Board() {
 
                 const parsedTasks = relevantTasks.map((taskData: any) => ({
                   id: taskData.id,
-                  title: taskData.title || 'Untitled Task',
-                  body: taskData.description || '',
+                  title: taskData.title || taskData.Title || 'Untitled Task',
+                  body: taskData.description || taskData.Description || '',
                   stage: taskData.stage as 'draft' | 'backlog' | 'doing' | 'review' | 'completed',
                   project_id: taskData.parent_id,
                   created_at: taskData.created_at || null,
@@ -147,8 +147,8 @@ export default function Board() {
                   created_by: taskData.created_by || 'user@example.com',
                   updated_by: taskData.updated_by || 'user@example.com',
                   // Store original block-based properties for compatibility
-                  Title: taskData.title,
-                  Description: taskData.description
+                  Title: taskData.title || taskData.Title,
+                  Description: taskData.description || taskData.Description
                 }));
                 
                 allTasks = parsedTasks;

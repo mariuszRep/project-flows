@@ -19,8 +19,8 @@ export interface UnifiedEntity {
 export const mapToUnifiedEntity = (obj: any): UnifiedEntity => {
   return {
     id: Number(obj.id),
-    title: obj?.blocks?.Title || obj.title || obj.Title || 'Untitled',
-    summary: obj?.blocks?.Summary || obj.summary || obj.Summary || obj.description || obj?.blocks?.Description || '',
+    title: obj.title || obj.Title || obj?.blocks?.Title || 'Untitled',
+    summary: obj.description || obj.Description || obj?.blocks?.Description || obj?.blocks?.Summary || obj.summary || obj.Summary || '',
     stage: obj.stage as TaskStage,
     type: (obj.type === 'Epic' || obj.type === 'Project' || obj.type === 'Task' || obj.type === 'Rule')
       ? obj.type

@@ -272,6 +272,9 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [entity, setEntity] = useState<Entity | null>(null);
+  const [allEpics, setAllEpics] = useState<Array<{ id: number; title: string; parent_id: number; parent_name: string }>>([]);
+  const [isLoadingEpics, setIsLoadingEpics] = useState(false);
+  const [selectedProjectForTask, setSelectedProjectForTask] = useState<string | null>(null);
   const [orderedProperties, setOrderedProperties] = useState<string[]>([]);
   const [propertyDescriptions, setPropertyDescriptions] = useState<Record<string, string>>({});
   const [templateId, setTemplateId] = useState<number | null>(propTemplateId || null);
@@ -398,6 +401,40 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
     }
   }, [entity, templateId, createMode, fetchTemplateProperties]);
 
+  // Fetch all epics for task creation and editing
+  useEffect(() => {
+    const fetchEpics = async () => {
+      if (!callTool || !isConnected || entityType !== 'task') return;
+      
+      setIsLoadingEpics(true);
+      try {
+        const result = await callTool('list_objects', { template_id: 3 }); // Epic template_id = 3
+        if (result?.content?.[0]?.text) {
+          const jsonResponse = JSON.parse(result.content[0].text);
+          if (jsonResponse.objects && Array.isArray(jsonResponse.objects)) {
+            const epicsList = jsonResponse.objects.map((obj: any) => {
+              // Find parent project name
+              const parentProject = projects.find(p => p.id === obj.parent_id);
+              return {
+                id: obj.id,
+                title: obj.title || obj.Title || 'Untitled Epic',
+                parent_id: obj.parent_id,
+                parent_name: parentProject?.name || 'Unknown Project'
+              };
+            });
+            setAllEpics(epicsList);
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching epics:', err);
+      } finally {
+        setIsLoadingEpics(false);
+      }
+    };
+
+    fetchEpics();
+  }, [callTool, isConnected, entityType, createMode, projects]);
+
   // Initialize create mode values after template properties are loaded
   useEffect(() => {
     if (createMode && orderedProperties.length > 0) {
@@ -409,12 +446,17 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
       });
 
       // Set default values for specific fields
-      if (entityType === 'task') {
-        // Set initial stage for tasks
-        initialValues['stage'] = initialStage;
-        // Set project_id from selected project if available
-        if (selectedProjectId !== null) {
+      // Set initial stage for all entity types
+      initialValues['stage'] = initialStage;
+      
+      // Set parent_id from selected project if available
+      if (selectedProjectId !== null) {
+        if (entityType === 'task') {
+          // For tasks, set the selected project in our local state
+          setSelectedProjectForTask(selectedProjectId.toString());
           initialValues['project_id'] = selectedProjectId.toString();
+        } else if (entityType === 'epic' || entityType === 'rule') {
+          initialValues['parent_id'] = selectedProjectId.toString();
         }
       }
 
@@ -490,18 +532,19 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
     if (!entity) return `${entityType.charAt(0).toUpperCase() + entityType.slice(1)} #${entityId}`;
 
     // Priority: blocks.Title, title, Title, fallback
-    return entity.blocks?.Title || entity.title || entity.Title || `${entityType.charAt(0).toUpperCase() + entityType.slice(1)} #${entityId}`;
+    return String(entity.blocks?.Title || entity.title || entity.Title || `${entityType.charAt(0).toUpperCase() + entityType.slice(1)} #${entityId}`);
   };
 
   const getPropertiesToRender = (): string[] => {
     if (createMode) {
       // In create mode, use ordered properties from template
       return orderedProperties.filter(propertyName => {
-        // Always exclude Title and project_id from body (handled separately)
-        if (propertyName === 'Title' || propertyName === 'project_id') return false;
+        // Always exclude Title from body (handled separately)
+        if (propertyName === 'Title') return false;
 
-        // In create mode, show stage only for tasks (handled separately)
-        if (propertyName === 'stage' && entityType === 'task') return false;
+        // Exclude stage and parent fields from body (handled separately)
+        if (propertyName === 'stage') return false;
+        if (propertyName === 'project_id' || propertyName === 'parent_id' || propertyName === 'epic_id') return false;
 
         return true;
       });
@@ -734,6 +777,23 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
       values[propertyName] = value;
     });
     
+    // For tasks in edit mode, set up project/epic fields
+    if (entityType === 'task' && entity.parent_id) {
+      // Check if parent is an epic or project
+      const parentEpic = allEpics.find(e => e.id === entity.parent_id);
+      if (parentEpic) {
+        // Parent is an epic, set both project and epic
+        setSelectedProjectForTask(parentEpic.parent_id.toString());
+        values['project_id'] = parentEpic.parent_id.toString();
+        values['epic_id'] = entity.parent_id.toString();
+      } else {
+        // Parent is a project
+        setSelectedProjectForTask(entity.parent_id.toString());
+        values['project_id'] = entity.parent_id.toString();
+        values['epic_id'] = '';
+      }
+    }
+    
     setOriginalValues({ ...values });
     setEditValues({ ...values });
     setMode('global-edit');
@@ -781,17 +841,26 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
         const value = editValues[propName];
         if (value !== undefined && value !== '') {
           // Skip meta fields that are handled separately
-          if (propName !== 'stage' && propName !== 'project_id') {
+          if (propName !== 'stage' && propName !== 'project_id' && propName !== 'parent_id' && propName !== 'epic_id') {
             createPayload[propName] = value;
           }
         }
       });
 
-      // Handle task-specific fields
+      // Handle parent_id mapping
       if (entityType === 'task') {
-        // Map project_id to parent_id for tasks as expected by MCP tools
-        if (editValues['project_id'] && editValues['project_id'] !== '') {
+        // For tasks, check if an epic is selected, otherwise use project
+        if (editValues['epic_id'] && editValues['epic_id'] !== '') {
+          // If epic is selected, use epic as parent
+          createPayload.parent_id = parseInt(editValues['epic_id']);
+        } else if (editValues['project_id'] && editValues['project_id'] !== '') {
+          // Otherwise use project as parent
           createPayload.parent_id = parseInt(editValues['project_id']);
+        }
+      } else if (entityType === 'epic' || entityType === 'rule') {
+        // For epics and rules, use parent_id directly
+        if (editValues['parent_id'] && editValues['parent_id'] !== '') {
+          createPayload.parent_id = parseInt(editValues['parent_id']);
         }
       }
 
@@ -899,9 +968,24 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
         toolName = 'update_rule';
       }
       
+      // For tasks, handle parent_id mapping from project/epic fields
+      const finalPayload = { ...updatePayload };
+      if (entityType === 'task') {
+        // Remove project_id and epic_id from payload as they're not direct fields
+        delete finalPayload.project_id;
+        delete finalPayload.epic_id;
+        
+        // Set parent_id based on epic or project selection
+        if (editValues['epic_id'] && editValues['epic_id'] !== '') {
+          finalPayload.parent_id = editValues['epic_id'];
+        } else if (editValues['project_id'] && editValues['project_id'] !== '') {
+          finalPayload.parent_id = editValues['project_id'];
+        }
+      }
+      
       const toolPayload = {
         [`${entityType}_id`]: entity.id,
-        ...updatePayload
+        ...finalPayload
       };
       
       console.log('ObjectView DEBUG: Calling tool');
@@ -1177,10 +1261,10 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
             </div>
           ) : (
             <div>
-              {/* Task-specific selectors for create mode */}
-              {createMode && entityType === 'task' && (
+              {/* Selectors for create and edit mode - shown for all entity types */}
+              {(createMode || mode === 'global-edit') && (
                 <div className="space-y-4 mb-6">
-                  {/* Stage Selector */}
+                  {/* Stage Selector - shown for all entity types */}
                   <div className="group relative -mx-4 px-4 py-2 border rounded-xl border-border bg-muted/10">
                     <div className="flex items-center justify-between mb-2">
                       <h3 className="text-sm font-semibold">Stage</h3>
@@ -1202,35 +1286,104 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
                     </Select>
                   </div>
 
-                  {/* Project Selector */}
-                  <div className="group relative -mx-4 px-4 py-2 border rounded-xl border-border bg-muted/10">
-                    <div className="flex items-center justify-between mb-2">
-                      <h3 className="text-sm font-semibold">Project</h3>
+                  {/* Parent Project/Epic Selectors - shown for tasks, epics, and rules */}
+                  {entityType === 'task' ? (
+                    <>
+                      {/* Project Selector for Tasks */}
+                      <div className="group relative -mx-4 px-4 py-2 border rounded-xl border-border bg-muted/10">
+                        <div className="flex items-center justify-between mb-2">
+                          <h3 className="text-sm font-semibold">Project</h3>
+                        </div>
+                        <Select
+                          value={selectedProjectForTask || editValues['project_id'] || 'none'}
+                          onValueChange={(value) => {
+                            const newValue = value === 'none' ? null : value;
+                            setSelectedProjectForTask(newValue);
+                            handleInputChange('project_id', value === 'none' ? '' : value);
+                            // Clear epic selection when project changes
+                            handleInputChange('epic_id', '');
+                          }}
+                          disabled={isLoadingProjects}
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Select project (optional)" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">No Project</SelectItem>
+                            {projects.map((project) => (
+                              <SelectItem key={project.id} value={project.id.toString()}>
+                                <div className="flex items-center gap-2">
+                                  <div
+                                    className="w-3 h-3 rounded-sm"
+                                    style={{ backgroundColor: project.color }}
+                                  />
+                                  <span>{project.name}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {/* Epic Selector for Tasks - only enabled when project is selected */}
+                      <div className="group relative -mx-4 px-4 py-2 border rounded-xl border-border bg-muted/10">
+                        <div className="flex items-center justify-between mb-2">
+                          <h3 className="text-sm font-semibold">Epic</h3>
+                          {!selectedProjectForTask && (
+                            <span className="text-xs text-muted-foreground">Select a project first</span>
+                          )}
+                        </div>
+                        <Select
+                          value={editValues['epic_id'] || 'none'}
+                          onValueChange={(value) => handleInputChange('epic_id', value === 'none' ? '' : value)}
+                          disabled={!selectedProjectForTask || isLoadingEpics}
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder={selectedProjectForTask ? "Select epic (optional)" : "Select a project first"} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">No Epic</SelectItem>
+                            {selectedProjectForTask && allEpics
+                              .filter(epic => epic.parent_id === parseInt(selectedProjectForTask))
+                              .map((epic) => (
+                                <SelectItem key={epic.id} value={epic.id.toString()}>
+                                  <span>{epic.title}</span>
+                                </SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </>
+                  ) : (entityType === 'epic' || entityType === 'rule') && (
+                    <div className="group relative -mx-4 px-4 py-2 border rounded-xl border-border bg-muted/10">
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="text-sm font-semibold">Parent Project</h3>
+                      </div>
+                      <Select
+                        value={editValues['parent_id'] || 'none'}
+                        onValueChange={(value) => handleInputChange('parent_id', value === 'none' ? '' : value)}
+                        disabled={isLoadingProjects}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Select project (optional)" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">No Project</SelectItem>
+                          {projects.map((project) => (
+                            <SelectItem key={project.id} value={project.id.toString()}>
+                              <div className="flex items-center gap-2">
+                                <div
+                                  className="w-3 h-3 rounded-sm"
+                                  style={{ backgroundColor: project.color }}
+                                />
+                                <span>{project.name}</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
-                    <Select
-                      value={editValues['project_id'] || 'none'}
-                      onValueChange={(value) => handleInputChange('project_id', value === 'none' ? '' : value)}
-                      disabled={isLoadingProjects}
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Select project (optional)" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">No Project</SelectItem>
-                        {projects.map((project) => (
-                          <SelectItem key={project.id} value={project.id.toString()}>
-                            <div className="flex items-center gap-2">
-                              <div
-                                className="w-3 h-3 rounded-sm"
-                                style={{ backgroundColor: project.color }}
-                              />
-                              <span>{project.name}</span>
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  )}
                 </div>
               )}
 

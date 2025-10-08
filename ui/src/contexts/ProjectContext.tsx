@@ -76,8 +76,8 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
             if (jsonResponse.objects && Array.isArray(jsonResponse.objects)) {
               const parsedProjects = jsonResponse.objects.map((obj: any) => ({
                 id: obj.id,
-                name: obj.Title || 'Untitled Project',
-                description: obj.Description || '',
+                name: obj.title || obj.Title || 'Untitled Project',
+                description: obj.description || obj.Description || '',
                 color: '#3b82f6', // Default color since projects are now stored as objects
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
