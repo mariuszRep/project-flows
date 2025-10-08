@@ -152,7 +152,7 @@ export class ProjectTools {
 
     // If project_id is provided (not null), verify the project exists
     if (projectId !== null) {
-      const existingProject = await this.sharedDbService.getTask(projectId);
+      const existingProject = await this.sharedDbService.getObject(projectId);
       if (!existingProject || existingProject.template_id !== 2) {
         return {
           content: [

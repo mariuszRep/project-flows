@@ -83,7 +83,7 @@ export class EpicTools {
         loadSchema: this.loadDynamicSchemaProperties,
         validateParent: async (parentId: number, dbService: DatabaseService) => {
           // Validate that parent is a project (template_id=2)
-          const parentProject = await dbService.getTask(parentId);
+          const parentProject = await dbService.getObject(parentId);
           if (!parentProject || parentProject.template_id !== 2) {
             throw new Error("Error: Epics must have a project as parent (template_id=2).");
           }
@@ -108,7 +108,7 @@ export class EpicTools {
         validateTemplateId: true,
         validateParent: async (parentId: number, dbService: DatabaseService) => {
           // Validate that parent is a project (template_id=2)
-          const parentProject = await dbService.getTask(parentId);
+          const parentProject = await dbService.getObject(parentId);
           if (!parentProject || parentProject.template_id !== 2) {
             throw new Error("Error: Epics must have a project as parent (template_id=2).");
           }

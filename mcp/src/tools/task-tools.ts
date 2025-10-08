@@ -102,7 +102,7 @@ export class TaskTools {
           // Check if task is completed based on checkboxes in Items section
           if (updatedTask.Items && this.isTaskCompleted(updatedTask.Items)) {
             try {
-              await dbService.updateTask(taskId, { stage: 'review', template_id: 1 }, clientId);
+              await dbService.updateObject(taskId, { stage: 'review', template_id: 1 }, clientId);
               updatedTask.stage = 'review';
               return updatedTask;
             } catch (error) {

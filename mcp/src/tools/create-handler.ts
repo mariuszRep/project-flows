@@ -116,10 +116,10 @@ export async function handleCreate(
     }
   }
 
-  // Store task in database
+  // Store object in database
   let entityId: number;
   try {
-    entityId = await sharedDbService.createTask(taskData, clientId);
+    entityId = await sharedDbService.createObject(taskData, clientId);
   } catch (error) {
     console.error(`Error creating ${config.typeName.toLowerCase()}:`, error);
     return {
@@ -142,10 +142,10 @@ export async function handleCreate(
 
   if (projectId) {
     try {
-      const parentTask = await sharedDbService.getTask(projectId);
-      projectInfo = parentTask ? `${parentTask.Title || 'Untitled'}` : 'Unknown';
+      const parentObject = await sharedDbService.getObject(projectId);
+      projectInfo = parentObject ? `${parentObject.Title || 'Untitled'}` : 'Unknown';
     } catch (error) {
-      console.error('Error loading parent/project task:', error);
+      console.error('Error loading parent/project object:', error);
       projectInfo = 'Unknown';
     }
   }
