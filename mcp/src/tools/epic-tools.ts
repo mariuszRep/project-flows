@@ -19,13 +19,13 @@ export class EpicTools {
     return [
       {
         name: "create_epic",
-        description: "Create a new epic with specified template_id. For epics, use template_id=3 and parent must be a project.",
+        description: "Create a new epic by following each property's individual prompt instructions exactly. Each field (Title, Description, etc.) has specific formatting requirements - read and follow each property's prompt precisely. Do not impose your own formatting or structure. Each property prompt defines exactly what content and format is required for that field. Use parent_id to create hierarchical epics (e.g., epics under a project).",
         inputSchema: {
           type: "object",
           properties: {
             parent_id: {
               type: "number",
-              description: "Optional parent project ID for hierarchical relationships"
+              description: "Optional parent epic ID to create hierarchical relationships (epics under a parent project)"
             },
             ...allProperties
           },
@@ -34,7 +34,7 @@ export class EpicTools {
       } as Tool,
       {
         name: "update_epic",
-        description: "Update an existing epic by epic ID. Provide the epic_id and any subset of fields to update. All fields except epic_id are optional.",
+        description: "Update an existing epic by epic ID. Provide the epic_id and any subset of fields to update. All fields except epic_id are optional. To change an epic's stage, include the 'stage' parameter with one of these values: 'draft', 'backlog', 'doing', 'review', or 'completed'.",
         inputSchema: {
           type: "object",
           properties: {
@@ -42,9 +42,14 @@ export class EpicTools {
               type: "number",
               description: "The numeric ID of the epic to update"
             },
+            stage: {
+              type: "string",
+              description: "Optional stage: 'draft', 'backlog', 'doing', 'review', or 'completed'",
+              enum: ["draft", "backlog", "doing", "review", "completed"]
+            },
             parent_id: {
               type: "number",
-              description: "Optional parent project ID for hierarchical relationships"
+              description: "Optional parent ID for hierarchical relationships"
             },
             ...allProperties
           },

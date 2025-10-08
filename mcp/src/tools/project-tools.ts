@@ -19,13 +19,13 @@ export class ProjectTools {
     return [
       {
         name: "create_project",
-        description: "Create a detailed project plan with markdown formatting, make sure you populate 'Title' and 'Description' and later all the rest of the properties. Use parent_id to create hierarchical projects (e.g., subprojects under a project).",
+        description: "Create a detailed project plan by following each property's individual prompt instructions exactly. Each field (Title, Description, etc.) has specific formatting requirements - read and follow each property's prompt precisely. Do not impose your own formatting or structure. Each property prompt defines exactly what content and format is required for that field. Use parent_id to create hierarchical projects (e.g., subprojects under a project).",
         inputSchema: {
           type: "object",
           properties: {
             parent_id: {
               type: "number",
-              description: "Optional parent project ID to create hierarchical relationships (subprojects under parent projects)"
+              description: "Optional parent project ID to create hierarchical relationships (subprojects under a parent project)"
             },
             ...allProperties
           },
@@ -42,9 +42,14 @@ export class ProjectTools {
               type: "number",
               description: "The numeric ID of the project to update"
             },
+            stage: {
+              type: "string",
+              description: "Optional stage: 'draft', 'backlog', 'doing', 'review', or 'completed'",
+              enum: ["draft", "backlog", "doing", "review", "completed"]
+            },
             parent_id: {
               type: "number",
-              description: "Optional parent project ID for hierarchical relationships"
+              description: "Optional parent ID for hierarchical relationships"
             },
             ...allProperties
           },

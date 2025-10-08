@@ -25,7 +25,7 @@ export class TaskTools {
           properties: {
             parent_id: {
               type: "number",
-              description: "Optional parent task ID to create hierarchical relationships (subtasks under parent tasks)"
+              description: "Optional parent task ID to create hierarchical relationships (subtasks under a parent task)"
             },
             ...allProperties
           },
@@ -49,7 +49,7 @@ export class TaskTools {
             },
             parent_id: {
               type: "number",
-              description: "Optional parent task ID for hierarchical relationships"
+              description: "Optional parent ID for hierarchical relationships"
             },
             ...allProperties
           },

@@ -25,7 +25,7 @@ export class RuleTools {
           properties: {
             parent_id: {
               type: "number",
-              description: "Optional parent project ID to create hierarchical relationships (rules under parent projects)"
+              description: "Optional parent rule ID to create hierarchical relationships (rules under a parent project)"
             },
             ...allProperties
           },
@@ -42,9 +42,14 @@ export class RuleTools {
               type: "number",
               description: "The numeric ID of the rule to update"
             },
+            stage: {
+              type: "string",
+              description: "Optional stage: 'draft', 'backlog', 'doing', 'review', or 'completed'",
+              enum: ["draft", "backlog", "doing", "review", "completed"]
+            },
             parent_id: {
               type: "number",
-              description: "Optional parent project ID for hierarchical relationships"
+              description: "Optional parent ID for hierarchical relationships"
             },
             ...allProperties
           },
