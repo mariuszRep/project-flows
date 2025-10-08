@@ -23,18 +23,7 @@ interface SchemaProperty {
 
 type TaskStage = 'draft' | 'backlog' | 'doing' | 'review' | 'completed';
 
-interface ProjectData {
-  id: number;
-  name: string;
-  description?: string;
-  color: string;
-  created_at: Date;
-  updated_at: Date;
-  created_by: string;
-  updated_by: string;
-}
-
-interface TaskData {
+interface ObjectData {
   id: number;
   parent_id?: number;
   project_id?: number; // For backward compatibility with UI
@@ -44,6 +33,11 @@ interface TaskData {
   parent_name?: string;
   [key: string]: any;
 }
+
+/**
+ * @deprecated Use ObjectData instead. TaskData is kept for backwards compatibility.
+ */
+type TaskData = ObjectData;
 
 // Removed unused BlockData interface
 
@@ -175,42 +169,48 @@ class DatabaseService {
     return String(value);
   }
 
-  async createTask(taskData: Omit<TaskData, 'id'>, userId: string = 'system'): Promise<number> {
+  /**
+   * Creates a new object (task, project, epic, or rule) in the database.
+   * @param objectData - The object data including properties, parent_id, stage, and template_id
+   * @param userId - The user ID creating the object (defaults to 'system')
+   * @returns The ID of the newly created object
+   */
+  async createObject(objectData: Omit<ObjectData, 'id'>, userId: string = 'system'): Promise<number> {
     const client = await this.pool.connect();
-    
+
     try {
       await client.query('BEGIN');
 
-      // Insert task with parent_id, stage, and template_id
-      const taskQuery = `
-        INSERT INTO objects (parent_id, stage, template_id, created_by, updated_by) 
-        VALUES ($1, $2, $3, $4, $5) 
+      // Insert object with parent_id, stage, and template_id
+      const objectQuery = `
+        INSERT INTO objects (parent_id, stage, template_id, created_by, updated_by)
+        VALUES ($1, $2, $3, $4, $5)
         RETURNING id
       `;
-      const taskResult = await client.query(taskQuery, [taskData.parent_id || null, taskData.stage || 'draft', taskData.template_id || 1, userId, userId]);
-      const taskId = taskResult.rows[0].id;
+      const objectResult = await client.query(objectQuery, [objectData.parent_id || null, objectData.stage || 'draft', objectData.template_id || 1, userId, userId]);
+      const objectId = objectResult.rows[0].id;
 
-      // Insert blocks for all properties including Title and Description (previously title/summary)
+      // Insert blocks for all properties including Title and Description
       let position = 0;
-      for (const [key, value] of Object.entries(taskData)) {
+      for (const [key, value] of Object.entries(objectData)) {
         if (key !== 'stage' && key !== 'parent_id' && key !== 'template_id' && value) {
           // Look up property_id from key
           const propertyQuery = 'SELECT id FROM template_properties WHERE key = $1 LIMIT 1';
           const propertyResult = await client.query(propertyQuery, [key]);
-          
+
           if (propertyResult.rows.length > 0) {
             const propertyId = propertyResult.rows[0].id;
             const blockQuery = `
-              INSERT INTO object_properties (task_id, property_id, content, position, created_by, updated_by) 
+              INSERT INTO object_properties (task_id, property_id, content, position, created_by, updated_by)
               VALUES ($1, $2, $3, $4, $5, $6)
             `;
-            await client.query(blockQuery, [taskId, propertyId, this.flattenToText(value), position++, userId, userId]);
+            await client.query(blockQuery, [objectId, propertyId, this.flattenToText(value), position++, userId, userId]);
           }
         }
       }
 
       await client.query('COMMIT');
-      return taskId;
+      return objectId;
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;
@@ -219,40 +219,47 @@ class DatabaseService {
     }
   }
 
-  async updateTask(taskId: number, updates: Partial<TaskData>, userId: string = 'system'): Promise<boolean> {
+  /**
+   * Updates an existing object (task, project, epic, or rule) in the database.
+   * @param objectId - The ID of the object to update
+   * @param updates - Partial object data with fields to update
+   * @param userId - The user ID performing the update (defaults to 'system')
+   * @returns True if update was successful, false otherwise
+   */
+  async updateObject(objectId: number, updates: Partial<ObjectData>, userId: string = 'system'): Promise<boolean> {
     const client = await this.pool.connect();
-    
+
     try {
       await client.query('BEGIN');
 
-      // Update task stage, parent_id, and/or template_id if provided
-      const taskUpdates = [];
-      const taskValues = [];
+      // Update object stage, parent_id, and/or template_id if provided
+      const objectUpdates = [];
+      const objectValues = [];
       let paramIndex = 1;
-      
+
       if (updates.stage !== undefined) {
-        taskUpdates.push(`stage = $${paramIndex++}`);
-        taskValues.push(updates.stage);
+        objectUpdates.push(`stage = $${paramIndex++}`);
+        objectValues.push(updates.stage);
       }
-      
+
       if (updates.parent_id !== undefined) {
-        taskUpdates.push(`parent_id = $${paramIndex++}`);
-        taskValues.push(updates.parent_id);
+        objectUpdates.push(`parent_id = $${paramIndex++}`);
+        objectValues.push(updates.parent_id);
       }
-      
+
       if (updates.template_id !== undefined) {
-        taskUpdates.push(`template_id = $${paramIndex++}`);
-        taskValues.push(updates.template_id);
+        objectUpdates.push(`template_id = $${paramIndex++}`);
+        objectValues.push(updates.template_id);
       }
-      
-      if (taskUpdates.length > 0) {
-        taskUpdates.push(`updated_at = CURRENT_TIMESTAMP`);
-        taskUpdates.push(`updated_by = $${paramIndex++}`);
-        taskValues.push(userId);
-        taskValues.push(taskId);
-        
-        const taskQuery = `UPDATE objects SET ${taskUpdates.join(', ')} WHERE id = $${paramIndex}`;
-        await client.query(taskQuery, taskValues);
+
+      if (objectUpdates.length > 0) {
+        objectUpdates.push(`updated_at = CURRENT_TIMESTAMP`);
+        objectUpdates.push(`updated_by = $${paramIndex++}`);
+        objectValues.push(userId);
+        objectValues.push(objectId);
+
+        const objectQuery = `UPDATE objects SET ${objectUpdates.join(', ')} WHERE id = $${paramIndex}`;
+        await client.query(objectQuery, objectValues);
       }
 
       // Update blocks for all other properties (including Title and Description)
@@ -261,16 +268,16 @@ class DatabaseService {
           // Look up property_id from key
           const propertyQuery = 'SELECT id FROM template_properties WHERE key = $1 LIMIT 1';
           const propertyResult = await client.query(propertyQuery, [key]);
-          
+
           if (propertyResult.rows.length > 0) {
             const propertyId = propertyResult.rows[0].id;
             const blockQuery = `
-              INSERT INTO object_properties (task_id, property_id, content, position, created_by, updated_by) 
+              INSERT INTO object_properties (task_id, property_id, content, position, created_by, updated_by)
               VALUES ($1, $2, $3, 0, $4, $5)
-              ON CONFLICT (task_id, property_id) 
+              ON CONFLICT (task_id, property_id)
               DO UPDATE SET content = $3, updated_at = CURRENT_TIMESTAMP, updated_by = $5
             `;
-            await client.query(blockQuery, [taskId, propertyId, this.flattenToText(value), userId, userId]);
+            await client.query(blockQuery, [objectId, propertyId, this.flattenToText(value), userId, userId]);
           }
         }
       }
@@ -285,19 +292,24 @@ class DatabaseService {
     }
   }
 
-  async getTask(taskId: number): Promise<TaskData | null> {
+  /**
+   * Retrieves an object (task, project, epic, or rule) by its ID.
+   * @param objectId - The ID of the object to retrieve
+   * @returns The object data if found, null otherwise
+   */
+  async getObject(objectId: number): Promise<ObjectData | null> {
     try {
-      // Get task core data with parent information (id, parent_id, stage, template_id, parent info)
-      const taskQuery = `
-        SELECT 
-          t.id, 
-          t.parent_id, 
-          t.stage, 
+      // Get object core data with parent information (id, parent_id, stage, template_id, parent info)
+      const objectQuery = `
+        SELECT
+          t.id,
+          t.parent_id,
+          t.stage,
           t.template_id,
           LOWER(pt.name) as parent_type,
           COALESCE(
-            (SELECT b.content FROM object_properties b 
-             JOIN template_properties tp ON b.property_id = tp.id 
+            (SELECT b.content FROM object_properties b
+             JOIN template_properties tp ON b.property_id = tp.id
              WHERE b.task_id = p.id AND tp.key = 'Title' LIMIT 1),
             'Untitled'
           ) as parent_name
@@ -306,43 +318,43 @@ class DatabaseService {
         LEFT JOIN templates pt ON p.template_id = pt.id
         WHERE t.id = $1
       `;
-      const taskResult = await this.pool.query(taskQuery, [taskId]);
-      
-      if (taskResult.rows.length === 0) {
+      const objectResult = await this.pool.query(objectQuery, [objectId]);
+
+      if (objectResult.rows.length === 0) {
         return null;
       }
 
-      const task = taskResult.rows[0];
-      
+      const object = objectResult.rows[0];
+
       // Get blocks for all properties including Title and Description
       const blocksQuery = `
-        SELECT p.key as property_name, b.content 
+        SELECT p.key as property_name, b.content
         FROM object_properties b
         JOIN template_properties p ON b.property_id = p.id
-        WHERE b.task_id = $1 
+        WHERE b.task_id = $1
         ORDER BY b.position
       `;
-      const blocksResult = await this.pool.query(blocksQuery, [taskId]);
-      
-      // Build complete task data
-      const taskData: TaskData = {
-        id: task.id,
-        parent_id: task.parent_id,
-        project_id: task.parent_id, // For backward compatibility with UI
-        stage: task.stage,
-        template_id: task.template_id,
-        parent_type: task.parent_type,
-        parent_name: task.parent_name,
+      const blocksResult = await this.pool.query(blocksQuery, [objectId]);
+
+      // Build complete object data
+      const objectData: ObjectData = {
+        id: object.id,
+        parent_id: object.parent_id,
+        project_id: object.parent_id, // For backward compatibility with UI
+        stage: object.stage,
+        template_id: object.template_id,
+        parent_type: object.parent_type,
+        parent_name: object.parent_name,
       };
 
       for (const block of blocksResult.rows) {
         // Content is now stored as TEXT, use directly
-        taskData[block.property_name] = block.content;
+        objectData[block.property_name] = block.content;
       }
 
-      return taskData;
+      return objectData;
     } catch (error) {
-      console.error('Error fetching task:', error);
+      console.error('Error fetching object:', error);
       return null;
     }
   }
@@ -358,86 +370,93 @@ class DatabaseService {
     }
   }
 
-  async listTasks(stageFilter?: string, projectIdFilter?: number, templateIdFilter?: number): Promise<TaskData[]> {
+  /**
+   * Lists objects (tasks, projects, epics, or rules) with optional filtering.
+   * @param stageFilter - Optional stage to filter by
+   * @param projectIdFilter - Optional parent_id to filter by
+   * @param templateIdFilter - Optional template_id to filter by object type
+   * @returns Array of object data matching the filters
+   */
+  async listObjects(stageFilter?: string, projectIdFilter?: number, templateIdFilter?: number): Promise<ObjectData[]> {
     try {
-      // Get basic task data
+      // Get basic object data
       let query = 'SELECT id, parent_id, stage, template_id FROM objects';
       let params: any[] = [];
       let paramIndex = 1;
-      
+
       const conditions = [];
-      
+
       if (templateIdFilter !== undefined) {
         conditions.push(`template_id = $${paramIndex++}`);
         params.push(templateIdFilter);
       }
-      
+
       if (stageFilter) {
         conditions.push(`stage = $${paramIndex++}`);
         params.push(stageFilter);
       }
-      
+
       if (projectIdFilter !== undefined) {
         conditions.push(`parent_id = $${paramIndex++}`);
         params.push(projectIdFilter);
       }
-      
+
       if (conditions.length > 0) {
         query += ' WHERE ' + conditions.join(' AND ');
       }
-      
+
       query += ' ORDER BY id';
-      
-      const tasksResult = await this.pool.query(query, params);
-      
-      if (tasksResult.rows.length === 0) {
+
+      const objectsResult = await this.pool.query(query, params);
+
+      if (objectsResult.rows.length === 0) {
         return [];
       }
-      
-      // Get all blocks for these tasks
-      const taskIds = tasksResult.rows.map(row => row.id);
+
+      // Get all blocks for these objects
+      const objectIds = objectsResult.rows.map(row => row.id);
       const blocksQuery = `
-        SELECT b.task_id, p.key as property_name, b.content 
+        SELECT b.task_id, p.key as property_name, b.content
         FROM object_properties b
         JOIN template_properties p ON b.property_id = p.id
         WHERE b.task_id = ANY($1)
         ORDER BY b.task_id, b.position
       `;
-      const blocksResult = await this.pool.query(blocksQuery, [taskIds]);
-      
-      // Group blocks by task_id
-      const blocksByTask: Record<number, Array<{property_name: string, content: string}>> = {};
+      const blocksResult = await this.pool.query(blocksQuery, [objectIds]);
+
+      // Group blocks by task_id (object_id)
+      const blocksByObject: Record<number, Array<{property_name: string, content: string}>> = {};
       for (const block of blocksResult.rows) {
-        if (!blocksByTask[block.task_id]) {
-          blocksByTask[block.task_id] = [];
+        if (!blocksByObject[block.task_id]) {
+          blocksByObject[block.task_id] = [];
         }
-        blocksByTask[block.task_id].push({
+        blocksByObject[block.task_id].push({
           property_name: block.property_name,
           content: block.content
         });
       }
-      
-      // Build complete task data
-      return tasksResult.rows.map((row: any) => {
-        const taskData: TaskData = {
+
+      // Build complete object data
+      return objectsResult.rows.map((row: any) => {
+        const objectData: ObjectData = {
           id: row.id,
           parent_id: row.parent_id,
           project_id: row.parent_id, // For backward compatibility with UI
           stage: row.stage,
           template_id: row.template_id,
         };
-        
-        // Add blocks for this task
-        const taskBlocks = blocksByTask[row.id] || [];
-        for (const block of taskBlocks) {
+
+        // Add blocks for this object
+        const objectBlocks = blocksByObject[row.id] || [];
+        for (const block of objectBlocks) {
           // Content is now stored as TEXT, use directly
-          taskData[block.property_name] = block.content;
+          objectData[block.property_name] = block.content;
         }
-        
-        return taskData;
+
+        return objectData;
       });
     } catch (error) {
-      console.error('Error fetching tasks list:', error);
+      console.error('Error fetching objects list:', error);
       return [];
     }
   }
@@ -607,34 +626,39 @@ class DatabaseService {
     }
   }
 
-  async deleteTask(taskId: number): Promise<boolean> {
+  /**
+   * Deletes an object (task, project, epic, or rule) from the database.
+   * @param objectId - The ID of the object to delete
+   * @returns True if deletion was successful, false if object not found
+   */
+  async deleteObject(objectId: number): Promise<boolean> {
     const client = await this.pool.connect();
-    
+
     try {
       await client.query('BEGIN');
 
-      // Check if task exists
-      const taskQuery = 'SELECT id FROM objects WHERE id = $1';
-      const taskResult = await client.query(taskQuery, [taskId]);
-      
-      if (taskResult.rows.length === 0) {
+      // Check if object exists
+      const objectQuery = 'SELECT id FROM objects WHERE id = $1';
+      const objectResult = await client.query(objectQuery, [objectId]);
+
+      if (objectResult.rows.length === 0) {
         await client.query('ROLLBACK');
         return false;
       }
 
       // Delete blocks first (foreign key constraint)
       const deleteBlocksQuery = 'DELETE FROM object_properties WHERE task_id = $1';
-      await client.query(deleteBlocksQuery, [taskId]);
+      await client.query(deleteBlocksQuery, [objectId]);
 
-      // Delete task
-      const deleteTaskQuery = 'DELETE FROM objects WHERE id = $1';
-      const deleteResult = await client.query(deleteTaskQuery, [taskId]);
+      // Delete object
+      const deleteObjectQuery = 'DELETE FROM objects WHERE id = $1';
+      const deleteResult = await client.query(deleteObjectQuery, [objectId]);
 
       await client.query('COMMIT');
       return (deleteResult.rowCount || 0) > 0;
     } catch (error) {
       await client.query('ROLLBACK');
-      console.error('Error deleting task:', error);
+      console.error('Error deleting object:', error);
       throw error;
     } finally {
       client.release();
@@ -675,317 +699,6 @@ class DatabaseService {
     } catch (error) {
       console.error('Error listing properties:', error);
       return [];
-    }
-  }
-
-  // Project CRUD operations (using tasks table with type='project')
-  async createProject(projectData: {
-    name: string;
-    description?: string;
-    color?: string;
-  }, userId: string = 'system'): Promise<number> {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-
-      // Create task with template_id=2 (Project template)
-      const taskQuery = `
-        INSERT INTO objects (parent_id, stage, template_id, created_by, updated_by) 
-        VALUES (NULL, 'backlog', 2, $1, $2) 
-        RETURNING id
-      `;
-      const taskResult = await client.query(taskQuery, [userId, userId]);
-      const taskId = taskResult.rows[0].id;
-
-      // Insert Title block
-      const titlePropertyQuery = 'SELECT id FROM template_properties WHERE key = $1 LIMIT 1';
-      const titlePropertyResult = await client.query(titlePropertyQuery, ['Title']);
-      if (titlePropertyResult.rows.length > 0) {
-        const titlePropertyId = titlePropertyResult.rows[0].id;
-        const titleQuery = `
-          INSERT INTO object_properties (task_id, property_id, content, position, created_by, updated_by) 
-          VALUES ($1, $2, $3, 1, $4, $5)
-        `;
-        await client.query(titleQuery, [taskId, titlePropertyId, projectData.name, userId, userId]);
-      }
-
-      // Insert Description block if provided
-      if (projectData.description) {
-        const descPropertyQuery = 'SELECT id FROM template_properties WHERE key = $1 LIMIT 1';
-        const descPropertyResult = await client.query(descPropertyQuery, ['Description']);
-        if (descPropertyResult.rows.length > 0) {
-          const descPropertyId = descPropertyResult.rows[0].id;
-          const descQuery = `
-            INSERT INTO object_properties (task_id, property_id, content, position, created_by, updated_by) 
-            VALUES ($1, $2, $3, 2, $4, $5)
-          `;
-          await client.query(descQuery, [taskId, descPropertyId, projectData.description, userId, userId]);
-        }
-      }
-
-      // Insert color as Notes block for backward compatibility
-      if (projectData.color) {
-        const notesPropertyQuery = 'SELECT id FROM template_properties WHERE key = $1 LIMIT 1';
-        const notesPropertyResult = await client.query(notesPropertyQuery, ['Notes']);
-        if (notesPropertyResult.rows.length > 0) {
-          const notesPropertyId = notesPropertyResult.rows[0].id;
-          const colorQuery = `
-            INSERT INTO object_properties (task_id, property_id, content, position, created_by, updated_by) 
-            VALUES ($1, $2, $3, 3, $4, $5)
-          `;
-          await client.query(colorQuery, [taskId, notesPropertyId, `Color: ${projectData.color}`, userId, userId]);
-        }
-      }
-
-      await client.query('COMMIT');
-      return taskId;
-    } catch (error) {
-      await client.query('ROLLBACK');
-      console.error('Error creating project:', error);
-      throw error;
-    } finally {
-      client.release();
-    }
-  }
-
-  async updateProject(projectId: number, updates: {
-    name?: string;
-    description?: string;
-    color?: string;
-  }, userId: string = 'system'): Promise<boolean> {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-
-      // Verify this is a project task (template_id = 2)
-      const checkQuery = 'SELECT id FROM objects WHERE id = $1 AND template_id = $2';
-      const checkResult = await client.query(checkQuery, [projectId, 2]);
-      if (checkResult.rows.length === 0) {
-        return false; // Project not found
-      }
-
-      // Update task timestamp
-      const taskUpdateQuery = 'UPDATE objects SET updated_at = CURRENT_TIMESTAMP, updated_by = $1 WHERE id = $2';
-      await client.query(taskUpdateQuery, [userId, projectId]);
-
-      // Update Title block if name is provided
-      if (updates.name !== undefined) {
-        const titlePropertyQuery = 'SELECT id FROM template_properties WHERE key = $1 LIMIT 1';
-        const titlePropertyResult = await client.query(titlePropertyQuery, ['Title']);
-        if (titlePropertyResult.rows.length > 0) {
-          const titlePropertyId = titlePropertyResult.rows[0].id;
-          const titleQuery = `
-            INSERT INTO object_properties (task_id, property_id, content, position, created_by, updated_by) 
-            VALUES ($1, $2, $3, 1, $4, $5)
-            ON CONFLICT (task_id, property_id) 
-            DO UPDATE SET content = EXCLUDED.content, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP
-          `;
-          await client.query(titleQuery, [projectId, titlePropertyId, updates.name, userId, userId]);
-        }
-      }
-
-      // Update Description block if provided
-      if (updates.description !== undefined) {
-        const descPropertyQuery = 'SELECT id FROM template_properties WHERE key = $1 LIMIT 1';
-        const descPropertyResult = await client.query(descPropertyQuery, ['Description']);
-        if (descPropertyResult.rows.length > 0) {
-          const descPropertyId = descPropertyResult.rows[0].id;
-          const descQuery = `
-            INSERT INTO object_properties (task_id, property_id, content, position, created_by, updated_by) 
-            VALUES ($1, $2, $3, 2, $4, $5)
-            ON CONFLICT (task_id, property_id) 
-            DO UPDATE SET content = EXCLUDED.content, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP
-          `;
-          await client.query(descQuery, [projectId, descPropertyId, updates.description, userId, userId]);
-        }
-      }
-
-      // Update color in Notes block if provided
-      if (updates.color !== undefined) {
-        const notesPropertyQuery = 'SELECT id FROM template_properties WHERE key = $1 LIMIT 1';
-        const notesPropertyResult = await client.query(notesPropertyQuery, ['Notes']);
-        if (notesPropertyResult.rows.length > 0) {
-          const notesPropertyId = notesPropertyResult.rows[0].id;
-          const colorQuery = `
-            INSERT INTO object_properties (task_id, property_id, content, position, created_by, updated_by) 
-            VALUES ($1, $2, $3, 3, $4, $5)
-            ON CONFLICT (task_id, property_id) 
-            DO UPDATE SET content = EXCLUDED.content, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP
-          `;
-          await client.query(colorQuery, [projectId, notesPropertyId, `Color: ${updates.color}`, userId, userId]);
-        }
-      }
-
-      await client.query('COMMIT');
-      return true;
-    } catch (error) {
-      await client.query('ROLLBACK');
-      console.error('Error updating project:', error);
-      throw error;
-    } finally {
-      client.release();
-    }
-  }
-
-  async getProject(projectId: number): Promise<ProjectData | null> {
-    try {
-      // Get task data for project type (template_id = 2)
-      const taskQuery = 'SELECT id, created_at, updated_at, created_by, updated_by FROM objects WHERE id = $1 AND template_id = $2';
-      const taskResult = await this.pool.query(taskQuery, [projectId, 2]);
-      
-      if (taskResult.rows.length === 0) {
-        return null;
-      }
-
-      const task = taskResult.rows[0];
-
-      // Get blocks for this project
-      const blocksQuery = `
-        SELECT p.key as property_name, b.content 
-        FROM object_properties b
-        JOIN template_properties p ON b.property_id = p.id
-        WHERE b.task_id = $1 
-        ORDER BY b.position
-      `;
-      const blocksResult = await this.pool.query(blocksQuery, [projectId]);
-
-      // Build project data from blocks
-      let name = 'Untitled Project';
-      let description = '';
-      let color = '#3b82f6';
-
-      for (const block of blocksResult.rows) {
-        // Content is now stored as TEXT
-        const content = block.content;
-        
-        if (block.property_name === 'Title') {
-          name = content;
-        } else if (block.property_name === 'Description') {
-          description = content;
-        } else if (block.property_name === 'Notes' && content.startsWith('Color: ')) {
-          color = content.replace('Color: ', '');
-        }
-      }
-
-      return {
-        id: task.id,
-        name,
-        description,
-        color,
-        created_at: task.created_at,
-        updated_at: task.updated_at,
-        created_by: task.created_by,
-        updated_by: task.updated_by
-      };
-    } catch (error) {
-      console.error('Error fetching project:', error);
-      return null;
-    }
-  }
-
-  async listProjects(): Promise<ProjectData[]> {
-    try {
-      // Get all project tasks (template_id = 2)
-      const tasksQuery = 'SELECT id, created_at, updated_at, created_by, updated_by FROM objects WHERE template_id = $1 ORDER BY created_at';
-      const tasksResult = await this.pool.query(tasksQuery, [2]);
-      
-      if (tasksResult.rows.length === 0) {
-        return [];
-      }
-
-      const projects: ProjectData[] = [];
-
-      // Get blocks for all project tasks
-      for (const task of tasksResult.rows) {
-        const blocksQuery = `
-          SELECT p.key as property_name, b.content 
-          FROM object_properties b
-          JOIN template_properties p ON b.property_id = p.id
-          WHERE b.task_id = $1 
-          ORDER BY b.position
-        `;
-        const blocksResult = await this.pool.query(blocksQuery, [task.id]);
-
-        // Build project data from blocks
-        let name = 'Untitled Project';
-        let description = '';
-        let color = '#3b82f6';
-
-        for (const block of blocksResult.rows) {
-          // Content is now stored as TEXT
-          const content = block.content;
-          
-          if (block.property_name === 'Title') {
-            name = content;
-          } else if (block.property_name === 'Description') {
-            description = content;
-          } else if (block.property_name === 'Notes' && content.startsWith('Color: ')) {
-            color = content.replace('Color: ', '');
-          }
-        }
-
-        projects.push({
-          id: task.id,
-          name,
-          description,
-          color,
-          created_at: task.created_at,
-          updated_at: task.updated_at,
-          created_by: task.created_by,
-          updated_by: task.updated_by
-        });
-      }
-
-      // Sort by name
-      projects.sort((a, b) => a.name.localeCompare(b.name));
-      return projects;
-    } catch (error) {
-      console.error('Error fetching projects list:', error);
-      return [];
-    }
-  }
-
-  async deleteProject(projectId: number): Promise<boolean> {
-    const client = await this.pool.connect();
-    
-    try {
-      await client.query('BEGIN');
-
-      // Check if project exists (using tasks table with template_id=2)
-      const projectQuery = 'SELECT id FROM objects WHERE id = $1 AND template_id = $2';
-      const projectResult = await client.query(projectQuery, [projectId, 2]);
-      
-      if (projectResult.rows.length === 0) {
-        await client.query('ROLLBACK');
-        return false;
-      }
-
-      // Check for child tasks using this project as parent
-      const tasksQuery = 'SELECT COUNT(*) as count FROM objects WHERE parent_id = $1';
-      const tasksResult = await client.query(tasksQuery, [projectId]);
-      const taskCount = parseInt(tasksResult.rows[0].count);
-
-      if (taskCount > 0) {
-        await client.query('ROLLBACK');
-        throw new Error(`Project cannot be deleted because it is used by ${taskCount} existing child task(s). Remove child tasks from this project first.`);
-      }
-
-      // Delete blocks associated with this project
-      const deleteBlocksQuery = 'DELETE FROM object_properties WHERE task_id = $1';
-      await client.query(deleteBlocksQuery, [projectId]);
-
-      // Delete the project task itself
-      const deleteQuery = 'DELETE FROM objects WHERE id = $1 AND template_id = $2';
-      const deleteResult = await client.query(deleteQuery, [projectId, 2]);
-      
-      await client.query('COMMIT');
-      return (deleteResult.rowCount || 0) > 0;
-    } catch (error) {
-      await client.query('ROLLBACK');
-      console.error('Error deleting project:', error);
-      throw error;
-    } finally {
-      client.release();
     }
   }
 
@@ -1032,6 +745,62 @@ class DatabaseService {
     } catch (error) {
       console.error('Error deleting global state:', error);
       return false;
+    }
+  }
+
+  /**
+   * Type guard to check if an object is a task (template_id === 1).
+   * @param object - The object data to check
+   * @returns True if object is a task, false otherwise
+   */
+  isTask(object: ObjectData): boolean {
+    return object.template_id === 1;
+  }
+
+  /**
+   * Type guard to check if an object is a project (template_id === 2).
+   * @param object - The object data to check
+   * @returns True if object is a project, false otherwise
+   */
+  isProject(object: ObjectData): boolean {
+    return object.template_id === 2;
+  }
+
+  /**
+   * Type guard to check if an object is an epic (template_id === 3).
+   * @param object - The object data to check
+   * @returns True if object is an epic, false otherwise
+   */
+  isEpic(object: ObjectData): boolean {
+    return object.template_id === 3;
+  }
+
+  /**
+   * Type guard to check if an object is a rule (template_id === 4).
+   * @param object - The object data to check
+   * @returns True if object is a rule, false otherwise
+   */
+  isRule(object: ObjectData): boolean {
+    return object.template_id === 4;
+  }
+
+  /**
+   * Gets the object type name based on template_id.
+   * @param templateId - The template ID to convert
+   * @returns The object type as a string ('task', 'project', 'epic', 'rule', or 'unknown')
+   */
+  getObjectType(templateId: number): 'task' | 'project' | 'epic' | 'rule' | 'unknown' {
+    switch (templateId) {
+      case 1:
+        return 'task';
+      case 2:
+        return 'project';
+      case 3:
+        return 'epic';
+      case 4:
+        return 'rule';
+      default:
+        return 'unknown';
     }
   }
 

@@ -95,7 +95,7 @@ export class ObjectTools {
     }
 
     // Get object from database
-    const object = await this.sharedDbService.getTask(objectId);
+    const object = await this.sharedDbService.getObject(objectId);
     if (!object) {
       return {
         content: [
@@ -112,7 +112,7 @@ export class ObjectTools {
     let parentType = null;
     if (object.parent_id) {
       try {
-        const parentObject = await this.sharedDbService.getTask(object.parent_id);
+        const parentObject = await this.sharedDbService.getObject(object.parent_id);
         if (parentObject) {
           parentName = parentObject.Title || 'Untitled';
           parentType = parentObject.template_id === 1 ? 'task' :
@@ -178,7 +178,7 @@ export class ObjectTools {
     }
 
     // Check if object exists
-    const existingObject = await this.sharedDbService.getTask(objectId);
+    const existingObject = await this.sharedDbService.getObject(objectId);
     if (!existingObject) {
       return {
         content: [
@@ -192,7 +192,7 @@ export class ObjectTools {
 
     // Delete object from database
     try {
-      const deleted = await this.sharedDbService.deleteTask(objectId);
+      const deleted = await this.sharedDbService.deleteObject(objectId);
       if (deleted) {
         const typeDisplay = existingObject.template_id === 1 ? 'Task' :
                             existingObject.template_id === 2 ? 'Project' :
@@ -253,8 +253,8 @@ export class ObjectTools {
     const stage = toolArgs?.stage as TaskStage | undefined;
 
     try {
-      const objects = await this.sharedDbService.listTasks(stage, parentId, templateId);
-      
+      const objects = await this.sharedDbService.listObjects(stage, parentId, templateId);
+
       const formattedObjects = objects.map(object => {
         const typeDisplay = object.template_id === 1 ? 'Task' :
                             object.template_id === 2 ? 'Project' :

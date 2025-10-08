@@ -42,7 +42,7 @@ export async function handleUpdate(
   }
 
   // Check if entity exists
-  const existingEntity = await sharedDbService.getTask(entityId);
+  const existingEntity = await sharedDbService.getObject(entityId);
   if (!existingEntity) {
     return {
       content: [
@@ -124,7 +124,7 @@ export async function handleUpdate(
 
   // Update entity in database
   try {
-    const updateResult = await sharedDbService.updateTask(entityId, updateData, clientId);
+    const updateResult = await sharedDbService.updateObject(entityId, updateData, clientId);
     if (!updateResult) {
       return {
         content: [
@@ -148,7 +148,7 @@ export async function handleUpdate(
   }
 
   // Fetch updated entity
-  const fetchedEntity = await sharedDbService.getTask(entityId);
+  const fetchedEntity = await sharedDbService.getObject(entityId);
   if (!fetchedEntity) {
     return {
       content: [
