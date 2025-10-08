@@ -3,6 +3,7 @@ import { TaskData, TaskStage } from "../types/task.js";
 import { SchemaProperties, ExecutionChainItem } from "../types/property.js";
 import DatabaseService from "../database.js";
 import { handleCreate } from "./create-handler.js";
+import { handleUpdate } from "./update-handler.js";
 
 export class TaskTools {
   constructor(
@@ -91,151 +92,31 @@ export class TaskTools {
   }
 
   private async handleUpdateTask(toolArgs?: Record<string, any>) {
-    // Handle updating an existing task by ID
-    const taskId = toolArgs?.task_id;
-    
-    // Validate task ID
-    if (!taskId || typeof taskId !== 'number' || taskId < 1) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: "Error: Valid numeric task_id is required for update.",
-          } as TextContent,
-        ],
-      };
-    }
-
-    // Check if task exists
-    const existingTask = await this.sharedDbService.getTask(taskId);
-    if (!existingTask) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Error: Task with ID ${taskId} not found.`,
-          } as TextContent,
-        ],
-      };
-    }
-
-    const dynamicProperties = await this.loadDynamicSchemaProperties();
-
-    // Filter out task_id from validation since it's not a content field
-    const contentArgs = { ...toolArgs };
-    delete contentArgs.task_id;
-
-    // Prepare update data - all non-stage properties go to blocks
-    const updateData: Partial<TaskData> = {};
-    
-    // Handle stage, parent_id, and template_id explicitly as they're columns in tasks table
-    if (toolArgs?.stage !== undefined) {
-      // Validate stage value
-      const validStages = ['draft', 'backlog', 'doing', 'review', 'completed'];
-      if (validStages.includes(String(toolArgs.stage))) {
-        updateData.stage = String(toolArgs.stage) as TaskStage;
-      }
-    }
-    
-    if (toolArgs?.parent_id !== undefined) {
-      updateData.parent_id = toolArgs.parent_id;
-    }
-    
-    // Set template_id to 1 for tasks (consistent with create_task)
-    updateData.template_id = 1;
-
-    // Create execution chain to order fields when building markdown
-    const executionChain = this.createExecutionChain(dynamicProperties);
-
-    // Add all properties (including Title, Summary/Description) to update data
-    for (const { prop_name } of executionChain) {
-      const value = toolArgs?.[prop_name];
-      if (value !== undefined) {
-        updateData[prop_name] = value;
-      }
-    }
-    
-    // Also add any properties not in the execution chain (except task_id, stage, parent_id, and template_id)
-    for (const [key, value] of Object.entries(toolArgs || {})) {
-      if (key !== 'task_id' && key !== 'stage' && key !== 'parent_id' && key !== 'template_id' && value !== undefined && !updateData.hasOwnProperty(key)) {
-        updateData[key] = value;
-      }
-    }
-
-    // Update task in database
-    try {
-      const updateResult = await this.sharedDbService.updateTask(taskId, updateData, this.clientId);
-      if (!updateResult) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify({ success: false, message: "No updates were applied." }, null, 2),
-            } as TextContent,
-          ],
-        };
-      }
-    } catch (error) {
-      console.error('Error updating task:', error);
-      return {
-        content: [
-          {
-            type: "text",
-            text: "Error: Failed to update task in database.",
-          } as TextContent,
-        ],
-      };
-    }
-
-    // After successful update, return the updated task details in JSON format
-    const updatedTask = await this.sharedDbService.getTask(taskId);
-    if (!updatedTask) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify({ success: false, message: "Task not found after update." }, null, 2),
-          } as TextContent,
-        ],
-      };
-    }
-
-    // Check if task is completed based on checkboxes in Items section
-    if (updatedTask.Items && this.isTaskCompleted(updatedTask.Items)) {
-      try {
-        await this.sharedDbService.updateTask(taskId, { stage: 'review', template_id: 1 }, this.clientId);
-        updatedTask.stage = 'review';
-      } catch (error) {
-        console.error('Error auto-transitioning task to review:', error);
-      }
-    }
-
-    // Build blocks object dynamically from task properties
-    const blocks: Record<string, string> = {};
-    const systemFields = ['id', 'stage', 'template_id', 'parent_id', 'created_at', 'updated_at', 'created_by', 'updated_by'];
-    for (const [key, value] of Object.entries(updatedTask)) {
-      if (!systemFields.includes(key) && value) {
-        blocks[key] = String(value);
-      }
-    }
-
-    const jsonResponse = {
-      success: true,
-      id: updatedTask.id,
-      stage: updatedTask.stage || 'draft',
-      template_id: 1,
-      parent_id: updatedTask.parent_id,
-      blocks: blocks
-    };
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(jsonResponse, null, 2),
-        } as TextContent,
-      ],
-    };
+    return handleUpdate(
+      {
+        templateId: 1,
+        typeName: "Task",
+        idField: "task_id",
+        loadSchema: this.loadDynamicSchemaProperties,
+        postUpdate: async (taskId: number, updatedTask: any, dbService: DatabaseService, clientId: string) => {
+          // Check if task is completed based on checkboxes in Items section
+          if (updatedTask.Items && this.isTaskCompleted(updatedTask.Items)) {
+            try {
+              await dbService.updateTask(taskId, { stage: 'review', template_id: 1 }, clientId);
+              updatedTask.stage = 'review';
+              return updatedTask;
+            } catch (error) {
+              console.error('Error auto-transitioning task to review:', error);
+            }
+          }
+          return null;
+        },
+      },
+      toolArgs,
+      this.sharedDbService,
+      this.clientId,
+      this.createExecutionChain
+    );
   }
 
 
