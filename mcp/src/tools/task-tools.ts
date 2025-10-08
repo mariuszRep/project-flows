@@ -98,6 +98,7 @@ export class TaskTools {
         typeName: "Task",
         idField: "task_id",
         loadSchema: this.loadDynamicSchemaProperties,
+        validateTemplateId: true, // Prevent cross-type updates (e.g., using task_id on an epic)
         postUpdate: async (taskId: number, updatedTask: any, dbService: DatabaseService, clientId: string) => {
           // Check if task is completed based on checkboxes in Items section
           if (updatedTask.Items && this.isTaskCompleted(updatedTask.Items)) {

@@ -5,13 +5,27 @@ import DatabaseService from "../database.js";
 
 /**
  * Configuration for the generic update handler
+ *
+ * Guidelines for validation flags:
+ *
+ * - validateTemplateId: Should be TRUE for all entity types to prevent cross-type updates.
+ *   Example: Prevents accidentally updating a Task when using an epic_id parameter.
+ *   This ensures type safety and prevents data corruption from mismatched tool calls.
+ *
+ * - validateParent: Use when parent relationships have specific constraints.
+ *   Example: Epics must have Project parents (template_id=2), not Task or Rule parents.
+ *   Implement custom validation logic to verify parent entity type and constraints.
+ *
+ * - postUpdate: Use for entity-specific post-processing after successful update.
+ *   Example: Auto-transition task to 'review' stage when all checklist items completed.
+ *   Runs after database update completes, receives updated entity for inspection.
  */
 export interface UpdateConfig {
   templateId: number;
   typeName: string; // e.g., "Task", "Project", "Epic", "Rule"
   idField: string; // e.g., "task_id", "project_id", "epic_id", "rule_id"
   loadSchema: () => Promise<SchemaProperties>;
-  validateTemplateId?: boolean; // If true, verify entity template_id matches
+  validateTemplateId?: boolean; // If true, verify entity template_id matches (recommended: true for all types)
   validateParent?: (parentId: number, dbService: DatabaseService) => Promise<void>;
   postUpdate?: (entityId: number, entity: any, dbService: DatabaseService, clientId: string) => Promise<any>;
 }
