@@ -1,21 +1,27 @@
 # Project Flows - MCP Task Management System
 # Makefile for common development tasks
 
-.PHONY: help build up down logs test clean backup restore check-postgres list-backups init-fresh regenerate-seed extract-schema extract-all status db-logs mcp-logs db-connect install fresh prod admin dev
+.PHONY: help build up down logs test clean backup restore check-postgres list-backups init-fresh regenerate-seed extract-schema extract-all status db-logs mcp-logs db-connect install fresh prod admin dev backup-reminder
 
 # Default target
 help:
+	@echo "=========================================="
+	@echo "⚠️  BACKUP REMINDER:"
+	@echo "Before running destructive commands (clean, fresh, init-fresh),"
+	@echo "always run 'make backup' first to protect your data!"
+	@echo "=========================================="
+	@echo ""
 	@echo "Available commands:"
 	@echo "  make build     - Build all Docker images"
 	@echo "  make up        - Start all services"
 	@echo "  make down      - Stop all services"
 	@echo "  make logs      - View service logs"
 	@echo "  make test      - Run integration tests"
-	@echo "  make clean     - Clean up containers and volumes"
+	@echo "  make clean     - Clean up containers and volumes (⚠️  Destructive! Backup first)"
 	@echo "  make backup    - Create a complete database backup"
 	@echo "  make restore FILE=backup.dump [TARGET_DB=new_db_name] - Restore database from backup"
 	@echo "  make list-backups - List all available backups"
-	@echo "  make init-fresh - Initialize fresh database from schema.sql and seed.sql"
+	@echo "  make init-fresh - Initialize fresh database (⚠️  Destructive! Backup first)"
 	@echo "  make regenerate-seed - Regenerate seed.sql from current database state"
 	@echo "  make extract-schema - Extract schema.sql from current database state"
 	@echo "  make extract-all - Extract both schema.sql and seed.sql from database"
@@ -26,7 +32,7 @@ help:
 	@echo "  make mcp-logs  - View MCP server logs"
 	@echo "  make db-connect - Connect to database via psql"
 	@echo "  make install   - Install dependencies for local development"
-	@echo "  make fresh     - Clean and rebuild everything"
+	@echo "  make fresh     - Clean and rebuild everything (⚠️  Destructive! Backup first)"
 	@echo "  make prod      - Production deployment"
 
 # Build all services
@@ -62,8 +68,12 @@ dev:
 	@echo "Database started for development"
 	@echo "Run 'cd mcp && npm run dev' to start MCP server locally"
 
-# Clean up everything
+# Clean up everything (⚠️  WARNING: Deletes all data! Run 'make backup' first)
 clean:
+	@echo "⚠️  WARNING: This will delete all Docker volumes and data!"
+	@echo "⚠️  Make sure you have run 'make backup' before proceeding."
+	@echo "Press Ctrl+C to cancel, or wait 5 seconds to continue..."
+	@sleep 5
 	docker-compose down -v
 	docker system prune -f
 
@@ -132,15 +142,19 @@ install:
 	cd mcp && npm install
 	cd database && npm install
 
-# Build and start fresh
+# Build and start fresh (⚠️  WARNING: Deletes all data! Run 'make backup' first)
 fresh: clean build up
 
 # Production deployment
 prod:
 	docker-compose -f docker-compose.yml up -d --build
 
-# Initialize fresh database from schema.sql and seed.sql
+# Initialize fresh database from schema.sql and seed.sql (⚠️  WARNING: Drops existing database! Run 'make backup' first)
 init-fresh: check-postgres
+	@echo "⚠️  WARNING: This will DROP the existing database and all data!"
+	@echo "⚠️  Make sure you have run 'make backup' before proceeding."
+	@echo "Press Ctrl+C to cancel, or wait 5 seconds to continue..."
+	@sleep 5
 	@echo "🔧 Initializing fresh database..."
 	cd database/scripts && ./init-fresh.sh
 
