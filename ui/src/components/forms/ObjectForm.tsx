@@ -455,8 +455,18 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
           // For tasks, set the selected project in our local state
           setSelectedProjectForTask(selectedProjectId.toString());
           initialValues['project_id'] = selectedProjectId.toString();
+          initialValues['epic_id'] = 'none';
         } else if (entityType === 'epic' || entityType === 'rule') {
           initialValues['parent_id'] = selectedProjectId.toString();
+        }
+      } else {
+        // No project selected - initialize with 'none'
+        if (entityType === 'task') {
+          setSelectedProjectForTask(null);
+          initialValues['project_id'] = 'none';
+          initialValues['epic_id'] = 'none';
+        } else if (entityType === 'epic' || entityType === 'rule') {
+          initialValues['parent_id'] = 'none';
         }
       }
 
@@ -778,19 +788,36 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
     });
     
     // For tasks in edit mode, set up project/epic fields
-    if (entityType === 'task' && entity.parent_id) {
-      // Check if parent is an epic or project
-      const parentEpic = allEpics.find(e => e.id === entity.parent_id);
-      if (parentEpic) {
-        // Parent is an epic, set both project and epic
-        setSelectedProjectForTask(parentEpic.parent_id.toString());
-        values['project_id'] = parentEpic.parent_id.toString();
-        values['epic_id'] = entity.parent_id.toString();
+    if (entityType === 'task') {
+      if (entity.parent_id) {
+        // Check if parent is an epic or project
+        const parentEpic = allEpics.find(e => e.id === entity.parent_id);
+        if (parentEpic) {
+          // Parent is an epic, set both project and epic
+          setSelectedProjectForTask(parentEpic.parent_id.toString());
+          values['project_id'] = parentEpic.parent_id.toString();
+          values['epic_id'] = entity.parent_id.toString();
+        } else {
+          // Parent is a project
+          setSelectedProjectForTask(entity.parent_id.toString());
+          values['project_id'] = entity.parent_id.toString();
+          values['epic_id'] = 'none';
+        }
       } else {
-        // Parent is a project
-        setSelectedProjectForTask(entity.parent_id.toString());
-        values['project_id'] = entity.parent_id.toString();
-        values['epic_id'] = '';
+        // No parent - set to 'none'
+        setSelectedProjectForTask(null);
+        values['project_id'] = 'none';
+        values['epic_id'] = 'none';
+      }
+    }
+    
+    // For epics and rules in edit mode, set up parent_id field
+    if (entityType === 'epic' || entityType === 'rule') {
+      if (entity.parent_id) {
+        values['parent_id'] = entity.parent_id.toString();
+      } else {
+        // No parent - set to 'none' for global epic/rule
+        values['parent_id'] = 'none';
       }
     }
     
@@ -850,18 +877,20 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
       // Handle parent_id mapping
       if (entityType === 'task') {
         // For tasks, check if an epic is selected, otherwise use project
-        if (editValues['epic_id'] && editValues['epic_id'] !== '') {
+        if (editValues['epic_id'] && editValues['epic_id'] !== '' && editValues['epic_id'] !== 'none') {
           // If epic is selected, use epic as parent
           createPayload.parent_id = parseInt(editValues['epic_id']);
-        } else if (editValues['project_id'] && editValues['project_id'] !== '') {
+        } else if (editValues['project_id'] && editValues['project_id'] !== '' && editValues['project_id'] !== 'none') {
           // Otherwise use project as parent
           createPayload.parent_id = parseInt(editValues['project_id']);
         }
+        // If both are 'none' or empty, don't set parent_id (global task)
       } else if (entityType === 'epic' || entityType === 'rule') {
         // For epics and rules, use parent_id directly
-        if (editValues['parent_id'] && editValues['parent_id'] !== '') {
+        if (editValues['parent_id'] && editValues['parent_id'] !== '' && editValues['parent_id'] !== 'none') {
           createPayload.parent_id = parseInt(editValues['parent_id']);
         }
+        // If 'none', don't set parent_id (global epic/rule)
       }
 
       console.log(`Creating ${entityType} with data:`, createPayload);
@@ -976,10 +1005,24 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
         delete finalPayload.epic_id;
         
         // Set parent_id based on epic or project selection
-        if (editValues['epic_id'] && editValues['epic_id'] !== '') {
+        if (editValues['epic_id'] && editValues['epic_id'] !== '' && editValues['epic_id'] !== 'none') {
           finalPayload.parent_id = editValues['epic_id'];
-        } else if (editValues['project_id'] && editValues['project_id'] !== '') {
+        } else if (editValues['project_id'] && editValues['project_id'] !== '' && editValues['project_id'] !== 'none') {
           finalPayload.parent_id = editValues['project_id'];
+        } else if (editValues['project_id'] === 'none' || editValues['epic_id'] === 'none') {
+          // User explicitly selected 'none' - set parent_id to null to clear it
+          finalPayload.parent_id = null;
+        }
+      } else if (entityType === 'epic' || entityType === 'rule') {
+        // For epics and rules, handle parent_id changes
+        if (updatePayload.parent_id !== undefined) {
+          if (editValues['parent_id'] === 'none') {
+            // User explicitly selected 'none' - set parent_id to null to clear it
+            finalPayload.parent_id = null;
+          } else if (editValues['parent_id'] && editValues['parent_id'] !== '') {
+            // User selected a project - keep the value
+            finalPayload.parent_id = editValues['parent_id'];
+          }
         }
       }
       
@@ -1299,9 +1342,9 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
                           onValueChange={(value) => {
                             const newValue = value === 'none' ? null : value;
                             setSelectedProjectForTask(newValue);
-                            handleInputChange('project_id', value === 'none' ? '' : value);
+                            handleInputChange('project_id', value);
                             // Clear epic selection when project changes
-                            handleInputChange('epic_id', '');
+                            handleInputChange('epic_id', 'none');
                           }}
                           disabled={isLoadingProjects}
                         >
@@ -1335,7 +1378,7 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
                         </div>
                         <Select
                           value={editValues['epic_id'] || 'none'}
-                          onValueChange={(value) => handleInputChange('epic_id', value === 'none' ? '' : value)}
+                          onValueChange={(value) => handleInputChange('epic_id', value)}
                           disabled={!selectedProjectForTask || isLoadingEpics}
                         >
                           <SelectTrigger className="w-full">
@@ -1361,7 +1404,7 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
                       </div>
                       <Select
                         value={editValues['parent_id'] || 'none'}
-                        onValueChange={(value) => handleInputChange('parent_id', value === 'none' ? '' : value)}
+                        onValueChange={(value) => handleInputChange('parent_id', value)}
                         disabled={isLoadingProjects}
                       >
                         <SelectTrigger className="w-full">
