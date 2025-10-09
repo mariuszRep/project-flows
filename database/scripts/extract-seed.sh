@@ -9,7 +9,7 @@ set -e
 CONTAINER_NAME="mcp-postgres"
 DB_NAME="mcp_tasks"
 DB_USER="mcp_user"
-OUTPUT_FILE="seed.sql"
+OUTPUT_FILE="../init/seed.sql"
 
 # Colors for output
 GREEN='\033[0;32m'

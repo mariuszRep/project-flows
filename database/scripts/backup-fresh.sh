@@ -6,7 +6,7 @@
 
 set -e
 
-BACKUP_DIR="backups"
+BACKUP_DIR="../backups"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 CONTAINER_NAME="mcp-postgres"
 DB_NAME="mcp_tasks"

@@ -22,13 +22,13 @@ echo -e "${BLUE}🔧 Initialize Fresh Database${NC}"
 echo "========================================"
 
 # Check if files exist
-if [ ! -f "schema.sql" ]; then
-    echo -e "${RED}❌ Error: schema.sql not found${NC}"
+if [ ! -f "../init/schema.sql" ]; then
+    echo -e "${RED}❌ Error: init/schema.sql not found${NC}"
     exit 1
 fi
 
-if [ ! -f "seed.sql" ]; then
-    echo -e "${YELLOW}⚠️  Warning: seed.sql not found, will create empty database${NC}"
+if [ ! -f "../init/seed.sql" ]; then
+    echo -e "${YELLOW}⚠️  Warning: init/seed.sql not found, will create empty database${NC}"
     SEED_AVAILABLE=false
 else
     SEED_AVAILABLE=true
@@ -51,14 +51,14 @@ docker exec "$CONTAINER_NAME" psql -U "$DB_USER" -d postgres -c "CREATE DATABASE
 echo -e "${GREEN}✅ Database created${NC}"
 
 # Apply schema
-echo -e "${BLUE}Applying schema from schema.sql...${NC}"
-docker exec -i "$CONTAINER_NAME" psql -U "$DB_USER" -d "$DB_NAME" < schema.sql
+echo -e "${BLUE}Applying schema from init/schema.sql...${NC}"
+docker exec -i "$CONTAINER_NAME" psql -U "$DB_USER" -d "$DB_NAME" < ../init/schema.sql
 echo -e "${GREEN}✅ Schema applied${NC}"
 
 # Apply seed data if available
 if [ "$SEED_AVAILABLE" = true ]; then
-    echo -e "${BLUE}Loading seed data from seed.sql...${NC}"
-    docker exec -i "$CONTAINER_NAME" psql -U "$DB_USER" -d "$DB_NAME" < seed.sql
+    echo -e "${BLUE}Loading seed data from init/seed.sql...${NC}"
+    docker exec -i "$CONTAINER_NAME" psql -U "$DB_USER" -d "$DB_NAME" < ../init/seed.sql
     echo -e "${GREEN}✅ Seed data loaded${NC}"
 fi
 

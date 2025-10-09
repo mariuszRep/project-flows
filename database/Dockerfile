@@ -2,8 +2,8 @@ FROM postgres:15
 
 # Copy initialization scripts
 # These are automatically executed by PostgreSQL on first container start
-COPY schema.sql /docker-entrypoint-initdb.d/01-schema.sql
-COPY seed.sql /docker-entrypoint-initdb.d/02-seed.sql
+COPY init/schema.sql /docker-entrypoint-initdb.d/01-schema.sql
+COPY init/seed.sql /docker-entrypoint-initdb.d/02-seed.sql
 
 # Set environment variables
 ENV POSTGRES_DB=mcp_tasks

@@ -70,7 +70,7 @@ clean:
 # Create a complete database backup
 backup: check-postgres
 	@echo "📦 Creating comprehensive database backup..."
-	cd database && ./backup-fresh.sh
+	cd database/scripts && ./backup-fresh.sh
 
 # Restore database (usage: make restore FILE=backup.dump [TARGET_DB=new_db_name])
 restore: check-postgres
@@ -78,13 +78,13 @@ restore: check-postgres
 		echo "Usage: make restore FILE=database/backups/backup.dump [TARGET_DB=new_db_name]"; \
 		echo ""; \
 		echo "Available backups:"; \
-		cd database && ./restore-fresh.sh; \
+		cd database/scripts && ./restore-fresh.sh; \
 		exit 1; \
 	fi
 	@if [ -n "$(TARGET_DB)" ]; then \
-		cd database && ./restore-fresh.sh ../$(FILE) $(TARGET_DB); \
+		cd database/scripts && ./restore-fresh.sh ../../$(FILE) $(TARGET_DB); \
 	else \
-		cd database && ./restore-fresh.sh ../$(FILE); \
+		cd database/scripts && ./restore-fresh.sh ../../$(FILE); \
 	fi
 
 # Check service status
@@ -142,19 +142,19 @@ prod:
 # Initialize fresh database from schema.sql and seed.sql
 init-fresh: check-postgres
 	@echo "🔧 Initializing fresh database..."
-	cd database && ./init-fresh.sh
+	cd database/scripts && ./init-fresh.sh
 
 # Regenerate seed.sql from current database state
 regenerate-seed: check-postgres
 	@echo "🔄 Regenerating seed.sql from current database..."
-	cd database && ./extract-seed.sh
+	cd database/scripts && ./extract-seed.sh
 
 # Extract schema.sql from current database state
 extract-schema: check-postgres
 	@echo "📋 Extracting schema.sql from current database..."
-	cd database && ./extract-schema.sh
+	cd database/scripts && ./extract-schema.sh
 
 # Extract both schema and seed from current database
 extract-all: check-postgres
 	@echo "📦 Extracting schema and seed from current database..."
-	cd database && ./extract-schema.sh && ./extract-seed.sh
+	cd database/scripts && ./extract-schema.sh && ./extract-seed.sh

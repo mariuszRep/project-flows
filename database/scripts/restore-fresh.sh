@@ -31,9 +31,9 @@ if [ -z "$1" ]; then
     echo "  $0 backups/full_backup_20250109_120000.dump mcp_tasks_test"
     echo ""
     echo "Available backups:"
-    if [ -d "backups" ]; then
-        ls -lh backups/*.dump 2>/dev/null || echo "  No .dump files found"
-        ls -lh backups/*.sql 2>/dev/null || echo "  No .sql files found"
+    if [ -d "../backups" ]; then
+        ls -lh ../backups/*.dump 2>/dev/null || echo "  No .dump files found"
+        ls -lh ../backups/*.sql 2>/dev/null || echo "  No .sql files found"
     else
         echo "  No backups directory found"
     fi

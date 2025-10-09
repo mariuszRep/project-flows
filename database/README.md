@@ -9,8 +9,8 @@ This directory contains all database-related files for the project-flows MCP sys
 # From project root
 make init-fresh
 
-# Or from database directory
-cd database && ./init-fresh.sh
+# Or from database/scripts directory
+cd database/scripts && ./init-fresh.sh
 ```
 
 ### Backup Current Database
@@ -18,8 +18,8 @@ cd database && ./init-fresh.sh
 # From project root
 make backup
 
-# Or from database directory
-cd database && ./backup-fresh.sh
+# Or from database/scripts directory
+cd database/scripts && ./backup-fresh.sh
 ```
 
 ### Restore from Backup
@@ -27,8 +27,17 @@ cd database && ./backup-fresh.sh
 # From project root
 make restore FILE=database/backups/full_backup_20250109_120000.dump
 
-# Or from database directory
-cd database && ./restore-fresh.sh backups/full_backup_20250109_120000.dump
+# Or from database/scripts directory
+cd database/scripts && ./restore-fresh.sh ../backups/full_backup_20250109_120000.dump
+```
+
+### Test Setup (Without Affecting Existing Database)
+```bash
+# From database/scripts directory
+cd database/scripts && ./test-setup.sh
+
+# This creates a separate test container on port 5433
+# Clean up with: docker rm -f mcp-postgres-test
 ```
 
 ---
@@ -62,13 +71,15 @@ Initializes a completely fresh database from scratch.
 **What it does:**
 1. Drops existing database (if exists)
 2. Creates new empty database
-3. Applies schema from `schema.sql`
-4. Loads seed data from `seed.sql`
+3. Applies schema from `init/schema.sql`
+4. Loads seed data from `init/seed.sql`
 5. Verifies installation (counts tables, functions, triggers)
+
+**Location**: `scripts/init-fresh.sh`
 
 **Usage:**
 ```bash
-./init-fresh.sh
+cd database/scripts && ./init-fresh.sh
 # or
 make init-fresh
 ```
@@ -175,7 +186,7 @@ Restoring from backups/full_backup_20251009_110746.dump...
 ---
 
 ### `extract-schema.sh` - Extract Schema from Database
-Extracts current database structure to `schema.sql`.
+Extracts current database structure to `init/schema.sql`.
 
 **What it extracts:**
 - All tables with structure
@@ -191,17 +202,26 @@ Extracts current database structure to `schema.sql`.
 make extract-schema
 ```
 
+**Location**: `scripts/extract-schema.sh`
+
 **When to use:**
 - After adding new triggers/functions via migrations
 - After database schema changes
 - Before committing schema updates to git
+
+**Usage:**
+```bash
+cd database/scripts && ./extract-schema.sh
+# or
+make extract-schema
+```
 
 **Output:**
 ```
 📋 Extract Schema from Database
 ========================================
 ✅ Schema extracted successfully!
-File: schema.sql
+File: init/schema.sql
 Size: 16K
 
 Contents:
@@ -214,24 +234,26 @@ Contents:
 ---
 
 ### `extract-seed.sh` - Extract Seed Data from Database
-Extracts templates and properties to `seed.sql`.
+Extracts templates and properties to `init/seed.sql`.
 
 **What it extracts:**
 - Templates table (4 rows)
 - Template_properties table (10 rows)
 - Sequence values (current IDs)
 
-**Usage:**
-```bash
-./extract-seed.sh
-# or
-make regenerate-seed
-```
+**Location**: `scripts/extract-seed.sh`
 
 **When to use:**
 - After adding new templates via UI/MCP
 - After modifying template properties
 - Before committing seed updates to git
+
+**Usage:**
+```bash
+cd database/scripts && ./extract-seed.sh
+# or
+make regenerate-seed
+```
 
 **Output:**
 ```
@@ -241,13 +263,64 @@ make regenerate-seed
 ✅ Template properties exported: 10 rows
 
 🎉 Seed data extracted successfully!
-File: seed.sql
+File: init/seed.sql
 Size: 16K
 
 Contents:
   📋 Templates: 4 rows
   🏷️  Properties: 10 rows
   🔢 Sequences: 4 values
+```
+
+---
+
+### `test-setup.sh` - Test Database Setup ⭐ NEW
+Creates a temporary test database in a separate container.
+
+**What it does:**
+1. Starts new PostgreSQL container (mcp-postgres-test)
+2. Creates test database (mcp_tasks_test) on port 5433
+3. Applies schema from `init/schema.sql`
+4. Loads seed data from `init/seed.sql`
+5. Verifies installation
+6. Does NOT affect existing database
+
+**Location**: `scripts/test-setup.sh`
+
+**Usage:**
+```bash
+cd database/scripts && ./test-setup.sh
+```
+
+**When to use:**
+- Testing schema/seed changes
+- Verifying fresh setup works
+- Experimenting without risk
+- Running parallel test environment
+
+**Output:**
+```
+🧪 Test Database Setup
+========================================
+✅ Test container started
+✅ Schema applied
+✅ Seed data loaded
+
+🎉 Test database initialized successfully!
+Database: mcp_tasks_test
+Container: mcp-postgres-test
+Port: 5433
+
+To connect:
+  docker exec -it mcp-postgres-test psql -U mcp_user -d mcp_tasks_test
+
+To stop and remove test container:
+  docker rm -f mcp-postgres-test
+```
+
+**Cleanup:**
+```bash
+docker rm -f mcp-postgres-test
 ```
 
 ---
@@ -291,30 +364,32 @@ make db-connect         # Connect to database via psql
 
 ```
 database/
+├── init/                         # Initialization files (commit to git)
+│   ├── schema.sql                # Database structure
+│   └── seed.sql                  # Seed data
+│
+├── scripts/                      # Maintenance scripts (commit to git)
+│   ├── backup-fresh.sh           # Comprehensive backup (4 files)
+│   ├── backup-minimal.sh         # Minimal backup (.dump only)
+│   ├── restore-fresh.sh          # Safe restore with confirmations
+│   ├── init-fresh.sh             # Fresh database initialization
+│   ├── extract-schema.sh         # Extract schema.sql from database
+│   ├── extract-seed.sh           # Extract seed.sql from database
+│   └── test-setup.sh             # Test setup (separate container)
+│
 ├── backups/                      # Database backups (ignored by git)
 │   ├── full_backup_*.dump        # Compressed backups
 │   ├── full_backup_*.sql         # Plain SQL backups
 │   ├── schema_backup_*.sql       # Schema-only backups
 │   └── data_backup_*.sql         # Data-only backups
 │
-├── archive/                      # Obsolete scripts (ignored by git)
-│   ├── migrate.js                # Old migration script
-│   ├── run_migration.js          # Old migration runner
-│   └── generate-seed.js          # Old Node.js seed generator
-│
-├── backup-fresh.sh               # Comprehensive backup (4 files)
-├── backup-minimal.sh             # Minimal backup (.dump only)
-├── restore-fresh.sh              # Safe restore with confirmations
-├── init-fresh.sh                 # Fresh database initialization
-├── extract-schema.sh             # Extract schema.sql
-├── extract-seed.sh               # Extract seed.sql
-│
-├── schema.sql                    # Database structure (commit this)
-├── seed.sql                      # Seed data (commit this)
 ├── Dockerfile                    # PostgreSQL container config
-├── package.json                  # Node dependencies (minimal)
-└── *.md                          # Documentation
+├── README.md                     # This file
+├── FOLDER_STRUCTURE.md           # Detailed structure documentation
+└── package.json                  # Node dependencies (minimal)
 ```
+
+See [FOLDER_STRUCTURE.md](FOLDER_STRUCTURE.md) for detailed documentation.
 
 ---
 
@@ -516,17 +591,17 @@ Backups are intentionally ignored by git. Use:
 ## Best Practices
 
 ### What to Commit to Git
-- ✅ `schema.sql` - Always keep updated
-- ✅ `seed.sql` - Essential templates and properties
-- ✅ All `.sh` scripts
+- ✅ `init/schema.sql` - Always keep updated
+- ✅ `init/seed.sql` - Essential templates and properties
+- ✅ `scripts/*.sh` - All maintenance scripts
 - ✅ `Dockerfile`, `package.json`
 - ✅ Documentation (`.md` files)
 
 ### What NOT to Commit
-- ❌ `backups/` directory - Production data
-- ❌ `archive/` directory - Obsolete scripts
+- ❌ `backups/` directory - Production data (git ignored)
 - ❌ Production database exports
 - ❌ Temporary backup files
+- ❌ Test containers/databases
 
 ### Backup Strategy
 1. **Daily automated backups:**
