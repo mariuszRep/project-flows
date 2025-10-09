@@ -17,23 +17,21 @@ SET client_min_messages = warning;
 SET row_security = off;
 
 --
--- Name: public; Type: SCHEMA; Schema: -; Owner: mcp_user
+-- Name: public; Type: SCHEMA; Schema: -; Owner: -
 --
 
 -- *not* creating schema, since initdb creates it
 
 
-ALTER SCHEMA public OWNER TO mcp_user;
-
 --
--- Name: SCHEMA public; Type: COMMENT; Schema: -; Owner: mcp_user
+-- Name: SCHEMA public; Type: COMMENT; Schema: -; Owner: -
 --
 
 COMMENT ON SCHEMA public IS '';
 
 
 --
--- Name: task_stage; Type: TYPE; Schema: public; Owner: mcp_user
+-- Name: task_stage; Type: TYPE; Schema: public; Owner: -
 --
 
 CREATE TYPE public.task_stage AS ENUM (
@@ -45,30 +43,121 @@ CREATE TYPE public.task_stage AS ENUM (
 );
 
 
-ALTER TYPE public.task_stage OWNER TO mcp_user;
+--
+-- Name: notify_data_change(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notify_data_change() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+    notification_payload json;
+    event_type text;
+BEGIN
+    -- Determine event type
+    IF TG_OP = 'INSERT' THEN
+        event_type = 'created';
+        notification_payload = json_build_object(
+            'event_type', event_type,
+            'object_type', CASE 
+                WHEN NEW.template_id = 1 THEN 'task'
+                WHEN NEW.template_id = 2 THEN 'project'
+                ELSE 'object'
+            END,
+            'object_id', NEW.id,
+            'template_id', NEW.template_id,
+            'parent_id', NEW.parent_id,
+            'stage', NEW.stage,
+            'created_by', NEW.created_by,
+            'timestamp', to_char(NOW(), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+        );
+    ELSIF TG_OP = 'UPDATE' THEN
+        event_type = 'updated';
+        notification_payload = json_build_object(
+            'event_type', event_type,
+            'object_type', CASE 
+                WHEN NEW.template_id = 1 THEN 'task'
+                WHEN NEW.template_id = 2 THEN 'project'
+                ELSE 'object'
+            END,
+            'object_id', NEW.id,
+            'template_id', NEW.template_id,
+            'parent_id', NEW.parent_id,
+            'stage', NEW.stage,
+            'updated_by', NEW.updated_by,
+            'timestamp', to_char(NOW(), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+        );
+    ELSE
+        event_type = 'deleted';
+        notification_payload = json_build_object(
+            'event_type', event_type,
+            'object_type', CASE 
+                WHEN OLD.template_id = 1 THEN 'task'
+                WHEN OLD.template_id = 2 THEN 'project'
+                ELSE 'object'
+            END,
+            'object_id', OLD.id,
+            'template_id', OLD.template_id,
+            'timestamp', to_char(NOW(), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+        );
+    END IF;
+
+    -- Send notification on appropriate channel
+    PERFORM pg_notify('data_changed', notification_payload::text);
+    
+    -- Return appropriate record based on operation
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    ELSE
+        RETURN NEW;
+    END IF;
+END;
+$$;
+
 
 --
--- Name: update_updated_at_column(); Type: FUNCTION; Schema: public; Owner: mcp_user
+-- Name: FUNCTION notify_data_change(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notify_data_change() IS 'Trigger function that sends PostgreSQL notifications when objects (tasks/projects) are created, updated, or deleted. Used for real-time UI updates.';
+
+
+--
+-- Name: update_updated_at_column(); Type: FUNCTION; Schema: public; Owner: -
 --
 
 CREATE FUNCTION public.update_updated_at_column() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
+        
 BEGIN
     NEW.updated_at = CURRENT_TIMESTAMP;
     RETURN NEW;
 END;
-$$;
 
+        $$;
 
-ALTER FUNCTION public.update_updated_at_column() OWNER TO mcp_user;
 
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
 
 --
--- Name: object_properties; Type: TABLE; Schema: public; Owner: mcp_user
+-- Name: global_state; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.global_state (
+    key text NOT NULL,
+    value jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    created_by text DEFAULT 'system'::text NOT NULL,
+    updated_by text DEFAULT 'system'::text NOT NULL
+);
+
+
+--
+-- Name: object_properties; Type: TABLE; Schema: public; Owner: -
 --
 
 CREATE TABLE public.object_properties (
@@ -84,13 +173,11 @@ CREATE TABLE public.object_properties (
 );
 
 
-ALTER TABLE public.object_properties OWNER TO mcp_user;
-
 --
--- Name: object_template_properties_id_seq; Type: SEQUENCE; Schema: public; Owner: mcp_user
+-- Name: object_properties_id_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
-CREATE SEQUENCE public.object_template_properties_id_seq
+CREATE SEQUENCE public.object_properties_id_seq
     AS integer
     START WITH 1
     INCREMENT BY 1
@@ -99,33 +186,52 @@ CREATE SEQUENCE public.object_template_properties_id_seq
     CACHE 1;
 
 
-ALTER TABLE public.object_template_properties_id_seq OWNER TO mcp_user;
-
 --
--- Name: object_template_properties_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: mcp_user
+-- Name: object_properties_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
 --
 
-ALTER SEQUENCE public.object_template_properties_id_seq OWNED BY public.object_properties.id;
+ALTER SEQUENCE public.object_properties_id_seq OWNED BY public.object_properties.id;
 
 
 --
--- Name: global_state; Type: TABLE; Schema: public; Owner: mcp_user
+-- Name: objects; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.global_state (
-    key text NOT NULL,
-    value jsonb NOT NULL,
+CREATE TABLE public.objects (
+    id integer NOT NULL,
+    stage public.task_stage DEFAULT 'draft'::public.task_stage NOT NULL,
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
     created_by text DEFAULT 'system'::text NOT NULL,
-    updated_by text DEFAULT 'system'::text NOT NULL
+    updated_by text DEFAULT 'system'::text NOT NULL,
+    user_id integer,
+    parent_id integer,
+    template_id integer DEFAULT 1 NOT NULL
 );
 
 
-ALTER TABLE public.global_state OWNER TO mcp_user;
+--
+-- Name: objects_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.objects_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
 
 --
--- Name: template_properties; Type: TABLE; Schema: public; Owner: mcp_user
+-- Name: objects_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.objects_id_seq OWNED BY public.objects.id;
+
+
+--
+-- Name: template_properties; Type: TABLE; Schema: public; Owner: -
 --
 
 CREATE TABLE public.template_properties (
@@ -144,10 +250,8 @@ CREATE TABLE public.template_properties (
 );
 
 
-ALTER TABLE public.template_properties OWNER TO mcp_user;
-
 --
--- Name: template_properties_id_seq; Type: SEQUENCE; Schema: public; Owner: mcp_user
+-- Name: template_properties_id_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
 CREATE SEQUENCE public.template_properties_id_seq
@@ -159,58 +263,15 @@ CREATE SEQUENCE public.template_properties_id_seq
     CACHE 1;
 
 
-ALTER TABLE public.template_template_properties_id_seq OWNER TO mcp_user;
-
 --
--- Name: template_properties_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: mcp_user
+-- Name: template_properties_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
 --
 
 ALTER SEQUENCE public.template_properties_id_seq OWNED BY public.template_properties.id;
 
 
 --
--- Name: objects; Type: TABLE; Schema: public; Owner: mcp_user
---
-
-CREATE TABLE public.objects (
-    id integer NOT NULL,
-    stage public.task_stage DEFAULT 'draft'::public.task_stage NOT NULL,
-    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
-    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
-    created_by text DEFAULT 'system'::text NOT NULL,
-    updated_by text DEFAULT 'system'::text NOT NULL,
-    user_id integer,
-    parent_id integer,
-    template_id integer DEFAULT 1 NOT NULL
-);
-
-
-ALTER TABLE public.objects OWNER TO mcp_user;
-
---
--- Name: objects_id_seq; Type: SEQUENCE; Schema: public; Owner: mcp_user
---
-
-CREATE SEQUENCE public.objects_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
-ALTER TABLE public.objects_id_seq OWNER TO mcp_user;
-
---
--- Name: objects_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: mcp_user
---
-
-ALTER SEQUENCE public.objects_id_seq OWNED BY public.objects.id;
-
-
---
--- Name: templates; Type: TABLE; Schema: public; Owner: mcp_user
+-- Name: templates; Type: TABLE; Schema: public; Owner: -
 --
 
 CREATE TABLE public.templates (
@@ -224,10 +285,8 @@ CREATE TABLE public.templates (
 );
 
 
-ALTER TABLE public.templates OWNER TO mcp_user;
-
 --
--- Name: templates_id_seq; Type: SEQUENCE; Schema: public; Owner: mcp_user
+-- Name: templates_id_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
 CREATE SEQUENCE public.templates_id_seq
@@ -239,61 +298,51 @@ CREATE SEQUENCE public.templates_id_seq
     CACHE 1;
 
 
-ALTER TABLE public.templates_id_seq OWNER TO mcp_user;
-
 --
--- Name: templates_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: mcp_user
+-- Name: templates_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
 --
 
 ALTER SEQUENCE public.templates_id_seq OWNED BY public.templates.id;
 
 
 --
--- Name: blocks id; Type: DEFAULT; Schema: public; Owner: mcp_user
+-- Name: object_properties id; Type: DEFAULT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.object_properties ALTER COLUMN id SET DEFAULT nextval('public.object_template_properties_id_seq'::regclass);
-
-
---
--- Name: properties id; Type: DEFAULT; Schema: public; Owner: mcp_user
---
-
-ALTER TABLE ONLY public.template_properties ALTER COLUMN id SET DEFAULT nextval('public.template_properties_id_seq'::regclass);
+ALTER TABLE ONLY public.object_properties ALTER COLUMN id SET DEFAULT nextval('public.object_properties_id_seq'::regclass);
 
 
 --
--- Name: tasks id; Type: DEFAULT; Schema: public; Owner: mcp_user
+-- Name: objects id; Type: DEFAULT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.objects ALTER COLUMN id SET DEFAULT nextval('public.objects_id_seq'::regclass);
 
 
 --
--- Name: templates id; Type: DEFAULT; Schema: public; Owner: mcp_user
+-- Name: template_properties id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.template_properties ALTER COLUMN id SET DEFAULT nextval('public.template_properties_id_seq'::regclass);
+
+
+--
+-- Name: templates id; Type: DEFAULT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.templates ALTER COLUMN id SET DEFAULT nextval('public.templates_id_seq'::regclass);
 
 
 --
--- Name: blocks object_template_properties_pkey; Type: CONSTRAINT; Schema: public; Owner: mcp_user
+-- Name: object_properties blocks_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.object_properties
-    ADD CONSTRAINT object_template_properties_pkey PRIMARY KEY (id);
+    ADD CONSTRAINT blocks_pkey PRIMARY KEY (id);
 
 
 --
--- Name: blocks object_properties_object_id_property_id_key; Type: CONSTRAINT; Schema: public; Owner: mcp_user
---
-
-ALTER TABLE ONLY public.object_properties
-    ADD CONSTRAINT object_properties_object_id_property_id_key UNIQUE (task_id, property_id);
-
-
---
--- Name: global_state global_state_pkey; Type: CONSTRAINT; Schema: public; Owner: mcp_user
+-- Name: global_state global_state_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.global_state
@@ -301,31 +350,23 @@ ALTER TABLE ONLY public.global_state
 
 
 --
--- Name: properties template_properties_pkey; Type: CONSTRAINT; Schema: public; Owner: mcp_user
+-- Name: template_properties properties_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.template_properties
-    ADD CONSTRAINT template_properties_pkey PRIMARY KEY (id);
+    ADD CONSTRAINT properties_pkey PRIMARY KEY (id);
 
 
 --
--- Name: properties template_properties_template_id_key_key; Type: CONSTRAINT; Schema: public; Owner: mcp_user
---
-
-ALTER TABLE ONLY public.template_properties
-    ADD CONSTRAINT template_properties_template_id_key_key UNIQUE (template_id, key);
-
-
---
--- Name: tasks objects_pkey; Type: CONSTRAINT; Schema: public; Owner: mcp_user
+-- Name: objects tasks_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.objects
-    ADD CONSTRAINT objects_pkey PRIMARY KEY (id);
+    ADD CONSTRAINT tasks_pkey PRIMARY KEY (id);
 
 
 --
--- Name: templates templates_pkey; Type: CONSTRAINT; Schema: public; Owner: mcp_user
+-- Name: templates templates_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.templates
@@ -333,122 +374,144 @@ ALTER TABLE ONLY public.templates
 
 
 --
--- Name: idx_object_properties_position; Type: INDEX; Schema: public; Owner: mcp_user
+-- Name: blocks_task_id_property_id_key; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_object_properties_position ON public.object_properties USING btree (task_id, "position");
-
-
---
--- Name: idx_object_properties_property_id; Type: INDEX; Schema: public; Owner: mcp_user
---
-
-CREATE INDEX idx_object_properties_property_id ON public.object_properties USING btree (property_id);
+CREATE UNIQUE INDEX blocks_task_id_property_id_key ON public.object_properties USING btree (task_id, property_id);
 
 
 --
--- Name: idx_object_properties_object_id; Type: INDEX; Schema: public; Owner: mcp_user
+-- Name: idx_blocks_position; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_object_properties_object_id ON public.object_properties USING btree (task_id);
+CREATE INDEX idx_blocks_position ON public.object_properties USING btree (task_id, "position");
 
 
 --
--- Name: idx_global_state_key; Type: INDEX; Schema: public; Owner: mcp_user
+-- Name: idx_blocks_property_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_blocks_property_id ON public.object_properties USING btree (property_id);
+
+
+--
+-- Name: idx_blocks_task_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_blocks_task_id ON public.object_properties USING btree (task_id);
+
+
+--
+-- Name: idx_global_state_key; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_global_state_key ON public.global_state USING btree (key);
 
 
 --
--- Name: idx_objects_parent_id; Type: INDEX; Schema: public; Owner: mcp_user
+-- Name: idx_tasks_parent_id; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_objects_parent_id ON public.objects USING btree (parent_id);
-
-
---
--- Name: idx_objects_user_id; Type: INDEX; Schema: public; Owner: mcp_user
---
-
-CREATE INDEX idx_objects_user_id ON public.objects USING btree (user_id);
+CREATE INDEX idx_tasks_parent_id ON public.objects USING btree (parent_id);
 
 
 --
--- Name: blocks update_object_properties_updated_at; Type: TRIGGER; Schema: public; Owner: mcp_user
+-- Name: idx_tasks_user_id; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE TRIGGER update_object_properties_updated_at BEFORE UPDATE ON public.object_properties FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+CREATE INDEX idx_tasks_user_id ON public.objects USING btree (user_id);
 
 
 --
--- Name: global_state update_global_state_updated_at; Type: TRIGGER; Schema: public; Owner: mcp_user
+-- Name: properties_template_id_key_key; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX properties_template_id_key_key ON public.template_properties USING btree (template_id, key);
+
+
+--
+-- Name: objects objects_notify_change; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER objects_notify_change AFTER INSERT OR DELETE OR UPDATE ON public.objects FOR EACH ROW EXECUTE FUNCTION public.notify_data_change();
+
+
+--
+-- Name: TRIGGER objects_notify_change ON objects; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TRIGGER objects_notify_change ON public.objects IS 'Notifies data changes when tasks or projects are modified';
+
+
+--
+-- Name: object_properties update_blocks_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER update_blocks_updated_at BEFORE UPDATE ON public.object_properties FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+
+--
+-- Name: global_state update_global_state_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
 CREATE TRIGGER update_global_state_updated_at BEFORE UPDATE ON public.global_state FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
 
 --
--- Name: properties update_template_properties_updated_at; Type: TRIGGER; Schema: public; Owner: mcp_user
+-- Name: template_properties update_properties_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER update_template_properties_updated_at BEFORE UPDATE ON public.template_properties FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
-
-
---
--- Name: tasks update_objects_updated_at; Type: TRIGGER; Schema: public; Owner: mcp_user
---
-
-CREATE TRIGGER update_objects_updated_at BEFORE UPDATE ON public.objects FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+CREATE TRIGGER update_properties_updated_at BEFORE UPDATE ON public.template_properties FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
 
 --
--- Name: blocks object_properties_property_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: mcp_user
+-- Name: objects update_tasks_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.object_properties
-    ADD CONSTRAINT object_properties_property_id_fkey FOREIGN KEY (property_id) REFERENCES public.template_properties(id) ON DELETE CASCADE;
+CREATE TRIGGER update_tasks_updated_at BEFORE UPDATE ON public.objects FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
 
 --
--- Name: blocks object_properties_object_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: mcp_user
+-- Name: object_properties blocks_property_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.object_properties
-    ADD CONSTRAINT object_properties_object_id_fkey FOREIGN KEY (task_id) REFERENCES public.objects(id) ON DELETE CASCADE;
+    ADD CONSTRAINT blocks_property_id_fkey FOREIGN KEY (property_id) REFERENCES public.template_properties(id) ON DELETE CASCADE;
 
 
 --
--- Name: properties template_properties_template_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: mcp_user
+-- Name: object_properties blocks_task_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.object_properties
+    ADD CONSTRAINT blocks_task_id_fkey FOREIGN KEY (task_id) REFERENCES public.objects(id) ON DELETE CASCADE;
+
+
+--
+-- Name: template_properties properties_template_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.template_properties
-    ADD CONSTRAINT template_properties_template_id_fkey FOREIGN KEY (template_id) REFERENCES public.templates(id) ON DELETE CASCADE;
+    ADD CONSTRAINT properties_template_id_fkey FOREIGN KEY (template_id) REFERENCES public.templates(id) ON DELETE CASCADE;
 
 
 --
--- Name: tasks objects_parent_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: mcp_user
---
-
-ALTER TABLE ONLY public.objects
-    ADD CONSTRAINT objects_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.objects(id) ON DELETE CASCADE;
-
-
---
--- Name: tasks objects_template_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: mcp_user
+-- Name: objects tasks_parent_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.objects
-    ADD CONSTRAINT objects_template_id_fkey FOREIGN KEY (template_id) REFERENCES public.templates(id) ON DELETE RESTRICT;
+    ADD CONSTRAINT tasks_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.objects(id) ON DELETE CASCADE;
 
 
 --
--- Name: SCHEMA public; Type: ACL; Schema: -; Owner: mcp_user
+-- Name: objects tasks_template_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-REVOKE USAGE ON SCHEMA public FROM PUBLIC;
+ALTER TABLE ONLY public.objects
+    ADD CONSTRAINT tasks_template_id_fkey FOREIGN KEY (template_id) REFERENCES public.templates(id) ON DELETE RESTRICT;
 
 
 --
 -- PostgreSQL database dump complete
 --
+

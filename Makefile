@@ -1,7 +1,7 @@
 # Project Flows - MCP Task Management System
 # Makefile for common development tasks
 
-.PHONY: help build up down logs test clean backup restore check-postgres list-backups
+.PHONY: help build up down logs test clean backup restore check-postgres list-backups init-fresh regenerate-seed extract-schema extract-all status db-logs mcp-logs db-connect install fresh prod admin dev
 
 # Default target
 help:
@@ -15,8 +15,19 @@ help:
 	@echo "  make backup    - Create a complete database backup"
 	@echo "  make restore FILE=backup.dump [TARGET_DB=new_db_name] - Restore database from backup"
 	@echo "  make list-backups - List all available backups"
+	@echo "  make init-fresh - Initialize fresh database from schema.sql and seed.sql"
+	@echo "  make regenerate-seed - Regenerate seed.sql from current database state"
+	@echo "  make extract-schema - Extract schema.sql from current database state"
+	@echo "  make extract-all - Extract both schema.sql and seed.sql from database"
 	@echo "  make dev       - Start development environment"
 	@echo "  make admin     - Start with database admin interface"
+	@echo "  make status    - Check service status"
+	@echo "  make db-logs   - View database logs"
+	@echo "  make mcp-logs  - View MCP server logs"
+	@echo "  make db-connect - Connect to database via psql"
+	@echo "  make install   - Install dependencies for local development"
+	@echo "  make fresh     - Clean and rebuild everything"
+	@echo "  make prod      - Production deployment"
 
 # Build all services
 build:
@@ -58,30 +69,22 @@ clean:
 
 # Create a complete database backup
 backup: check-postgres
-	@echo "📦 Creating database backup..."
-	@mkdir -p backups
-	@TIMESTAMP=$(shell date +%Y%m%d_%H%M%S); \
-	FILENAME="backup_$$TIMESTAMP"; \
-	docker exec mcp-postgres pg_dump -U mcp_user -Fc -Z9 mcp_tasks > "backups/$$FILENAME.dump"; \
-	echo "✅ Backup completed successfully"; \
-	echo "📁 Backup file: backups/$$FILENAME.dump"
+	@echo "📦 Creating comprehensive database backup..."
+	cd database && ./backup-fresh.sh
 
 # Restore database (usage: make restore FILE=backup.dump [TARGET_DB=new_db_name])
 restore: check-postgres
-	@if [ -z "$(FILE)" ]; then echo "Usage: make restore FILE=backup.dump [TARGET_DB=new_db_name]"; exit 1; fi
-	@DB_NAME=$${TARGET_DB:-mcp_tasks}; \
-	if [ "$$DB_NAME" != "mcp_tasks" ]; then \
-		echo "Creating database $$DB_NAME if it doesn't exist..."; \
-		docker exec mcp-postgres psql -U mcp_user -d mcp_tasks -c "SELECT 1 FROM pg_database WHERE datname = '$$DB_NAME'" | grep -q 1 || \
-		docker exec mcp-postgres psql -U mcp_user -d mcp_tasks -c "CREATE DATABASE $$DB_NAME"; \
-		echo "Restoring database from $(FILE) to $$DB_NAME..."; \
-		docker exec -i mcp-postgres pg_restore -U mcp_user -d $$DB_NAME --clean --if-exists < $(FILE); \
-		echo "✅ Database restored successfully to $$DB_NAME"; \
-		echo "You can connect to it using: docker exec -it mcp-postgres psql -U mcp_user -d $$DB_NAME"; \
+	@if [ -z "$(FILE)" ]; then \
+		echo "Usage: make restore FILE=database/backups/backup.dump [TARGET_DB=new_db_name]"; \
+		echo ""; \
+		echo "Available backups:"; \
+		cd database && ./restore-fresh.sh; \
+		exit 1; \
+	fi
+	@if [ -n "$(TARGET_DB)" ]; then \
+		cd database && ./restore-fresh.sh ../$(FILE) $(TARGET_DB); \
 	else \
-		echo "Restoring database from $(FILE) to mcp_tasks..."; \
-		docker exec -i mcp-postgres pg_restore -U mcp_user -d mcp_tasks --clean --if-exists < $(FILE); \
-		echo "✅ Database restored successfully"; \
+		cd database && ./restore-fresh.sh ../$(FILE); \
 	fi
 
 # Check service status
@@ -112,18 +115,16 @@ check-postgres:
 # List all available backups
 list-backups:
 	@echo "📋 Available backups:"
-	@if [ -d "backups" ]; then \
-		echo "Backup files in backups/ directory:"; \
-		find backups -type f \( -name "*.sql" -o -name "*.dump" \) | sort; \
+	@if [ -d "database/backups" ]; then \
 		echo ""; \
-		echo "Pre-removal backups:"; \
-		find backups -name "pre_removal_backup_*.json" | sort | while read file; do \
-			cat $$file | grep timestamp | sed 's/.*"timestamp": "\(.*\)".*/  - \1/'; \
-		done; \
+		echo "Backup files in database/backups/:"; \
+		ls -lht database/backups/*.dump 2>/dev/null | head -10 || echo "  No .dump files found"; \
+		echo ""; \
+		ls -lht database/backups/*.sql 2>/dev/null | head -5 || echo "  No .sql files found"; \
 	else \
 		echo "⚠️ No backups directory found."; \
-		mkdir -p backups; \
-		echo "📁 Created backups/ directory"; \
+		mkdir -p database/backups; \
+		echo "📁 Created database/backups/ directory"; \
 	fi
 
 # Install dependencies for local development
@@ -137,3 +138,23 @@ fresh: clean build up
 # Production deployment
 prod:
 	docker-compose -f docker-compose.yml up -d --build
+
+# Initialize fresh database from schema.sql and seed.sql
+init-fresh: check-postgres
+	@echo "🔧 Initializing fresh database..."
+	cd database && ./init-fresh.sh
+
+# Regenerate seed.sql from current database state
+regenerate-seed: check-postgres
+	@echo "🔄 Regenerating seed.sql from current database..."
+	cd database && ./extract-seed.sh
+
+# Extract schema.sql from current database state
+extract-schema: check-postgres
+	@echo "📋 Extracting schema.sql from current database..."
+	cd database && ./extract-schema.sh
+
+# Extract both schema and seed from current database
+extract-all: check-postgres
+	@echo "📦 Extracting schema and seed from current database..."
+	cd database && ./extract-schema.sh && ./extract-seed.sh

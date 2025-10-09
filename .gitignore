@@ -3,7 +3,13 @@
 /mcp/node_modules
 /ui/node_modules
 /database/node_modules
+
+# Database backups (production data should not be committed)
 /backups
+/database/backups
+
+# Archived database scripts (kept for reference but not needed in git)
+/database/archive
 
 # Build artifacts
 /mcp/dist
