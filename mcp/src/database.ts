@@ -30,6 +30,8 @@ interface ObjectData {
   template_id?: number;
   parent_type?: string;
   parent_name?: string;
+  related?: any[];
+  dependencies?: any[];
   [key: string]: any;
 }
 
@@ -298,13 +300,15 @@ class DatabaseService {
    */
   async getObject(objectId: number): Promise<ObjectData | null> {
     try {
-      // Get object core data with parent information (id, parent_id, stage, template_id, parent info)
+      // Get object core data with parent information (id, parent_id, stage, template_id, parent info, related, dependencies)
       const objectQuery = `
         SELECT
           t.id,
           t.parent_id,
           t.stage,
           t.template_id,
+          t.related,
+          t.dependencies,
           LOWER(pt.name) as parent_type,
           COALESCE(
             (SELECT b.content FROM object_properties b
@@ -344,6 +348,8 @@ class DatabaseService {
         template_id: object.template_id,
         parent_type: object.parent_type,
         parent_name: object.parent_name,
+        related: object.related || [],
+        dependencies: object.dependencies || [],
       };
 
       for (const block of blocksResult.rows) {
@@ -378,8 +384,8 @@ class DatabaseService {
    */
   async listObjects(stageFilter?: string, projectIdFilter?: number, templateIdFilter?: number): Promise<ObjectData[]> {
     try {
-      // Get basic object data
-      let query = 'SELECT id, parent_id, stage, template_id FROM objects';
+      // Get basic object data including related and dependencies
+      let query = 'SELECT id, parent_id, stage, template_id, related, dependencies FROM objects';
       let params: any[] = [];
       let paramIndex = 1;
 
@@ -443,6 +449,8 @@ class DatabaseService {
           project_id: row.parent_id, // For backward compatibility with UI
           stage: row.stage,
           template_id: row.template_id,
+          related: row.related || [],
+          dependencies: row.dependencies || [],
         };
 
         // Add blocks for this object

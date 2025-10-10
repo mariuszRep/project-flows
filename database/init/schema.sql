@@ -206,7 +206,9 @@ CREATE TABLE public.objects (
     updated_by text DEFAULT 'system'::text NOT NULL,
     user_id integer,
     parent_id integer,
-    template_id integer DEFAULT 1 NOT NULL
+    template_id integer DEFAULT 1 NOT NULL,
+    related jsonb DEFAULT '[]'::jsonb NOT NULL,
+    dependencies jsonb DEFAULT '[]'::jsonb NOT NULL
 );
 
 
@@ -420,6 +422,20 @@ CREATE INDEX idx_tasks_parent_id ON public.objects USING btree (parent_id);
 --
 
 CREATE INDEX idx_tasks_user_id ON public.objects USING btree (user_id);
+
+
+--
+-- Name: idx_objects_related; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_objects_related ON public.objects USING gin (related);
+
+
+--
+-- Name: idx_objects_dependencies; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_objects_dependencies ON public.objects USING gin (dependencies);
 
 
 --
