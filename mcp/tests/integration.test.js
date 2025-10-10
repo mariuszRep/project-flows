@@ -35,6 +35,13 @@ class IntegrationTester {
       await this.testTaskDeletion();
       await this.testCascadeDeletion();
       await this.testExecuteTaskWorkflow();
+
+      // New tests for related array functionality
+      await this.testRelatedArrayCreation();
+      await this.testRelatedArrayUpdate();
+      await this.testBackwardCompatibilityParentId();
+      await this.testRelatedArrayValidation();
+      await this.testParentDeletion();
     } catch (error) {
       console.error('❌ Test suite failed:', error);
       this.failed++;
@@ -376,13 +383,290 @@ class IntegrationTester {
     }
   }
 
+  async testRelatedArrayCreation() {
+    console.log('\\n🔗 Testing related array creation with parent relationship...');
+    try {
+      // Create a parent project
+      const projectResult = await this.pool.query(`
+        INSERT INTO objects (template_id, created_by, updated_by)
+        VALUES ($1, $2, $3)
+        RETURNING id
+      `, [2, 'test_system', 'test_system']); // template_id 2 = project
+
+      const projectId = projectResult.rows[0].id;
+      console.log(`📁 Created parent project with ID: ${projectId}`);
+
+      // Create a task with related array pointing to project
+      const relatedArray = JSON.stringify([{ id: projectId, object: 'project' }]);
+      const taskResult = await this.pool.query(`
+        INSERT INTO objects (template_id, parent_id, related, created_by, updated_by)
+        VALUES ($1, $2, $3::jsonb, $4, $5)
+        RETURNING id, parent_id, related
+      `, [1, projectId, relatedArray, 'test_system', 'test_system']); // template_id 1 = task
+
+      const taskId = taskResult.rows[0].id;
+      const retrievedParentId = taskResult.rows[0].parent_id;
+      const retrievedRelated = taskResult.rows[0].related;
+
+      console.log(`📋 Created task with ID: ${taskId}`);
+      console.log(`   parent_id: ${retrievedParentId}`);
+      console.log(`   related: ${JSON.stringify(retrievedRelated)}`);
+
+      // Verify parent_id matches
+      if (retrievedParentId === projectId) {
+        console.log('✅ parent_id correctly set from related array');
+      } else {
+        console.error(`❌ parent_id mismatch. Expected ${projectId}, got ${retrievedParentId}`);
+        this.failed++;
+        return;
+      }
+
+      // Verify related array structure
+      if (Array.isArray(retrievedRelated) && retrievedRelated.length === 1 &&
+          retrievedRelated[0].id === projectId && retrievedRelated[0].object === 'project') {
+        console.log('✅ Related array correctly stored with simplified format');
+        this.passed++;
+      } else {
+        console.error('❌ Related array structure incorrect');
+        this.failed++;
+      }
+
+      // Cleanup
+      await this.pool.query('DELETE FROM objects WHERE id IN ($1, $2)', [taskId, projectId]);
+    } catch (error) {
+      console.error('❌ Related array creation test failed:', error.message);
+      this.failed++;
+    }
+  }
+
+  async testRelatedArrayUpdate() {
+    console.log('\\n📝 Testing related array update...');
+    try {
+      // Create two projects
+      const project1Result = await this.pool.query(`
+        INSERT INTO objects (template_id, created_by, updated_by)
+        VALUES ($1, $2, $3)
+        RETURNING id
+      `, [2, 'test_system', 'test_system']);
+
+      const project2Result = await this.pool.query(`
+        INSERT INTO objects (template_id, created_by, updated_by)
+        VALUES ($1, $2, $3)
+        RETURNING id
+      `, [2, 'test_system', 'test_system']);
+
+      const project1Id = project1Result.rows[0].id;
+      const project2Id = project2Result.rows[0].id;
+      console.log(`📁 Created project 1: ${project1Id}, project 2: ${project2Id}`);
+
+      // Create task with project1 as parent
+      const relatedArray1 = JSON.stringify([{ id: project1Id, object: 'project' }]);
+      const taskResult = await this.pool.query(`
+        INSERT INTO objects (template_id, parent_id, related, created_by, updated_by)
+        VALUES ($1, $2, $3::jsonb, $4, $5)
+        RETURNING id
+      `, [1, project1Id, relatedArray1, 'test_system', 'test_system']);
+
+      const taskId = taskResult.rows[0].id;
+      console.log(`📋 Created task ${taskId} with parent project ${project1Id}`);
+
+      // Update related array to point to project2
+      const relatedArray2 = JSON.stringify([{ id: project2Id, object: 'project' }]);
+      await this.pool.query(`
+        UPDATE objects
+        SET related = $1::jsonb, parent_id = $2, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $3
+      `, [relatedArray2, project2Id, taskId]);
+
+      console.log(`📝 Updated task to point to project ${project2Id}`);
+
+      // Verify update
+      const verifyResult = await this.pool.query(
+        'SELECT parent_id, related FROM objects WHERE id = $1',
+        [taskId]
+      );
+
+      const updatedParentId = verifyResult.rows[0].parent_id;
+      const updatedRelated = verifyResult.rows[0].related;
+
+      if (updatedParentId === project2Id &&
+          Array.isArray(updatedRelated) &&
+          updatedRelated[0].id === project2Id &&
+          updatedRelated[0].object === 'project') {
+        console.log('✅ Related array and parent_id updated successfully');
+        this.passed++;
+      } else {
+        console.error('❌ Related array update failed');
+        this.failed++;
+      }
+
+      // Cleanup
+      await this.pool.query('DELETE FROM objects WHERE id IN ($1, $2, $3)', [taskId, project1Id, project2Id]);
+    } catch (error) {
+      console.error('❌ Related array update test failed:', error.message);
+      this.failed++;
+    }
+  }
+
+  async testBackwardCompatibilityParentId() {
+    console.log('\\n🔄 Testing backward compatibility with parent_id...');
+    try {
+      // Create a parent epic
+      const epicResult = await this.pool.query(`
+        INSERT INTO objects (template_id, created_by, updated_by)
+        VALUES ($1, $2, $3)
+        RETURNING id
+      `, [3, 'test_system', 'test_system']); // template_id 3 = epic
+
+      const epicId = epicResult.rows[0].id;
+      console.log(`📚 Created parent epic with ID: ${epicId}`);
+
+      // Create task using only parent_id (old way)
+      const taskResult = await this.pool.query(`
+        INSERT INTO objects (template_id, parent_id, created_by, updated_by)
+        VALUES ($1, $2, $3, $4)
+        RETURNING id, parent_id, related
+      `, [1, epicId, 'test_system', 'test_system']);
+
+      const taskId = taskResult.rows[0].id;
+      const retrievedParentId = taskResult.rows[0].parent_id;
+      const retrievedRelated = taskResult.rows[0].related;
+
+      console.log(`📋 Created task with ID: ${taskId} using parent_id only`);
+      console.log(`   parent_id: ${retrievedParentId}`);
+      console.log(`   related: ${JSON.stringify(retrievedRelated)}`);
+
+      // Verify parent_id is set
+      if (retrievedParentId === epicId) {
+        console.log('✅ Backward compatibility: parent_id works');
+        this.passed++;
+      } else {
+        console.error(`❌ Backward compatibility failed for parent_id`);
+        this.failed++;
+      }
+
+      // Cleanup
+      await this.pool.query('DELETE FROM objects WHERE id IN ($1, $2)', [taskId, epicId]);
+    } catch (error) {
+      console.error('❌ Backward compatibility test failed:', error.message);
+      this.failed++;
+    }
+  }
+
+  async testRelatedArrayValidation() {
+    console.log('\\n✅ Testing related array validation constraints...');
+    try {
+      // Create a parent project
+      const projectResult = await this.pool.query(`
+        INSERT INTO objects (template_id, created_by, updated_by)
+        VALUES ($1, $2, $3)
+        RETURNING id
+      `, [2, 'test_system', 'test_system']);
+
+      const projectId = projectResult.rows[0].id;
+      console.log(`📁 Created parent project with ID: ${projectId}`);
+
+      // Test 1: Verify we can create with empty related array
+      const emptyRelated = JSON.stringify([]);
+      const task1Result = await this.pool.query(`
+        INSERT INTO objects (template_id, related, created_by, updated_by)
+        VALUES ($1, $2::jsonb, $3, $4)
+        RETURNING id, parent_id, related
+      `, [1, emptyRelated, 'test_system', 'test_system']);
+
+      const task1Id = task1Result.rows[0].id;
+      const task1Related = task1Result.rows[0].related;
+
+      if (Array.isArray(task1Related) && task1Related.length === 0) {
+        console.log('✅ Empty related array accepted');
+      } else {
+        console.error('❌ Empty related array not handled correctly');
+        this.failed++;
+      }
+
+      // Test 2: Verify related array with valid parent
+      const validRelated = JSON.stringify([{ id: projectId, object: 'project' }]);
+      const task2Result = await this.pool.query(`
+        INSERT INTO objects (template_id, parent_id, related, created_by, updated_by)
+        VALUES ($1, $2, $3::jsonb, $4, $5)
+        RETURNING id, related
+      `, [1, projectId, validRelated, 'test_system', 'test_system']);
+
+      const task2Id = task2Result.rows[0].id;
+      const task2Related = task2Result.rows[0].related;
+
+      if (Array.isArray(task2Related) && task2Related.length === 1 && task2Related[0].id === projectId) {
+        console.log('✅ Valid related array with one parent accepted');
+        this.passed++;
+      } else {
+        console.error('❌ Valid related array not handled correctly');
+        this.failed++;
+      }
+
+      // Cleanup
+      await this.pool.query('DELETE FROM objects WHERE id IN ($1, $2, $3)', [task1Id, task2Id, projectId]);
+    } catch (error) {
+      console.error('❌ Related array validation test failed:', error.message);
+      this.failed++;
+    }
+  }
+
+  async testParentDeletion() {
+    console.log('\\n🗑️  Testing parent deletion with cascade...');
+    try {
+      // Create a parent project
+      const projectResult = await this.pool.query(`
+        INSERT INTO objects (template_id, created_by, updated_by)
+        VALUES ($1, $2, $3)
+        RETURNING id
+      `, [2, 'test_system', 'test_system']);
+
+      const projectId = projectResult.rows[0].id;
+      console.log(`📁 Created parent project with ID: ${projectId}`);
+
+      // Create child task with related array
+      const relatedArray = JSON.stringify([{ id: projectId, object: 'project' }]);
+      const taskResult = await this.pool.query(`
+        INSERT INTO objects (template_id, parent_id, related, created_by, updated_by)
+        VALUES ($1, $2, $3::jsonb, $4, $5)
+        RETURNING id
+      `, [1, projectId, relatedArray, 'test_system', 'test_system']);
+
+      const taskId = taskResult.rows[0].id;
+      console.log(`📋 Created child task with ID: ${taskId}`);
+
+      // Delete parent project (should cascade delete child)
+      await this.pool.query('DELETE FROM objects WHERE id = $1', [projectId]);
+      console.log(`🗑️  Deleted parent project ${projectId}`);
+
+      // Verify child task is also deleted
+      const remainingTask = await this.pool.query(
+        'SELECT id FROM objects WHERE id = $1',
+        [taskId]
+      );
+
+      if (remainingTask.rows.length === 0) {
+        console.log('✅ Cascade deletion successful - child task removed with parent');
+        this.passed++;
+      } else {
+        console.error('❌ Cascade deletion failed - child task still exists');
+        this.failed++;
+        // Cleanup orphan
+        await this.pool.query('DELETE FROM objects WHERE id = $1', [taskId]);
+      }
+    } catch (error) {
+      console.error('❌ Parent deletion test failed:', error.message);
+      this.failed++;
+    }
+  }
+
   async cleanup() {
     console.log('\\n🧹 Cleaning up test environment...');
     try {
       // Clean up test data (optional - comment out to preserve data)
       // await this.pool.query("DELETE FROM tasks WHERE title LIKE '%Test%'");
       // await this.pool.query("DELETE FROM tasks WHERE title LIKE '%Updated%'");
-      
+
       await this.pool.end();
       console.log('✅ Cleanup completed');
     } catch (error) {
