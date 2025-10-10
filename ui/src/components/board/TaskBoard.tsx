@@ -23,10 +23,10 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({
   projects
 }) => {
   const stages: { key: TaskStage; title: string; color: string }[] = [
-    { key: 'backlog', title: 'Backlog', color: 'border-border bg-surface/50' },
-    { key: 'doing', title: 'Doing', color: 'border-blue-300 bg-blue-50 dark:border-blue-700 dark:bg-blue-950/20' },
-    { key: 'review', title: 'Review', color: 'border-yellow-300 bg-yellow-50 dark:border-yellow-700 dark:bg-yellow-950/20' },
-    { key: 'completed', title: 'Completed', color: 'border-green-300 bg-green-50 dark:border-green-700 dark:bg-green-950/20' }
+    { key: 'backlog', title: 'Backlog', color: 'border-border' },
+    { key: 'doing', title: 'Doing', color: 'border-blue-300 dark:border-blue-700' },
+    { key: 'review', title: 'Review', color: 'border-yellow-300 dark:border-yellow-700' },
+    { key: 'completed', title: 'Completed', color: 'border-green-300 dark:border-green-700' }
   ];
 
   const getTasksByStage = (stage: TaskStage) => {
