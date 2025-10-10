@@ -125,7 +125,7 @@ Create a task:
     "Description": "Add secure login/logout functionality with session management",
     "Items": "- Set up OAuth 2.0 configuration\n- Implement JWT token generation and validation",
     "stage": "backlog",
-    "parent_id": 2
+    "related": [{ "id": 2, "object": "project" }]
   }
 }
 ```

@@ -4,6 +4,8 @@
 
 The `notify_data_change()` trigger function has been enhanced to track and broadcast changes to the `related` and `dependencies` JSONB arrays in real-time. This enables the UI to receive immediate updates when object relationships are modified.
 
+> **Note:** The legacy `parent_id` column has been removed. Notifications now include a `parent_id` field derived from the first entry in the `related` array (when present) to preserve downstream compatibility.
+
 ## Enhanced Notification Payload
 
 ### INSERT Operations
@@ -80,7 +82,7 @@ The trigger function detects changes to three key columns:
 
 1. **`related` array changes**: Tracks additions and removals of relationships
 2. **`dependencies` array changes**: Tracks dependency modifications
-3. **`parent_id` changes**: Tracks parent relationship changes
+3. **Derived parent changes**: Tracks when the primary parent inferred from `related` changes
 
 ### Relationship Change Tracking
 
@@ -111,33 +113,6 @@ When the `related` array is modified, the trigger:
 8. UI receives real-time update
 ```
 
-## Integration with Sync Triggers
-
-The notification system works seamlessly with the bidirectional sync triggers:
-
-- When `parent_id` is updated, sync triggers update `related` array
-- The notify trigger detects both `parent_id_changed` and `related_changed`
-- Both changes are included in a single notification
-- No duplicate notifications are sent
-
-Example:
-```sql
-UPDATE objects SET parent_id = 947 WHERE id = 950;
-```
-
-Results in notification with:
-```json
-{
-  "changes": {
-    "parent_id_changed": true,
-    "related_changed": true,
-    "added_relationships": [
-      {"id": 947, "type": "parent", "object_type": "epic"}
-    ]
-  }
-}
-```
-
 ## Testing
 
 A comprehensive test script is available at `database/scripts/test-notification-trigger.sql`.
@@ -155,9 +130,8 @@ cat database/scripts/test-notification-trigger.sql | \
 The test script validates:
 - ✅ Adding relationships to `related` array
 - ✅ Removing relationships from `related` array
-- ✅ Updating `parent_id` (triggers both parent_id and related changes)
+- ✅ Replacing entire `related` array (including parent changes)
 - ✅ Updating non-relationship fields (no false positives)
-- ✅ Replacing entire `related` array
 - ✅ INSERT operations with relationships
 - ✅ Updating `dependencies` array
 

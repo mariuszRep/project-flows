@@ -104,10 +104,22 @@ export async function handleCreate(
   // Prepare task data - all properties go into blocks now
   const taskData: Omit<TaskData, 'id'> = {};
 
-  // Handle parent relationships - support both parent_id (backward compatibility) and related array
+  // Reject deprecated parent_id usage
+  if (toolArgs?.parent_id !== undefined) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: "Error: parent_id parameter is no longer supported. Use the 'related' array instead, e.g., related: [{\"id\": 123, \"object\": \"project\"}]. See MIGRATION.md for details.",
+        } as TextContent,
+      ],
+    };
+  }
+
+  // Handle parent relationships using related array (with optional selected project fallback)
   let relatedArray: RelatedEntry[] | undefined;
 
-  // Priority: related array > parent_id > selected project (global state)
+  // Priority: related array parameter > selected project (global state)
   if (toolArgs?.related !== undefined) {
     // NEW: Handle related array parameter
     try {
@@ -115,9 +127,7 @@ export async function handleCreate(
       await validateRelatedArray(inputRelated, sharedDbService);
       relatedArray = inputRelated;
 
-      // If validation passes, extract parent_id for backward compatibility
       if (inputRelated.length > 0) {
-        taskData.parent_id = inputRelated[0].id;
         console.log(`Creating ${config.typeName.toLowerCase()} with related array:`, inputRelated);
       }
     } catch (error) {
@@ -130,40 +140,8 @@ export async function handleCreate(
         ],
       };
     }
-  } else if (toolArgs?.parent_id !== undefined) {
-    // BACKWARD COMPATIBILITY: Handle parent_id parameter
-    const parentId = toolArgs.parent_id;
-
-    // If custom parent validation is provided, run it
-    if (config.validateParent) {
-      try {
-        await config.validateParent(parentId, sharedDbService);
-      } catch (error) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: error instanceof Error ? error.message : "Error: Parent validation failed.",
-            } as TextContent,
-          ],
-        };
-      }
-    }
-
-    // Convert parent_id to related array format
-    const parentObject = await sharedDbService.getObject(parentId);
-    if (parentObject) {
-      const parentType = parentObject.template_id === 1 ? 'task' :
-                         parentObject.template_id === 2 ? 'project' :
-                         parentObject.template_id === 3 ? 'epic' :
-                         parentObject.template_id === 4 ? 'rule' : 'object';
-
-      relatedArray = [{ id: parentId, object: parentType }];
-      taskData.parent_id = parentId;
-      console.log(`Creating ${config.typeName.toLowerCase()} with parent_id ${parentId} (converted to related array)`);
-    }
   } else {
-    // If no parent_id or related is provided, use the selected project from global state
+    // If no related array is provided, use the selected project from global state
     if (projectTools) {
       try {
         // Get the selected project ID from global state
@@ -181,12 +159,11 @@ export async function handleCreate(
             }
           }
 
-          // Only set parent_id if validation passed (or wasn't needed)
+          // Only set parent relationship if validation passed (or wasn't needed)
           if (validationPassed) {
             // Convert to related array format
             relatedArray = [{ id: selectedProjectId, object: 'project' }];
-            taskData.parent_id = selectedProjectId;
-            console.log(`Using selected project ID ${selectedProjectId} as parent_id`);
+            console.log(`Using selected project ID ${selectedProjectId} for parent relationship`);
           }
         }
       } catch (error) {
@@ -195,7 +172,7 @@ export async function handleCreate(
     }
   }
 
-  // Set related array in task data (database triggers will maintain sync with parent_id)
+  // Set related array in task data (single source of truth for parent relationships)
   if (relatedArray) {
     taskData.related = relatedArray;
   }
@@ -238,13 +215,14 @@ export async function handleCreate(
   const title = toolArgs?.Title || "";
   const description = toolArgs?.Description || toolArgs?.Summary || "";
 
-  // Get project/parent information if entity has parent_id
+  // Get project/parent information if entity has a related parent
   let projectInfo = 'None';
-  let projectId = taskData.parent_id;
+  const parentEntry = relatedArray && relatedArray.length > 0 ? relatedArray[0] : undefined;
+  const parentId = parentEntry?.id ?? null;
 
-  if (projectId) {
+  if (parentId) {
     try {
-      const parentObject = await sharedDbService.getObject(projectId);
+      const parentObject = await sharedDbService.getObject(parentId);
       projectInfo = parentObject ? `${parentObject.Title || 'Untitled'}` : 'Unknown';
     } catch (error) {
       console.error('Error loading parent/project object:', error);
@@ -262,7 +240,7 @@ export async function handleCreate(
     type: typeDisplay.toLowerCase(),
     title: title,
     description: description,
-    parent_id: projectId,
+    parent_id: parentId,
     parent_name: projectInfo,
     related: relatedArray || [],
     template_id: templateId,

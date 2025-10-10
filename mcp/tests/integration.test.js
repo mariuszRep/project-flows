@@ -7,15 +7,55 @@
 
 import { spawn } from 'child_process';
 import { Pool } from 'pg';
-import { readFileSync } from 'fs';
+import { existsSync } from 'fs';
 import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // Test configuration
 const TEST_DB_URL = process.env.TEST_DATABASE_URL || 'postgresql://mcp_user:mcp_password@localhost:5432/mcp_tasks';
+
+let cachedHandlers = null;
+
+async function loadHandlerModules() {
+  if (cachedHandlers) {
+    return cachedHandlers;
+  }
+
+  const projectRoot = join(__dirname, '..');
+  const createHandlerPath = join(projectRoot, 'dist', 'tools', 'create-handler.js');
+  const updateHandlerPath = join(projectRoot, 'dist', 'tools', 'update-handler.js');
+
+  if (!existsSync(createHandlerPath) || !existsSync(updateHandlerPath)) {
+    await new Promise((resolve, reject) => {
+      const buildProcess = spawn('npm', ['run', 'build'], {
+        cwd: projectRoot,
+        stdio: 'inherit'
+      });
+
+      buildProcess.on('error', reject);
+      buildProcess.on('exit', (code) => {
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(new Error(`Build failed with exit code ${code}`));
+        }
+      });
+    });
+  }
+
+  const createModule = await import(pathToFileURL(createHandlerPath).href);
+  const updateModule = await import(pathToFileURL(updateHandlerPath).href);
+
+  cachedHandlers = {
+    handleCreate: createModule.handleCreate,
+    handleUpdate: updateModule.handleUpdate,
+  };
+
+  return cachedHandlers;
+}
 
 class IntegrationTester {
   constructor() {
@@ -39,7 +79,7 @@ class IntegrationTester {
       // New tests for related array functionality
       await this.testRelatedArrayCreation();
       await this.testRelatedArrayUpdate();
-      await this.testBackwardCompatibilityParentId();
+      await this.testHandlerParentIdRejection();
       await this.testRelatedArrayValidation();
       await this.testParentDeletion();
     } catch (error) {
@@ -302,10 +342,10 @@ class IntegrationTester {
     try {
       // Create a test task using the current schema (objects table)
       const taskResult = await this.pool.query(`
-        INSERT INTO objects (stage, template_id, parent_id, created_by, updated_by) 
-        VALUES ($1, $2, $3, $4, $5) 
+        INSERT INTO objects (stage, template_id, related, created_by, updated_by) 
+        VALUES ($1, $2, $3::jsonb, $4, $5) 
         RETURNING id
-      `, ['backlog', 1, null, 'test_system', 'test_system']);
+      `, ['backlog', 1, '[]', 'test_system', 'test_system']);
       
       const taskId = taskResult.rows[0].id;
       console.log(`📋 Created test task with ID: ${taskId} in 'backlog' stage`);
@@ -399,14 +439,16 @@ class IntegrationTester {
       // Create a task with related array pointing to project
       const relatedArray = JSON.stringify([{ id: projectId, object: 'project' }]);
       const taskResult = await this.pool.query(`
-        INSERT INTO objects (template_id, parent_id, related, created_by, updated_by)
-        VALUES ($1, $2, $3::jsonb, $4, $5)
-        RETURNING id, parent_id, related
-      `, [1, projectId, relatedArray, 'test_system', 'test_system']); // template_id 1 = task
+        INSERT INTO objects (template_id, related, created_by, updated_by)
+        VALUES ($1, $2::jsonb, $3, $4)
+        RETURNING id, related
+      `, [1, relatedArray, 'test_system', 'test_system']); // template_id 1 = task
 
       const taskId = taskResult.rows[0].id;
-      const retrievedParentId = taskResult.rows[0].parent_id;
       const retrievedRelated = taskResult.rows[0].related;
+      const retrievedParentId = Array.isArray(retrievedRelated) && retrievedRelated.length > 0
+        ? retrievedRelated[0].id
+        : null;
 
       console.log(`📋 Created task with ID: ${taskId}`);
       console.log(`   parent_id: ${retrievedParentId}`);
@@ -462,10 +504,10 @@ class IntegrationTester {
       // Create task with project1 as parent
       const relatedArray1 = JSON.stringify([{ id: project1Id, object: 'project' }]);
       const taskResult = await this.pool.query(`
-        INSERT INTO objects (template_id, parent_id, related, created_by, updated_by)
-        VALUES ($1, $2, $3::jsonb, $4, $5)
+        INSERT INTO objects (template_id, related, created_by, updated_by)
+        VALUES ($1, $2::jsonb, $3, $4)
         RETURNING id
-      `, [1, project1Id, relatedArray1, 'test_system', 'test_system']);
+      `, [1, relatedArray1, 'test_system', 'test_system']);
 
       const taskId = taskResult.rows[0].id;
       console.log(`📋 Created task ${taskId} with parent project ${project1Id}`);
@@ -474,26 +516,28 @@ class IntegrationTester {
       const relatedArray2 = JSON.stringify([{ id: project2Id, object: 'project' }]);
       await this.pool.query(`
         UPDATE objects
-        SET related = $1::jsonb, parent_id = $2, updated_at = CURRENT_TIMESTAMP
-        WHERE id = $3
-      `, [relatedArray2, project2Id, taskId]);
+        SET related = $1::jsonb, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $2
+      `, [relatedArray2, taskId]);
 
       console.log(`📝 Updated task to point to project ${project2Id}`);
 
       // Verify update
       const verifyResult = await this.pool.query(
-        'SELECT parent_id, related FROM objects WHERE id = $1',
+        'SELECT related FROM objects WHERE id = $1',
         [taskId]
       );
 
-      const updatedParentId = verifyResult.rows[0].parent_id;
       const updatedRelated = verifyResult.rows[0].related;
+      const updatedParentId = Array.isArray(updatedRelated) && updatedRelated.length > 0
+        ? updatedRelated[0].id
+        : null;
 
       if (updatedParentId === project2Id &&
           Array.isArray(updatedRelated) &&
           updatedRelated[0].id === project2Id &&
           updatedRelated[0].object === 'project') {
-        console.log('✅ Related array and parent_id updated successfully');
+        console.log('✅ Related array update persisted successfully');
         this.passed++;
       } else {
         console.error('❌ Related array update failed');
@@ -508,47 +552,93 @@ class IntegrationTester {
     }
   }
 
-  async testBackwardCompatibilityParentId() {
-    console.log('\\n🔄 Testing backward compatibility with parent_id...');
+  async testHandlerParentIdRejection() {
+    console.log('\\n🚫 Testing handler rejection of parent_id writes...');
+
     try {
-      // Create a parent epic
-      const epicResult = await this.pool.query(`
-        INSERT INTO objects (template_id, created_by, updated_by)
-        VALUES ($1, $2, $3)
-        RETURNING id
-      `, [3, 'test_system', 'test_system']); // template_id 3 = epic
+      const { handleCreate, handleUpdate } = await loadHandlerModules();
 
-      const epicId = epicResult.rows[0].id;
-      console.log(`📚 Created parent epic with ID: ${epicId}`);
+      const schema = {
+        Title: { type: 'text', description: 'Task title', execution_order: 1 },
+        Description: { type: 'text', description: 'Task description', execution_order: 2 },
+      };
 
-      // Create task using only parent_id (old way)
-      const taskResult = await this.pool.query(`
-        INSERT INTO objects (template_id, parent_id, created_by, updated_by)
-        VALUES ($1, $2, $3, $4)
-        RETURNING id, parent_id, related
-      `, [1, epicId, 'test_system', 'test_system']);
+      const loadSchema = async () => schema;
+      const executionChain = () => [
+        { execution_order: 1, prop_name: 'Title', prop_config: schema.Title },
+        { execution_order: 2, prop_name: 'Description', prop_config: schema.Description },
+      ];
 
-      const taskId = taskResult.rows[0].id;
-      const retrievedParentId = taskResult.rows[0].parent_id;
-      const retrievedRelated = taskResult.rows[0].related;
+      const mockDbService = {
+        getGlobalState: async () => null,
+        getObject: async (id) => ({
+          id,
+          template_id: 1,
+          related: [],
+          dependencies: []
+        }),
+        createObject: async () => {
+          throw new Error('createObject should not be called when parent_id is rejected');
+        },
+        updateObject: async () => {
+          throw new Error('updateObject should not be called when parent_id is rejected');
+        }
+      };
 
-      console.log(`📋 Created task with ID: ${taskId} using parent_id only`);
-      console.log(`   parent_id: ${retrievedParentId}`);
-      console.log(`   related: ${JSON.stringify(retrievedRelated)}`);
+      const createResponse = await handleCreate(
+        {
+          templateId: 1,
+          typeName: "Task",
+          responseIdField: "task_id",
+          loadSchema,
+        },
+        {
+          Title: "Reject parent_id",
+          Description: "Expect handler to reject parent_id usage",
+          parent_id: 42,
+        },
+        mockDbService,
+        'integration-test',
+        executionChain,
+        () => true
+      );
 
-      // Verify parent_id is set
-      if (retrievedParentId === epicId) {
-        console.log('✅ Backward compatibility: parent_id works');
+      const createMessage = createResponse?.content?.[0]?.text || '';
+      if (createMessage.includes('parent_id parameter is no longer supported')) {
+        console.log('✅ create handler rejected parent_id as expected');
         this.passed++;
       } else {
-        console.error(`❌ Backward compatibility failed for parent_id`);
+        console.error('❌ create handler did not reject parent_id as expected');
         this.failed++;
       }
 
-      // Cleanup
-      await this.pool.query('DELETE FROM objects WHERE id IN ($1, $2)', [taskId, epicId]);
+      const updateResponse = await handleUpdate(
+        {
+          templateId: 1,
+          typeName: "Task",
+          idField: "task_id",
+          loadSchema,
+          validateTemplateId: true,
+        },
+        {
+          task_id: 999,
+          parent_id: 84,
+        },
+        mockDbService,
+        'integration-test',
+        executionChain
+      );
+
+      const updateMessage = updateResponse?.content?.[0]?.text || '';
+      if (updateMessage.includes('parent_id parameter is no longer supported')) {
+        console.log('✅ update handler rejected parent_id as expected');
+        this.passed++;
+      } else {
+        console.error('❌ update handler did not reject parent_id as expected');
+        this.failed++;
+      }
     } catch (error) {
-      console.error('❌ Backward compatibility test failed:', error.message);
+      console.error('❌ Handler parent_id rejection test failed:', error.message);
       this.failed++;
     }
   }
@@ -571,7 +661,7 @@ class IntegrationTester {
       const task1Result = await this.pool.query(`
         INSERT INTO objects (template_id, related, created_by, updated_by)
         VALUES ($1, $2::jsonb, $3, $4)
-        RETURNING id, parent_id, related
+        RETURNING id, related
       `, [1, emptyRelated, 'test_system', 'test_system']);
 
       const task1Id = task1Result.rows[0].id;
@@ -587,10 +677,10 @@ class IntegrationTester {
       // Test 2: Verify related array with valid parent
       const validRelated = JSON.stringify([{ id: projectId, object: 'project' }]);
       const task2Result = await this.pool.query(`
-        INSERT INTO objects (template_id, parent_id, related, created_by, updated_by)
-        VALUES ($1, $2, $3::jsonb, $4, $5)
+        INSERT INTO objects (template_id, related, created_by, updated_by)
+        VALUES ($1, $2::jsonb, $3, $4)
         RETURNING id, related
-      `, [1, projectId, validRelated, 'test_system', 'test_system']);
+      `, [1, validRelated, 'test_system', 'test_system']);
 
       const task2Id = task2Result.rows[0].id;
       const task2Related = task2Result.rows[0].related;
@@ -627,10 +717,10 @@ class IntegrationTester {
       // Create child task with related array
       const relatedArray = JSON.stringify([{ id: projectId, object: 'project' }]);
       const taskResult = await this.pool.query(`
-        INSERT INTO objects (template_id, parent_id, related, created_by, updated_by)
-        VALUES ($1, $2, $3::jsonb, $4, $5)
+        INSERT INTO objects (template_id, related, created_by, updated_by)
+        VALUES ($1, $2::jsonb, $3, $4)
         RETURNING id
-      `, [1, projectId, relatedArray, 'test_system', 'test_system']);
+      `, [1, relatedArray, 'test_system', 'test_system']);
 
       const taskId = taskResult.rows[0].id;
       console.log(`📋 Created child task with ID: ${taskId}`);

@@ -180,7 +180,7 @@ class DatabaseService {
 
   /**
    * Creates a new object (task, project, epic, or rule) in the database.
-   * @param objectData - The object data including properties, parent_id, stage, template_id, and related array
+   * @param objectData - The object data including properties, stage, template_id, and related array
    * @param userId - The user ID creating the object (defaults to 'system')
    * @returns The ID of the newly created object
    */
@@ -190,16 +190,14 @@ class DatabaseService {
     try {
       await client.query('BEGIN');
 
-      // Insert object with parent_id, stage, template_id, and related array
-      // Note: Triggers will sync parent_id <-> related automatically
+      // Insert object with stage, template_id, and related array
       const objectQuery = `
-        INSERT INTO objects (parent_id, stage, template_id, related, created_by, updated_by)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO objects (stage, template_id, related, created_by, updated_by)
+        VALUES ($1, $2, $3, $4, $5)
         RETURNING id
       `;
       const relatedValue = objectData.related ? JSON.stringify(objectData.related) : '[]';
       const objectResult = await client.query(objectQuery, [
-        objectData.parent_id || null,
         objectData.stage || 'draft',
         objectData.template_id || 1,
         relatedValue,
@@ -250,7 +248,7 @@ class DatabaseService {
     try {
       await client.query('BEGIN');
 
-      // Update object stage, parent_id, template_id, and/or related array if provided
+      // Update object stage, template_id, and/or related array if provided
       const objectUpdates = [];
       const objectValues = [];
       let paramIndex = 1;
@@ -258,11 +256,6 @@ class DatabaseService {
       if (updates.stage !== undefined) {
         objectUpdates.push(`stage = $${paramIndex++}`);
         objectValues.push(updates.stage);
-      }
-
-      if (updates.parent_id !== undefined) {
-        objectUpdates.push(`parent_id = $${paramIndex++}`);
-        objectValues.push(updates.parent_id);
       }
 
       if (updates.template_id !== undefined) {
@@ -322,15 +315,15 @@ class DatabaseService {
    */
   async getObject(objectId: number): Promise<ObjectData | null> {
     try {
-      // Get object core data with parent information (id, parent_id, stage, template_id, parent info, related, dependencies)
+      // Get object core data with parent information (derived from related array)
       const objectQuery = `
         SELECT
           t.id,
-          t.parent_id,
           t.stage,
           t.template_id,
           t.related,
           t.dependencies,
+          parent_info.parent_id,
           LOWER(pt.name) as parent_type,
           COALESCE(
             (SELECT b.content FROM object_properties b
@@ -339,7 +332,12 @@ class DatabaseService {
             'Untitled'
           ) as parent_name
         FROM objects t
-        LEFT JOIN objects p ON t.parent_id = p.id
+        LEFT JOIN LATERAL (
+          SELECT (elem->>'id')::int AS parent_id
+          FROM jsonb_array_elements(t.related) AS elem
+          LIMIT 1
+        ) parent_info ON TRUE
+        LEFT JOIN objects p ON parent_info.parent_id = p.id
         LEFT JOIN templates pt ON p.template_id = pt.id
         WHERE t.id = $1
       `;
@@ -400,42 +398,53 @@ class DatabaseService {
   /**
    * Lists objects (tasks, projects, epics, or rules) with optional filtering.
    * @param stageFilter - Optional stage to filter by
-   * @param projectIdFilter - Optional parent_id to filter by (can also filter using related array)
+   * @param projectIdFilter - Optional parent relationship filter (uses related array)
    * @param templateIdFilter - Optional template_id to filter by object type
    * @returns Array of object data matching the filters
    */
   async listObjects(stageFilter?: string, projectIdFilter?: number, templateIdFilter?: number): Promise<ObjectData[]> {
     try {
-      // Get basic object data including related and dependencies
-      let query = 'SELECT id, parent_id, stage, template_id, related, dependencies FROM objects';
-      let params: any[] = [];
+      // Get basic object data including derived parent information
+      let query = `
+        SELECT
+          t.id,
+          parent_info.parent_id,
+          t.stage,
+          t.template_id,
+          t.related,
+          t.dependencies
+        FROM objects t
+        LEFT JOIN LATERAL (
+          SELECT (elem->>'id')::int AS parent_id
+          FROM jsonb_array_elements(t.related) AS elem
+          LIMIT 1
+        ) parent_info ON TRUE
+      `;
+      const params: any[] = [];
       let paramIndex = 1;
 
-      const conditions = [];
+      const conditions: string[] = [];
 
       if (templateIdFilter !== undefined) {
-        conditions.push(`template_id = $${paramIndex++}`);
+        conditions.push(`t.template_id = $${paramIndex++}`);
         params.push(templateIdFilter);
       }
 
       if (stageFilter) {
-        conditions.push(`stage = $${paramIndex++}`);
+        conditions.push(`t.stage = $${paramIndex++}`);
         params.push(stageFilter);
       }
 
       if (projectIdFilter !== undefined) {
-        // Support filtering by parent using either parent_id OR related array (uses GIN index)
-        conditions.push(`(parent_id = $${paramIndex} OR related @> $${paramIndex + 1})`);
-        params.push(projectIdFilter);
-        params.push(JSON.stringify([{id: projectIdFilter}]));
-        paramIndex += 2;
+        conditions.push(`t.related @> $${paramIndex++}`);
+        params.push(JSON.stringify([{ id: projectIdFilter }]));
       }
 
       if (conditions.length > 0) {
         query += ' WHERE ' + conditions.join(' AND ');
       }
 
-      query += ' ORDER BY id';
+      query += ' ORDER BY t.id';
 
       const objectsResult = await this.pool.query(query, params);
 
@@ -468,10 +477,11 @@ class DatabaseService {
 
       // Build complete object data
       return objectsResult.rows.map((row: any) => {
+        const parentId = row.parent_id ?? null;
         const objectData: ObjectData = {
           id: row.id,
-          parent_id: row.parent_id,
-          project_id: row.parent_id, // For backward compatibility with UI
+          parent_id: parentId,
+          project_id: parentId, // For backward compatibility with UI
           stage: row.stage,
           template_id: row.template_id,
           related: row.related || [],

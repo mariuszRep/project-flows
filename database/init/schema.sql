@@ -58,10 +58,17 @@ DECLARE
     parent_id_changed boolean := false;
     added_relationships jsonb;
     removed_relationships jsonb;
+    new_parent_id integer := NULL;
+    old_parent_id integer := NULL;
 BEGIN
     -- Determine event type
     IF TG_OP = 'INSERT' THEN
         event_type = 'created';
+
+        IF NEW.related IS NOT NULL AND jsonb_typeof(NEW.related) = 'array' AND jsonb_array_length(NEW.related) > 0 THEN
+            new_parent_id := (NEW.related->0->>'id')::integer;
+        END IF;
+
         notification_payload = json_build_object(
             'event_type', event_type,
             'object_type', CASE
@@ -73,7 +80,7 @@ BEGIN
             END,
             'object_id', NEW.id,
             'template_id', NEW.template_id,
-            'parent_id', NEW.parent_id,
+            'parent_id', new_parent_id,
             'stage', NEW.stage,
             'related', NEW.related,
             'dependencies', NEW.dependencies,
@@ -83,10 +90,18 @@ BEGIN
     ELSIF TG_OP = 'UPDATE' THEN
         event_type = 'updated';
 
-        -- Detect changes to related, dependencies, and parent_id columns
+        IF NEW.related IS NOT NULL AND jsonb_typeof(NEW.related) = 'array' AND jsonb_array_length(NEW.related) > 0 THEN
+            new_parent_id := (NEW.related->0->>'id')::integer;
+        END IF;
+
+        IF OLD.related IS NOT NULL AND jsonb_typeof(OLD.related) = 'array' AND jsonb_array_length(OLD.related) > 0 THEN
+            old_parent_id := (OLD.related->0->>'id')::integer;
+        END IF;
+
+        -- Detect changes to related, dependencies, and derived parent relationship
         related_changed := (OLD.related IS DISTINCT FROM NEW.related);
         dependencies_changed := (OLD.dependencies IS DISTINCT FROM NEW.dependencies);
-        parent_id_changed := (OLD.parent_id IS DISTINCT FROM NEW.parent_id);
+        parent_id_changed := (old_parent_id IS DISTINCT FROM new_parent_id);
 
         -- Calculate relationship changes if related array changed
         IF related_changed THEN
@@ -121,7 +136,7 @@ BEGIN
             END,
             'object_id', NEW.id,
             'template_id', NEW.template_id,
-            'parent_id', NEW.parent_id,
+            'parent_id', new_parent_id,
             'stage', NEW.stage,
             'related', NEW.related,
             'dependencies', NEW.dependencies,
@@ -137,6 +152,11 @@ BEGIN
         );
     ELSE
         event_type = 'deleted';
+
+        IF OLD.related IS NOT NULL AND jsonb_typeof(OLD.related) = 'array' AND jsonb_array_length(OLD.related) > 0 THEN
+            old_parent_id := (OLD.related->0->>'id')::integer;
+        END IF;
+
         notification_payload = json_build_object(
             'event_type', event_type,
             'object_type', CASE
@@ -148,6 +168,7 @@ BEGIN
             END,
             'object_id', OLD.id,
             'template_id', OLD.template_id,
+            'parent_id', old_parent_id,
             'timestamp', to_char(NOW(), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
         );
     END IF;
@@ -255,7 +276,6 @@ CREATE TABLE public.objects (
     created_by text DEFAULT 'system'::text NOT NULL,
     updated_by text DEFAULT 'system'::text NOT NULL,
     user_id integer,
-    parent_id integer,
     template_id integer DEFAULT 1 NOT NULL,
     related jsonb DEFAULT '[]'::jsonb NOT NULL,
     dependencies jsonb DEFAULT '[]'::jsonb NOT NULL
@@ -461,13 +481,6 @@ CREATE INDEX idx_global_state_key ON public.global_state USING btree (key);
 
 
 --
--- Name: idx_tasks_parent_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_tasks_parent_id ON public.objects USING btree (parent_id);
-
-
---
 -- Name: idx_tasks_user_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -562,14 +575,6 @@ ALTER TABLE ONLY public.template_properties
 
 
 --
--- Name: objects tasks_parent_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.objects
-    ADD CONSTRAINT tasks_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.objects(id) ON DELETE CASCADE;
-
-
---
 -- Name: objects tasks_template_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -580,4 +585,3 @@ ALTER TABLE ONLY public.objects
 --
 -- PostgreSQL database dump complete
 --
-

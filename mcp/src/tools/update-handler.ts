@@ -95,15 +95,23 @@ export async function handleUpdate(
     }
   }
 
-  // Handle parent relationships - support both parent_id (backward compatibility) and related array
-  let relatedArray: RelatedEntry[] | undefined;
+  // Reject deprecated parent_id usage
+  if (toolArgs?.parent_id !== undefined) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: "Error: parent_id parameter is no longer supported. Use the 'related' array instead, e.g., related: [{\"id\": 123, \"object\": \"project\"}]. See MIGRATION.md for details.",
+        } as TextContent,
+      ],
+    };
+  }
 
-  // Priority: related array > parent_id
+  // Priority: related array parameter if present (otherwise no change)
   if (toolArgs?.related !== undefined) {
     // NEW: Handle related array parameter
     try {
       const inputRelated = toolArgs.related as RelatedEntry[];
-      relatedArray = inputRelated;
 
       // Validate array length - only one parent allowed
       if (inputRelated.length > 1) {
@@ -202,15 +210,12 @@ export async function handleUpdate(
         }
       }
 
-      // If validation passes, set both related and parent_id
       if (inputRelated.length > 0) {
         updateData.related = inputRelated;
-        updateData.parent_id = inputRelated[0].id;
         console.log(`Updating ${config.typeName.toLowerCase()} with related array:`, inputRelated);
       } else {
         // Empty array means clear parent relationship
         updateData.related = [];
-        updateData.parent_id = undefined;
       }
     } catch (error) {
       return {
@@ -221,47 +226,6 @@ export async function handleUpdate(
           } as TextContent,
         ],
       };
-    }
-  } else if (toolArgs?.parent_id !== undefined) {
-    // BACKWARD COMPATIBILITY: Handle parent_id parameter
-    const parentId = toolArgs.parent_id;
-
-    // Run parent validation if provided and parent_id is not null
-    if (config.validateParent && parentId !== null) {
-      try {
-        await config.validateParent(parentId, sharedDbService);
-      } catch (error) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: error instanceof Error ? error.message : "Error: Parent validation failed.",
-            } as TextContent,
-          ],
-        };
-      }
-    }
-
-    // Convert parent_id to related array format if not null
-    if (parentId !== null) {
-      const parentObject = await sharedDbService.getObject(parentId);
-      if (parentObject) {
-        const parentType = parentObject.template_id === 1 ? 'task' :
-                           parentObject.template_id === 2 ? 'project' :
-                           parentObject.template_id === 3 ? 'epic' :
-                           parentObject.template_id === 4 ? 'rule' : 'object';
-
-        relatedArray = [{ id: parentId, object: parentType }];
-        updateData.related = relatedArray;
-        updateData.parent_id = parentId;
-        console.log(`Updating ${config.typeName.toLowerCase()} with parent_id ${parentId} (converted to related array)`);
-      } else {
-        updateData.parent_id = parentId;
-      }
-    } else {
-      // null parent_id means clear parent relationship
-      updateData.related = [];
-      updateData.parent_id = undefined;
     }
   }
 
@@ -279,8 +243,8 @@ export async function handleUpdate(
     }
   }
 
-  // Add any properties not in execution chain (exclude ID field, stage, parent_id, related, template_id)
-  const excludedFields = [config.idField, 'stage', 'parent_id', 'related', 'template_id'];
+  // Add any properties not in execution chain (exclude ID field, stage, related, template_id)
+  const excludedFields = [config.idField, 'stage', 'related', 'template_id'];
   for (const [key, value] of Object.entries(toolArgs || {})) {
     if (!excludedFields.includes(key) && value !== undefined && !updateData.hasOwnProperty(key)) {
       updateData[key] = value;

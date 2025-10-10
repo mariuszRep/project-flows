@@ -4,11 +4,15 @@
 
 This guide documents the migration from the legacy `parent_id` column to the new `related` JSONB array for managing parent relationships in the MCP task management system.
 
-**Important**: The `related` array is designed specifically for **parent relationships only**. The separate `dependencies` column handles dependency relationships and is not affected by this migration.
+**Important**: The `related` array is designed specifically for **parent relationships only**. The separate `dependencies` column handles dependency relationships and is not affected by this migration. As of Phase 3, the legacy `parent_id` column has been removed; parent information is exposed only through `related` (and derived where required for compatibility).
+
+> **Phase 3 Status (Current)**  
+> MCP handlers reject the `parent_id` parameter. Use the `related` array for all parent relationship writes.  
+> The database schema no longer contains a `parent_id` column; compatibility fields are derived from `related`.
 
 ## What's Changing
 
-### Before (Legacy)
+### Before (Legacy - Read-Only)
 ```typescript
 // Creating a task with a parent using parent_id
 await createTask({
@@ -18,7 +22,7 @@ await createTask({
 });
 ```
 
-### After (Current)
+### After (Current - Phase 3)
 ```typescript
 // Creating a task with a parent using related array
 await createTask({
@@ -135,7 +139,7 @@ WHERE related @> '[{"id": 45}]'::jsonb;
 
 #### Step 1: Update Create Operations
 ```typescript
-// OLD WAY (still works, but deprecated)
+// OLD WAY (rejected - parent_id writes are read-only in Phase 2)
 const task = await createTask({
   Title: "My Task",
   parent_id: projectId
@@ -150,7 +154,7 @@ const task = await createTask({
 
 #### Step 2: Update Update Operations
 ```typescript
-// OLD WAY (still works, but deprecated)
+// OLD WAY (rejected - parent_id writes are read-only in Phase 2)
 await updateTask({
   task_id: 123,
   parent_id: newProjectId
@@ -173,47 +177,45 @@ console.log(task.parent_id);  // 45 (still available for backward compatibility)
 
 ### For Database Operations
 
-The database automatically maintains synchronization between `parent_id` and `related`:
-- When `parent_id` is set, `related` is automatically populated
-- When `related` is set, `parent_id` is automatically extracted
-- This is handled by database triggers (no manual intervention needed)
+- `related` is stored as JSONB and must be supplied for create/update operations.
+- Derived `parent_id` values are computed on read (`getObject`, `listObjects`, notifications) for clients that still expect them.
+- Filtering by parent should use `related @> '[{"id": <parentId>}]'::jsonb`.
 
 ## Backward Compatibility
 
-### Current Phase (Phase 1)
-✅ **Both `parent_id` and `related` are fully supported**
+### Current Phase (Phase 3)
+✅ **`related` is the single source of truth**
 
-- You can use either `parent_id` OR `related` when creating/updating objects
-- The system automatically converts between formats
-- Console warnings are logged when `parent_id` is used (deprecated)
-- All existing code continues to work without changes
+- Handlers reject the `parent_id` parameter on create/update operations
+- The database schema no longer contains a `parent_id` column, foreign key, or sync triggers
+- Notifications and API responses continue to expose a derived `parent_id` for consumers that still expect it
+- All reads/writes must operate on the `related` array
 
 ### Migration Timeline
 
-#### Phase 1: Dual Support (Current - Next 3 months)
+#### Phase 1: Dual Support (Completed)
 - Both `parent_id` and `related` accepted
 - Automatic conversion between formats
 - Console warnings for `parent_id` usage
-- Documentation encourages migration to `related`
+- Documentation encouraged migration to `related`
 
-#### Phase 2: Read-Only parent_id (3-6 months from now)
-- `related` is the primary method for setting parents
-- `parent_id` can still be read but not written
-- Attempting to set `parent_id` returns deprecation error
-- Migration tools provided for bulk updates
+#### Phase 2: Read-Only parent_id (Completed)
+- `related` is the only supported method for writing parent relationships
+- `parent_id` remains readable for legacy integrations
+- Handlers return an error when `parent_id` is provided
+- Migration tools assist teams in updating existing workflows
 
-#### Phase 3: parent_id Removal (6+ months from now)
-- `parent_id` column removed from database schema
-- Only `related` array supported
-- Full migration required before this phase
+#### Phase 3: parent_id Removal (Current)
+- `parent_id` column and triggers removed from schema
+- Only the `related` array is persisted
+- Derivations (`parent_id`, `parent_id_changed`) are computed from `related`
 
-### Console Warnings
+### Handler Error Response
 
-When using deprecated `parent_id`, you'll see:
+When using deprecated `parent_id`, you'll receive:
+
 ```
-⚠️  DEPRECATED: parent_id parameter is deprecated. Use 'related' array instead.
-   Example: related: [{ id: 123, object: "project" }]
-   See MIGRATION.md for details.
+Error: parent_id parameter is no longer supported. Use the 'related' array instead, e.g., related: [{"id": 123, "object": "project"}]. See MIGRATION.md for details.
 ```
 
 ## Best Practices
@@ -269,13 +271,13 @@ related: [{ id: 5, object: "project" }]  // But ID 5 is actually a task
 ## FAQ
 
 ### Q: Can I still use parent_id?
-**A:** Yes, for now. Both `parent_id` and `related` are supported during the transition period. However, `parent_id` is deprecated and will eventually be removed.
+**A:** No. The `parent_id` column has been removed. Use the `related` array for all parent relationships. A derived `parent_id` is still included in responses for compatibility, but writes must target `related`.
 
 ### Q: What about the dependencies column?
 **A:** The `dependencies` column is completely separate and unchanged. Use `related` for parent relationships and `dependencies` for dependency relationships.
 
 ### Q: Do I need to migrate existing data?
-**A:** No immediate action required. The database automatically synchronizes `parent_id` and `related`. However, you should update your code to use `related` before Phase 2.
+**A:** Phase 2 and 3 migrations populated `related` and removed `parent_id`. Verify custom scripts still operate on `related`, but no manual data updates are required.
 
 ### Q: Can an object have multiple parents?
 **A:** No. The `related` array is limited to one parent entry maximum. This maintains the hierarchical tree structure.
