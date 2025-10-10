@@ -149,6 +149,8 @@ export class ObjectTools {
       parent_type: parentType,
       parent_name: parentName,
       type: typeDisplay,
+      related: object.related || [],
+      dependencies: object.dependencies || [],
       blocks: blocks
     };
     
@@ -268,6 +270,8 @@ export class ObjectTools {
           type: typeDisplay,
           template_id: object.template_id,
           parent_id: object.parent_id,
+          related: object.related || [],
+          dependencies: object.dependencies || [],
           created_at: object.created_at,
           updated_at: object.updated_at,
         };

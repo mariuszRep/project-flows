@@ -4,6 +4,14 @@ import { SchemaProperties, ExecutionChainItem } from "../types/property.js";
 import DatabaseService from "../database.js";
 
 /**
+ * Related entry format for parent relationships
+ */
+export interface RelatedEntry {
+  id: number;
+  object: string; // 'task', 'project', 'epic', 'rule'
+}
+
+/**
  * Configuration for the generic create handler
  */
 export interface CreateConfig {
@@ -12,6 +20,55 @@ export interface CreateConfig {
   responseIdField: string; // e.g., "task_id", "project_id", "epic_id", "rule_id"
   loadSchema: () => Promise<SchemaProperties>;
   validateParent?: (parentId: number, dbService: DatabaseService) => Promise<void>;
+}
+
+/**
+ * Validates related array for parent relationships only.
+ * Ensures at most one parent entry with valid id and object fields.
+ * Verifies referenced parent exists in database.
+ */
+async function validateRelatedArray(
+  related: RelatedEntry[],
+  dbService: DatabaseService
+): Promise<void> {
+  // Validate array length - only one parent allowed
+  if (related.length > 1) {
+    throw new Error(`Error: Related array can only contain one parent entry. Found ${related.length} entries.`);
+  }
+
+  // Validate each entry
+  for (const entry of related) {
+    // Check required fields
+    if (typeof entry.id !== 'number' || entry.id < 1) {
+      throw new Error('Error: Related entry must have a valid numeric id (>= 1).');
+    }
+
+    if (!entry.object || typeof entry.object !== 'string') {
+      throw new Error('Error: Related entry must have a valid object type string.');
+    }
+
+    // Validate object type
+    const validTypes = ['task', 'project', 'epic', 'rule'];
+    if (!validTypes.includes(entry.object)) {
+      throw new Error(`Error: Invalid object type "${entry.object}". Must be one of: ${validTypes.join(', ')}.`);
+    }
+
+    // Verify parent exists in database
+    const parentObject = await dbService.getObject(entry.id);
+    if (!parentObject) {
+      throw new Error(`Error: Referenced parent object with ID ${entry.id} does not exist.`);
+    }
+
+    // Verify object type matches the parent's actual type
+    const parentType = parentObject.template_id === 1 ? 'task' :
+                       parentObject.template_id === 2 ? 'project' :
+                       parentObject.template_id === 3 ? 'epic' :
+                       parentObject.template_id === 4 ? 'rule' : 'unknown';
+
+    if (entry.object !== parentType) {
+      throw new Error(`Error: Related entry object type "${entry.object}" does not match parent's actual type "${parentType}".`);
+    }
+  }
 }
 
 /**
@@ -47,28 +104,44 @@ export async function handleCreate(
   // Prepare task data - all properties go into blocks now
   const taskData: Omit<TaskData, 'id'> = {};
 
-  // Handle parent_id for hierarchical entities
+  // Reject deprecated parent_id usage
   if (toolArgs?.parent_id !== undefined) {
-    // If custom parent validation is provided, run it
-    if (config.validateParent) {
-      try {
-        await config.validateParent(toolArgs.parent_id, sharedDbService);
-      } catch (error) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: error instanceof Error ? error.message : "Error: Parent validation failed.",
-            } as TextContent,
-          ],
-        };
-      }
-    }
+    return {
+      content: [
+        {
+          type: "text",
+          text: "Error: parent_id parameter is no longer supported. Use the 'related' array instead, e.g., related: [{\"id\": 123, \"object\": \"project\"}]. See MIGRATION.md for details.",
+        } as TextContent,
+      ],
+    };
+  }
 
-    taskData.parent_id = toolArgs.parent_id;
-    console.log(`Creating ${config.typeName.toLowerCase()} with parent_id ${toolArgs.parent_id}`);
+  // Handle parent relationships using related array (with optional selected project fallback)
+  let relatedArray: RelatedEntry[] | undefined;
+
+  // Priority: related array parameter > selected project (global state)
+  if (toolArgs?.related !== undefined) {
+    // NEW: Handle related array parameter
+    try {
+      const inputRelated = toolArgs.related as RelatedEntry[];
+      await validateRelatedArray(inputRelated, sharedDbService);
+      relatedArray = inputRelated;
+
+      if (inputRelated.length > 0) {
+        console.log(`Creating ${config.typeName.toLowerCase()} with related array:`, inputRelated);
+      }
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: error instanceof Error ? error.message : "Error: Related array validation failed.",
+          } as TextContent,
+        ],
+      };
+    }
   } else {
-    // If no parent_id is provided, use the selected project from global state
+    // If no related array is provided, use the selected project from global state
     if (projectTools) {
       try {
         // Get the selected project ID from global state
@@ -86,16 +159,22 @@ export async function handleCreate(
             }
           }
 
-          // Only set parent_id if validation passed (or wasn't needed)
+          // Only set parent relationship if validation passed (or wasn't needed)
           if (validationPassed) {
-            taskData.parent_id = selectedProjectId;
-            console.log(`Using selected project ID ${selectedProjectId} as parent_id`);
+            // Convert to related array format
+            relatedArray = [{ id: selectedProjectId, object: 'project' }];
+            console.log(`Using selected project ID ${selectedProjectId} for parent relationship`);
           }
         }
       } catch (error) {
         console.error('Error getting selected project:', error);
       }
     }
+  }
+
+  // Set related array in task data (single source of truth for parent relationships)
+  if (relatedArray) {
+    taskData.related = relatedArray;
   }
 
   // Set template_id for the entity type
@@ -136,13 +215,14 @@ export async function handleCreate(
   const title = toolArgs?.Title || "";
   const description = toolArgs?.Description || toolArgs?.Summary || "";
 
-  // Get project/parent information if entity has parent_id
+  // Get project/parent information if entity has a related parent
   let projectInfo = 'None';
-  let projectId = taskData.parent_id;
+  const parentEntry = relatedArray && relatedArray.length > 0 ? relatedArray[0] : undefined;
+  const parentId = parentEntry?.id ?? null;
 
-  if (projectId) {
+  if (parentId) {
     try {
-      const parentObject = await sharedDbService.getObject(projectId);
+      const parentObject = await sharedDbService.getObject(parentId);
       projectInfo = parentObject ? `${parentObject.Title || 'Untitled'}` : 'Unknown';
     } catch (error) {
       console.error('Error loading parent/project object:', error);
@@ -160,8 +240,9 @@ export async function handleCreate(
     type: typeDisplay.toLowerCase(),
     title: title,
     description: description,
-    parent_id: projectId,
+    parent_id: parentId,
     parent_name: projectInfo,
+    related: relatedArray || [],
     template_id: templateId,
     stage: taskData.stage || 'draft',
     // Add all dynamic properties

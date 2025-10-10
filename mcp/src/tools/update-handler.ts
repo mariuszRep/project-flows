@@ -2,6 +2,7 @@ import { TextContent } from "@modelcontextprotocol/sdk/types.js";
 import { TaskData } from "../types/task.js";
 import { SchemaProperties, ExecutionChainItem } from "../types/property.js";
 import DatabaseService from "../database.js";
+import { RelatedEntry } from "./create-handler.js";
 
 /**
  * Configuration for the generic update handler
@@ -94,24 +95,138 @@ export async function handleUpdate(
     }
   }
 
-  // Handle parent_id with optional validation
+  // Reject deprecated parent_id usage
   if (toolArgs?.parent_id !== undefined) {
-    // Run parent validation if provided and parent_id is not null
-    if (config.validateParent && toolArgs.parent_id !== null) {
-      try {
-        await config.validateParent(toolArgs.parent_id, sharedDbService);
-      } catch (error) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: "Error: parent_id parameter is no longer supported. Use the 'related' array instead, e.g., related: [{\"id\": 123, \"object\": \"project\"}]. See MIGRATION.md for details.",
+        } as TextContent,
+      ],
+    };
+  }
+
+  // Priority: related array parameter if present (otherwise no change)
+  if (toolArgs?.related !== undefined) {
+    // NEW: Handle related array parameter
+    try {
+      const inputRelated = toolArgs.related as RelatedEntry[];
+
+      // Validate array length - only one parent allowed
+      if (inputRelated.length > 1) {
         return {
           content: [
             {
               type: "text",
-              text: error instanceof Error ? error.message : "Error: Parent validation failed.",
+              text: `Error: Related array can only contain one parent entry. Found ${inputRelated.length} entries.`,
             } as TextContent,
           ],
         };
       }
+
+      // Validate each entry
+      for (const entry of inputRelated) {
+        // Check required fields
+        if (typeof entry.id !== 'number' || entry.id < 1) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: 'Error: Related entry must have a valid numeric id (>= 1).',
+              } as TextContent,
+            ],
+          };
+        }
+
+        if (!entry.object || typeof entry.object !== 'string') {
+          return {
+            content: [
+              {
+                type: "text",
+                text: 'Error: Related entry must have a valid object type string.',
+              } as TextContent,
+            ],
+          };
+        }
+
+        // Validate object type
+        const validTypes = ['task', 'project', 'epic', 'rule'];
+        if (!validTypes.includes(entry.object)) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Error: Invalid object type "${entry.object}". Must be one of: ${validTypes.join(', ')}.`,
+              } as TextContent,
+            ],
+          };
+        }
+
+        // Verify parent exists in database
+        const parentObject = await sharedDbService.getObject(entry.id);
+        if (!parentObject) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Error: Referenced parent object with ID ${entry.id} does not exist.`,
+              } as TextContent,
+            ],
+          };
+        }
+
+        // Verify object type matches the parent's actual type
+        const parentType = parentObject.template_id === 1 ? 'task' :
+                           parentObject.template_id === 2 ? 'project' :
+                           parentObject.template_id === 3 ? 'epic' :
+                           parentObject.template_id === 4 ? 'rule' : 'unknown';
+
+        if (entry.object !== parentType) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Error: Related entry object type "${entry.object}" does not match parent's actual type "${parentType}".`,
+              } as TextContent,
+            ],
+          };
+        }
+
+        // Run custom parent validation if provided
+        if (config.validateParent) {
+          try {
+            await config.validateParent(entry.id, sharedDbService);
+          } catch (error) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: error instanceof Error ? error.message : "Error: Parent validation failed.",
+                } as TextContent,
+              ],
+            };
+          }
+        }
+      }
+
+      if (inputRelated.length > 0) {
+        updateData.related = inputRelated;
+        console.log(`Updating ${config.typeName.toLowerCase()} with related array:`, inputRelated);
+      } else {
+        // Empty array means clear parent relationship
+        updateData.related = [];
+      }
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: error instanceof Error ? error.message : "Error: Related array validation failed.",
+          } as TextContent,
+        ],
+      };
     }
-    updateData.parent_id = toolArgs.parent_id;
   }
 
   // Set template_id for consistency
@@ -128,8 +243,8 @@ export async function handleUpdate(
     }
   }
 
-  // Add any properties not in execution chain (exclude ID field, stage, parent_id, template_id)
-  const excludedFields = [config.idField, 'stage', 'parent_id', 'template_id'];
+  // Add any properties not in execution chain (exclude ID field, stage, related, template_id)
+  const excludedFields = [config.idField, 'stage', 'related', 'template_id'];
   for (const [key, value] of Object.entries(toolArgs || {})) {
     if (!excludedFields.includes(key) && value !== undefined && !updateData.hasOwnProperty(key)) {
       updateData[key] = value;
@@ -200,6 +315,7 @@ export async function handleUpdate(
     stage: updatedEntity.stage || 'draft',
     template_id: config.templateId,
     parent_id: updatedEntity.parent_id,
+    related: updatedEntity.related || [],
     blocks: blocks
   };
 

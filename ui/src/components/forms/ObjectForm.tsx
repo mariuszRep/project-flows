@@ -185,6 +185,11 @@ interface Entity {
   [key: string]: unknown;
 }
 
+type RelatedEntry = {
+  id: number;
+  object: 'task' | 'project' | 'epic' | 'rule';
+};
+
 /**
  * ObjectView - A unified view and create component for tasks, projects, and epics
  *
@@ -284,6 +289,38 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
   const [editingProperty, setEditingProperty] = useState<string | null>(null);
   const firstInputRef = useRef<HTMLInputElement>(null);
   const firstTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const buildRelatedEntries = (values: Record<string, any>): RelatedEntry[] => {
+    const parseId = (value: string | undefined): number | null => {
+      if (!value || value === 'none') return null;
+      const numeric = Number(value);
+      return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+    };
+
+    if (entityType === 'task') {
+      const epicId = parseId(values['epic_id']);
+      if (epicId) {
+        return [{ id: epicId, object: 'epic' }];
+      }
+
+      const projectId = parseId(values['project_id']);
+      if (projectId) {
+        return [{ id: projectId, object: 'project' }];
+      }
+
+      return [];
+    }
+
+    if (entityType === 'epic' || entityType === 'rule' || entityType === 'project') {
+      const parentId = parseId(values['parent_id']);
+      if (parentId) {
+        return [{ id: parentId, object: 'project' }];
+      }
+      return [];
+    }
+
+    return [];
+  };
 
   // Meta fields to exclude from rendering in body
   const META_KEYS = [
@@ -874,23 +911,9 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
         }
       });
 
-      // Handle parent_id mapping
-      if (entityType === 'task') {
-        // For tasks, check if an epic is selected, otherwise use project
-        if (editValues['epic_id'] && editValues['epic_id'] !== '' && editValues['epic_id'] !== 'none') {
-          // If epic is selected, use epic as parent
-          createPayload.parent_id = parseInt(editValues['epic_id']);
-        } else if (editValues['project_id'] && editValues['project_id'] !== '' && editValues['project_id'] !== 'none') {
-          // Otherwise use project as parent
-          createPayload.parent_id = parseInt(editValues['project_id']);
-        }
-        // If both are 'none' or empty, don't set parent_id (global task)
-      } else if (entityType === 'epic' || entityType === 'rule') {
-        // For epics and rules, use parent_id directly
-        if (editValues['parent_id'] && editValues['parent_id'] !== '' && editValues['parent_id'] !== 'none') {
-          createPayload.parent_id = parseInt(editValues['parent_id']);
-        }
-        // If 'none', don't set parent_id (global epic/rule)
+      const relatedEntries = buildRelatedEntries(editValues);
+      if (['task', 'project', 'epic', 'rule'].includes(entityType)) {
+        createPayload.related = relatedEntries;
       }
 
       console.log(`Creating ${entityType} with data:`, createPayload);
@@ -964,7 +987,7 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
 
     try {
       // Prepare the update payload - only include changed values
-      const updatePayload: Record<string, string> = {};
+      const updatePayload: Record<string, any> = {};
       
       Object.keys(editValues).forEach(key => {
         if (editValues[key] !== originalValues[key]) {
@@ -998,31 +1021,26 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
       }
       
       // For tasks, handle parent_id mapping from project/epic fields
-      const finalPayload = { ...updatePayload };
+      const finalPayload: Record<string, any> = { ...updatePayload };
       if (entityType === 'task') {
         // Remove project_id and epic_id from payload as they're not direct fields
         delete finalPayload.project_id;
         delete finalPayload.epic_id;
-        
-        // Set parent_id based on epic or project selection
-        if (editValues['epic_id'] && editValues['epic_id'] !== '' && editValues['epic_id'] !== 'none') {
-          finalPayload.parent_id = editValues['epic_id'];
-        } else if (editValues['project_id'] && editValues['project_id'] !== '' && editValues['project_id'] !== 'none') {
-          finalPayload.parent_id = editValues['project_id'];
-        } else if (editValues['project_id'] === 'none' || editValues['epic_id'] === 'none') {
-          // User explicitly selected 'none' - set parent_id to null to clear it
-          finalPayload.parent_id = null;
-        }
-      } else if (entityType === 'epic' || entityType === 'rule') {
-        // For epics and rules, handle parent_id changes
-        if (updatePayload.parent_id !== undefined) {
-          if (editValues['parent_id'] === 'none') {
-            // User explicitly selected 'none' - set parent_id to null to clear it
-            finalPayload.parent_id = null;
-          } else if (editValues['parent_id'] && editValues['parent_id'] !== '') {
-            // User selected a project - keep the value
-            finalPayload.parent_id = editValues['parent_id'];
-          }
+      }
+
+      if (entityType === 'epic' || entityType === 'rule' || entityType === 'project') {
+        delete finalPayload.parent_id;
+      }
+
+      if (entityType === 'task' || entityType === 'project' || entityType === 'epic' || entityType === 'rule') {
+        const nextRelated = buildRelatedEntries(editValues);
+        const originalRelated = Array.isArray(entity?.related)
+          ? (entity!.related as RelatedEntry[])
+          : [];
+        const relatedChanged = JSON.stringify(originalRelated) !== JSON.stringify(nextRelated);
+
+        if (relatedChanged) {
+          finalPayload.related = nextRelated;
         }
       }
       

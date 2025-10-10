@@ -23,14 +23,23 @@ interface SchemaProperty {
 
 type TaskStage = 'draft' | 'backlog' | 'doing' | 'review' | 'completed';
 
+/**
+ * Relationship entry in the related array (simplified format for parent-only)
+ */
+interface RelatedEntry {
+  id: number;        // ID of the related object
+  object: string;    // Type of object: 'task', 'project', 'epic', 'rule'
+}
+
 interface ObjectData {
   id: number;
   parent_id?: number;
-  project_id?: number; // For backward compatibility with UI
   stage?: TaskStage;
   template_id?: number;
   parent_type?: string;
   parent_name?: string;
+  related?: RelatedEntry[];      // Parent relationships only (simplified format)
+  dependencies?: any[];          // Out of scope - not managed yet
   [key: string]: any;
 }
 
@@ -171,7 +180,7 @@ class DatabaseService {
 
   /**
    * Creates a new object (task, project, epic, or rule) in the database.
-   * @param objectData - The object data including properties, parent_id, stage, and template_id
+   * @param objectData - The object data including properties, stage, template_id, and related array
    * @param userId - The user ID creating the object (defaults to 'system')
    * @returns The ID of the newly created object
    */
@@ -181,19 +190,26 @@ class DatabaseService {
     try {
       await client.query('BEGIN');
 
-      // Insert object with parent_id, stage, and template_id
+      // Insert object with stage, template_id, and related array
       const objectQuery = `
-        INSERT INTO objects (parent_id, stage, template_id, created_by, updated_by)
+        INSERT INTO objects (stage, template_id, related, created_by, updated_by)
         VALUES ($1, $2, $3, $4, $5)
         RETURNING id
       `;
-      const objectResult = await client.query(objectQuery, [objectData.parent_id || null, objectData.stage || 'draft', objectData.template_id || 1, userId, userId]);
+      const relatedValue = objectData.related ? JSON.stringify(objectData.related) : '[]';
+      const objectResult = await client.query(objectQuery, [
+        objectData.stage || 'draft',
+        objectData.template_id || 1,
+        relatedValue,
+        userId,
+        userId
+      ]);
       const objectId = objectResult.rows[0].id;
 
       // Insert blocks for all properties including Title and Description
       let position = 0;
       for (const [key, value] of Object.entries(objectData)) {
-        if (key !== 'stage' && key !== 'parent_id' && key !== 'template_id' && value) {
+        if (key !== 'stage' && key !== 'parent_id' && key !== 'template_id' && key !== 'related' && key !== 'dependencies' && value) {
           // Look up property_id from key
           const propertyQuery = 'SELECT id FROM template_properties WHERE key = $1 LIMIT 1';
           const propertyResult = await client.query(propertyQuery, [key]);
@@ -222,7 +238,7 @@ class DatabaseService {
   /**
    * Updates an existing object (task, project, epic, or rule) in the database.
    * @param objectId - The ID of the object to update
-   * @param updates - Partial object data with fields to update
+   * @param updates - Partial object data with fields to update (including related array)
    * @param userId - The user ID performing the update (defaults to 'system')
    * @returns True if update was successful, false otherwise
    */
@@ -232,7 +248,7 @@ class DatabaseService {
     try {
       await client.query('BEGIN');
 
-      // Update object stage, parent_id, and/or template_id if provided
+      // Update object stage, template_id, and/or related array if provided
       const objectUpdates = [];
       const objectValues = [];
       let paramIndex = 1;
@@ -242,14 +258,14 @@ class DatabaseService {
         objectValues.push(updates.stage);
       }
 
-      if (updates.parent_id !== undefined) {
-        objectUpdates.push(`parent_id = $${paramIndex++}`);
-        objectValues.push(updates.parent_id);
-      }
-
       if (updates.template_id !== undefined) {
         objectUpdates.push(`template_id = $${paramIndex++}`);
         objectValues.push(updates.template_id);
+      }
+
+      if (updates.related !== undefined) {
+        objectUpdates.push(`related = $${paramIndex++}`);
+        objectValues.push(JSON.stringify(updates.related));
       }
 
       if (objectUpdates.length > 0) {
@@ -264,7 +280,7 @@ class DatabaseService {
 
       // Update blocks for all other properties (including Title and Description)
       for (const [key, value] of Object.entries(updates)) {
-        if (key !== 'id' && key !== 'stage' && key !== 'parent_id' && key !== 'template_id' && value !== undefined) {
+        if (key !== 'id' && key !== 'stage' && key !== 'parent_id' && key !== 'template_id' && key !== 'related' && key !== 'dependencies' && value !== undefined) {
           // Look up property_id from key
           const propertyQuery = 'SELECT id FROM template_properties WHERE key = $1 LIMIT 1';
           const propertyResult = await client.query(propertyQuery, [key]);
@@ -299,13 +315,15 @@ class DatabaseService {
    */
   async getObject(objectId: number): Promise<ObjectData | null> {
     try {
-      // Get object core data with parent information (id, parent_id, stage, template_id, parent info)
+      // Get object core data with parent information (derived from related array)
       const objectQuery = `
         SELECT
           t.id,
-          t.parent_id,
           t.stage,
           t.template_id,
+          t.related,
+          t.dependencies,
+          parent_info.parent_id,
           LOWER(pt.name) as parent_type,
           COALESCE(
             (SELECT b.content FROM object_properties b
@@ -314,7 +332,12 @@ class DatabaseService {
             'Untitled'
           ) as parent_name
         FROM objects t
-        LEFT JOIN objects p ON t.parent_id = p.id
+        LEFT JOIN LATERAL (
+          SELECT (elem->>'id')::int AS parent_id
+          FROM jsonb_array_elements(t.related) AS elem
+          LIMIT 1
+        ) parent_info ON TRUE
+        LEFT JOIN objects p ON parent_info.parent_id = p.id
         LEFT JOIN templates pt ON p.template_id = pt.id
         WHERE t.id = $1
       `;
@@ -345,6 +368,8 @@ class DatabaseService {
         template_id: object.template_id,
         parent_type: object.parent_type,
         parent_name: object.parent_name,
+        related: object.related || [],
+        dependencies: object.dependencies || [],
       };
 
       for (const block of blocksResult.rows) {
@@ -373,39 +398,53 @@ class DatabaseService {
   /**
    * Lists objects (tasks, projects, epics, or rules) with optional filtering.
    * @param stageFilter - Optional stage to filter by
-   * @param projectIdFilter - Optional parent_id to filter by
+   * @param projectIdFilter - Optional parent relationship filter (uses related array)
    * @param templateIdFilter - Optional template_id to filter by object type
    * @returns Array of object data matching the filters
    */
   async listObjects(stageFilter?: string, projectIdFilter?: number, templateIdFilter?: number): Promise<ObjectData[]> {
     try {
-      // Get basic object data
-      let query = 'SELECT id, parent_id, stage, template_id FROM objects';
-      let params: any[] = [];
+      // Get basic object data including derived parent information
+      let query = `
+        SELECT
+          t.id,
+          parent_info.parent_id,
+          t.stage,
+          t.template_id,
+          t.related,
+          t.dependencies
+        FROM objects t
+        LEFT JOIN LATERAL (
+          SELECT (elem->>'id')::int AS parent_id
+          FROM jsonb_array_elements(t.related) AS elem
+          LIMIT 1
+        ) parent_info ON TRUE
+      `;
+      const params: any[] = [];
       let paramIndex = 1;
 
-      const conditions = [];
+      const conditions: string[] = [];
 
       if (templateIdFilter !== undefined) {
-        conditions.push(`template_id = $${paramIndex++}`);
+        conditions.push(`t.template_id = $${paramIndex++}`);
         params.push(templateIdFilter);
       }
 
       if (stageFilter) {
-        conditions.push(`stage = $${paramIndex++}`);
+        conditions.push(`t.stage = $${paramIndex++}`);
         params.push(stageFilter);
       }
 
       if (projectIdFilter !== undefined) {
-        conditions.push(`parent_id = $${paramIndex++}`);
-        params.push(projectIdFilter);
+        conditions.push(`t.related @> $${paramIndex++}`);
+        params.push(JSON.stringify([{ id: projectIdFilter }]));
       }
 
       if (conditions.length > 0) {
         query += ' WHERE ' + conditions.join(' AND ');
       }
 
-      query += ' ORDER BY id';
+      query += ' ORDER BY t.id';
 
       const objectsResult = await this.pool.query(query, params);
 
@@ -438,12 +477,15 @@ class DatabaseService {
 
       // Build complete object data
       return objectsResult.rows.map((row: any) => {
+        const parentId = row.parent_id ?? null;
         const objectData: ObjectData = {
           id: row.id,
-          parent_id: row.parent_id,
-          project_id: row.parent_id, // For backward compatibility with UI
+          parent_id: parentId,
+          project_id: parentId, // For backward compatibility with UI
           stage: row.stage,
           template_id: row.template_id,
+          related: row.related || [],
+          dependencies: row.dependencies || [],
         };
 
         // Add blocks for this object

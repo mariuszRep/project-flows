@@ -19,13 +19,21 @@ export class ProjectTools {
     return [
       {
         name: "create_project",
-        description: "Create a detailed project plan by following each property's individual prompt instructions exactly. Each field (Title, Description, etc.) has specific formatting requirements - read and follow each property's prompt precisely. Do not impose your own formatting or structure. Each property prompt defines exactly what content and format is required for that field. Use parent_id to create hierarchical projects (e.g., subprojects under a project).",
+        description: "Create a detailed project plan by following each property's individual prompt instructions exactly. Each field (Title, Description, etc.) has specific formatting requirements - read and follow each property's prompt precisely. Do not impose your own formatting or structure. Each property prompt defines exactly what content and format is required for that field. Use the related array to create hierarchical projects (e.g., subprojects under a project).",
         inputSchema: {
           type: "object",
           properties: {
-            parent_id: {
-              type: "number",
-              description: "Optional parent project ID to create hierarchical relationships (subprojects under a parent project)"
+            related: {
+              type: "array",
+              description: "Optional parent relationship array (max 1 entry). Example: [{ \"id\": 42, \"object\": \"project\" }]",
+              items: {
+                type: "object",
+                properties: {
+                  id: { type: "number", description: "Parent object ID" },
+                  object: { type: "string", description: "Parent object type: 'task', 'project', 'epic', or 'rule'" }
+                },
+                required: ["id", "object"]
+              }
             },
             ...allProperties
           },
@@ -47,9 +55,17 @@ export class ProjectTools {
               description: "Optional stage: 'draft', 'backlog', 'doing', 'review', or 'completed'",
               enum: ["draft", "backlog", "doing", "review", "completed"]
             },
-            parent_id: {
-              type: "number",
-              description: "Optional parent ID for hierarchical relationships"
+            related: {
+              type: "array",
+              description: "Optional parent relationship array (max 1 entry). Provide [{ \"id\": number, \"object\": \"task\" | \"project\" | \"epic\" | \"rule\" }].",
+              items: {
+                type: "object",
+                properties: {
+                  id: { type: "number", description: "Parent object ID" },
+                  object: { type: "string", description: "Parent object type" }
+                },
+                required: ["id", "object"]
+              }
             },
             ...allProperties
           },
@@ -260,4 +276,3 @@ export function createProjectTools(
     validateDependencies
   );
 }
-

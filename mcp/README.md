@@ -80,7 +80,7 @@ Create a new task:
     "Description": "Add secure login/logout functionality",
     "Items": "- Set up OAuth config\n- Create login endpoint\n- Add session management",
     "stage": "backlog",
-    "parent_id": 2
+    "related": [{ "id": 2, "object": "project" }]
   }
 }
 ```
