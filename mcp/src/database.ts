@@ -26,7 +26,6 @@ type TaskStage = 'draft' | 'backlog' | 'doing' | 'review' | 'completed';
 interface ObjectData {
   id: number;
   parent_id?: number;
-  project_id?: number; // For backward compatibility with UI
   stage?: TaskStage;
   template_id?: number;
   parent_type?: string;
