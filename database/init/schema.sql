@@ -53,47 +53,97 @@ CREATE FUNCTION public.notify_data_change() RETURNS trigger
 DECLARE
     notification_payload json;
     event_type text;
+    related_changed boolean := false;
+    dependencies_changed boolean := false;
+    parent_id_changed boolean := false;
+    added_relationships jsonb;
+    removed_relationships jsonb;
 BEGIN
     -- Determine event type
     IF TG_OP = 'INSERT' THEN
         event_type = 'created';
         notification_payload = json_build_object(
             'event_type', event_type,
-            'object_type', CASE 
+            'object_type', CASE
                 WHEN NEW.template_id = 1 THEN 'task'
                 WHEN NEW.template_id = 2 THEN 'project'
+                WHEN NEW.template_id = 3 THEN 'epic'
+                WHEN NEW.template_id = 4 THEN 'rule'
                 ELSE 'object'
             END,
             'object_id', NEW.id,
             'template_id', NEW.template_id,
             'parent_id', NEW.parent_id,
             'stage', NEW.stage,
+            'related', NEW.related,
+            'dependencies', NEW.dependencies,
             'created_by', NEW.created_by,
             'timestamp', to_char(NOW(), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
         );
     ELSIF TG_OP = 'UPDATE' THEN
         event_type = 'updated';
+
+        -- Detect changes to related, dependencies, and parent_id columns
+        related_changed := (OLD.related IS DISTINCT FROM NEW.related);
+        dependencies_changed := (OLD.dependencies IS DISTINCT FROM NEW.dependencies);
+        parent_id_changed := (OLD.parent_id IS DISTINCT FROM NEW.parent_id);
+
+        -- Calculate relationship changes if related array changed
+        IF related_changed THEN
+            -- Find added relationships (in NEW but not in OLD)
+            SELECT COALESCE(jsonb_agg(new_elem), '[]'::jsonb)
+            INTO added_relationships
+            FROM jsonb_array_elements(NEW.related) AS new_elem
+            WHERE NOT EXISTS (
+                SELECT 1 FROM jsonb_array_elements(OLD.related) AS old_elem
+                WHERE old_elem = new_elem
+            );
+
+            -- Find removed relationships (in OLD but not in NEW)
+            SELECT COALESCE(jsonb_agg(old_elem), '[]'::jsonb)
+            INTO removed_relationships
+            FROM jsonb_array_elements(OLD.related) AS old_elem
+            WHERE NOT EXISTS (
+                SELECT 1 FROM jsonb_array_elements(NEW.related) AS new_elem
+                WHERE new_elem = old_elem
+            );
+        END IF;
+
+        -- Build notification payload with relationship change details
         notification_payload = json_build_object(
             'event_type', event_type,
-            'object_type', CASE 
+            'object_type', CASE
                 WHEN NEW.template_id = 1 THEN 'task'
                 WHEN NEW.template_id = 2 THEN 'project'
+                WHEN NEW.template_id = 3 THEN 'epic'
+                WHEN NEW.template_id = 4 THEN 'rule'
                 ELSE 'object'
             END,
             'object_id', NEW.id,
             'template_id', NEW.template_id,
             'parent_id', NEW.parent_id,
             'stage', NEW.stage,
+            'related', NEW.related,
+            'dependencies', NEW.dependencies,
             'updated_by', NEW.updated_by,
-            'timestamp', to_char(NOW(), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+            'timestamp', to_char(NOW(), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+            'changes', json_build_object(
+                'related_changed', related_changed,
+                'dependencies_changed', dependencies_changed,
+                'parent_id_changed', parent_id_changed,
+                'added_relationships', COALESCE(added_relationships, '[]'::jsonb),
+                'removed_relationships', COALESCE(removed_relationships, '[]'::jsonb)
+            )
         );
     ELSE
         event_type = 'deleted';
         notification_payload = json_build_object(
             'event_type', event_type,
-            'object_type', CASE 
+            'object_type', CASE
                 WHEN OLD.template_id = 1 THEN 'task'
                 WHEN OLD.template_id = 2 THEN 'project'
+                WHEN OLD.template_id = 3 THEN 'epic'
+                WHEN OLD.template_id = 4 THEN 'rule'
                 ELSE 'object'
             END,
             'object_id', OLD.id,
@@ -104,7 +154,7 @@ BEGIN
 
     -- Send notification on appropriate channel
     PERFORM pg_notify('data_changed', notification_payload::text);
-    
+
     -- Return appropriate record based on operation
     IF TG_OP = 'DELETE' THEN
         RETURN OLD;
