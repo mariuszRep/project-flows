@@ -46,6 +46,7 @@ export interface DynamicRelationshipFieldProps {
   schemaEntry: RelatedSchemaEntry;
   value: RelatedEntry[];
   onChange: (value: RelatedEntry[]) => void;
+  filterByParent?: { parentType: 'project' | 'epic'; parentId: number };
 }
 
 /**
@@ -68,6 +69,7 @@ export const DynamicRelationshipField: React.FC<DynamicRelationshipFieldProps> =
   schemaEntry,
   value,
   onChange,
+  filterByParent,
 }) => {
   const { callTool } = useMCP();
   const { toast } = useToast();
@@ -84,6 +86,7 @@ export const DynamicRelationshipField: React.FC<DynamicRelationshipFieldProps> =
       console.log(`[RelationshipSelector] Fetching objects for ${schemaEntry.label}`);
       console.log(`[RelationshipSelector] Allowed types:`, schemaEntry.allowed_types);
       console.log(`[RelationshipSelector] Current value:`, value);
+      console.log(`[RelationshipSelector] Filter by parent:`, filterByParent);
 
       try {
         const allObjects: MCPObject[] = [];
@@ -114,11 +117,24 @@ export const DynamicRelationshipField: React.FC<DynamicRelationshipFieldProps> =
 
               if (objectsArray.length > 0) {
                 // Add objects with their template_id for type mapping
-                const objectsWithType = objectsArray.map((obj: any) => ({
+                let objectsWithType = objectsArray.map((obj: any) => ({
                   id: obj.id,
                   title: obj.Title || obj.title || `Object ${obj.id}`,
                   template_id: templateId,
+                  related: obj.related, // Include related for filtering
                 }));
+
+                // Filter by parent if specified (e.g., filter epics by project)
+                if (filterByParent) {
+                  objectsWithType = objectsWithType.filter((obj: any) => {
+                    if (!obj.related || !Array.isArray(obj.related)) return false;
+                    return obj.related.some((rel: any) => 
+                      rel.object === filterByParent.parentType && rel.id === filterByParent.parentId
+                    );
+                  });
+                  console.log(`[RelationshipSelector] Filtered objects by parent:`, objectsWithType);
+                }
+
                 console.log(`[RelationshipSelector] Processed objects:`, objectsWithType);
                 allObjects.push(...objectsWithType);
               }
@@ -145,7 +161,7 @@ export const DynamicRelationshipField: React.FC<DynamicRelationshipFieldProps> =
     };
 
     fetchObjects();
-  }, [schemaEntry.allowed_types, callTool, toast, schemaEntry.label, value]);
+  }, [schemaEntry.allowed_types, callTool, toast, schemaEntry.label, value, filterByParent]);
 
   // Convert MCPObject[] to Option[] for dropdown
   const options: Option[] = availableObjects.map((obj) => ({
@@ -172,7 +188,8 @@ export const DynamicRelationshipField: React.FC<DynamicRelationshipFieldProps> =
 
   // Handle single select change
   const handleSingleSelectChange = (selectedId: string) => {
-    if (!selectedId) {
+    // Handle "No [relationship]" selection
+    if (!selectedId || selectedId === "__none__") {
       onChange([]);
       return;
     }
@@ -243,13 +260,19 @@ export const DynamicRelationshipField: React.FC<DynamicRelationshipFieldProps> =
           {schemaEntry.required && <span className="text-destructive ml-1">*</span>}
         </Label>
         <Select
-          value={value[0]?.id?.toString() || ""}
+          value={value[0]?.id?.toString() || "__none__"}
           onValueChange={handleSingleSelectChange}
         >
           <SelectTrigger id={`relationship-${schemaEntry.key}`}>
             <SelectValue placeholder={`Select ${schemaEntry.label.toLowerCase()}`} />
           </SelectTrigger>
           <SelectContent>
+            {/* Add "None" option for non-required fields */}
+            {!schemaEntry.required && (
+              <SelectItem value="__none__">
+                No {schemaEntry.label}
+              </SelectItem>
+            )}
             {options.length === 0 ? (
               <SelectItem value="__empty__" disabled>
                 No options available

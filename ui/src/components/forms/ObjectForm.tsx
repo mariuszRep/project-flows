@@ -587,6 +587,17 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
         ...prev,
         [key]: value,
       };
+      
+      // If project changed, clear epic selection (epic must belong to selected project)
+      if (key === 'project') {
+        const epicRelationship = templateRelationships.find(r => r.key === 'epic');
+        if (epicRelationship) {
+          // Clear epic when project changes
+          updated['epic'] = [];
+          console.log('[ObjectForm] Cleared epic selection due to project change');
+        }
+      }
+      
       console.log('[ObjectForm] Updated relationshipSelections:', updated);
       return updated;
     });
@@ -1486,12 +1497,28 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
                             currentValue,
                             relationshipSelections
                           });
+                          
+                          // For epic selector, filter by selected project
+                          let filterByParent: { parentType: 'project' | 'epic'; parentId: number } | undefined;
+                          if (relationship.key === 'epic' && relationship.allowed_types?.includes(TEMPLATE_ID.EPIC)) {
+                            // Find the project relationship
+                            const projectRelationship = templateRelationships.find(r => r.key === 'project');
+                            if (projectRelationship) {
+                              const selectedProject = relationshipSelections[projectRelationship.key]?.[0];
+                              if (selectedProject?.id) {
+                                filterByParent = { parentType: 'project', parentId: selectedProject.id };
+                                console.log(`[ObjectForm] Filtering epics by project:`, filterByParent);
+                              }
+                            }
+                          }
+                          
                           return (
                             <DynamicRelationshipField
                               key={relationship.key}
                               schemaEntry={relationship}
                               value={currentValue}
                               onChange={(value) => handleRelationshipSelectionChange(relationship.key, value)}
+                              filterByParent={filterByParent}
                             />
                           );
                         })}
