@@ -19,6 +19,7 @@ import { useMCP } from '@/contexts/MCPContext';
 import { useProject } from '@/contexts/ProjectContext';
 import { useToast } from '@/hooks/use-toast';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import DynamicRelationshipField, { RelatedSchemaEntry as RelationshipSchemaEntry, RelatedEntry as RelationshipSelection } from '@/components/ui/relationship-selector';
 
 /**
  * Template ID constants for entity types
@@ -29,6 +30,20 @@ export const TEMPLATE_ID = {
   EPIC: 3,
   RULE: 4,
 } as const;
+
+const TEMPLATE_ID_TO_OBJECT: Record<number, RelationshipSelection["object"]> = {
+  [TEMPLATE_ID.TASK]: 'task',
+  [TEMPLATE_ID.PROJECT]: 'project',
+  [TEMPLATE_ID.EPIC]: 'epic',
+  [TEMPLATE_ID.RULE]: 'rule',
+};
+
+const OBJECT_TO_TEMPLATE_ID: Record<RelationshipSelection["object"], number> = {
+  task: TEMPLATE_ID.TASK,
+  project: TEMPLATE_ID.PROJECT,
+  epic: TEMPLATE_ID.EPIC,
+  rule: TEMPLATE_ID.RULE,
+};
 
 /**
  * Entity type discriminated union
@@ -185,11 +200,6 @@ interface Entity {
   [key: string]: unknown;
 }
 
-type RelatedEntry = {
-  id: number;
-  object: 'task' | 'project' | 'epic' | 'rule';
-};
-
 /**
  * ObjectView - A unified view and create component for tasks, projects, and epics
  *
@@ -272,14 +282,14 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
   const onDelete = 'onDelete' in props ? props.onDelete : undefined;
   const initialStage = 'initialStage' in props ? props.initialStage : 'draft';
   const { callTool, isConnected } = useMCP();
-  const { selectedProjectId, projects, isLoadingProjects } = useProject();
+  const { selectedProjectId } = useProject();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [entity, setEntity] = useState<Entity | null>(null);
-  const [allEpics, setAllEpics] = useState<Array<{ id: number; title: string; parent_id: number; parent_name: string }>>([]);
-  const [isLoadingEpics, setIsLoadingEpics] = useState(false);
-  const [selectedProjectForTask, setSelectedProjectForTask] = useState<string | null>(null);
+  const [templateRelationships, setTemplateRelationships] = useState<RelationshipSchemaEntry[]>([]);
+  const [relationshipSelections, setRelationshipSelections] = useState<Record<string, RelationshipSelection[]>>({});
+  const [relationshipsInitialized, setRelationshipsInitialized] = useState(false);
   const [orderedProperties, setOrderedProperties] = useState<string[]>([]);
   const [propertyDescriptions, setPropertyDescriptions] = useState<Record<string, string>>({});
   const [templateId, setTemplateId] = useState<number | null>(propTemplateId || null);
@@ -289,38 +299,6 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
   const [editingProperty, setEditingProperty] = useState<string | null>(null);
   const firstInputRef = useRef<HTMLInputElement>(null);
   const firstTextareaRef = useRef<HTMLTextAreaElement>(null);
-
-  const buildRelatedEntries = (values: Record<string, any>): RelatedEntry[] => {
-    const parseId = (value: string | undefined): number | null => {
-      if (!value || value === 'none') return null;
-      const numeric = Number(value);
-      return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
-    };
-
-    if (entityType === 'task') {
-      const epicId = parseId(values['epic_id']);
-      if (epicId) {
-        return [{ id: epicId, object: 'epic' }];
-      }
-
-      const projectId = parseId(values['project_id']);
-      if (projectId) {
-        return [{ id: projectId, object: 'project' }];
-      }
-
-      return [];
-    }
-
-    if (entityType === 'epic' || entityType === 'rule' || entityType === 'project') {
-      const parentId = parseId(values['parent_id']);
-      if (parentId) {
-        return [{ id: parentId, object: 'project' }];
-      }
-      return [];
-    }
-
-    return [];
-  };
 
   // Meta fields to exclude from rendering in body
   const META_KEYS = [
@@ -438,40 +416,6 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
     }
   }, [entity, templateId, createMode, fetchTemplateProperties]);
 
-  // Fetch all epics for task creation and editing
-  useEffect(() => {
-    const fetchEpics = async () => {
-      if (!callTool || !isConnected || entityType !== 'task') return;
-      
-      setIsLoadingEpics(true);
-      try {
-        const result = await callTool('list_objects', { template_id: 3 }); // Epic template_id = 3
-        if (result?.content?.[0]?.text) {
-          const jsonResponse = JSON.parse(result.content[0].text);
-          if (jsonResponse.objects && Array.isArray(jsonResponse.objects)) {
-            const epicsList = jsonResponse.objects.map((obj: any) => {
-              // Find parent project name
-              const parentProject = projects.find(p => p.id === obj.parent_id);
-              return {
-                id: obj.id,
-                title: obj.title || obj.Title || 'Untitled Epic',
-                parent_id: obj.parent_id,
-                parent_name: parentProject?.name || 'Unknown Project'
-              };
-            });
-            setAllEpics(epicsList);
-          }
-        }
-      } catch (err) {
-        console.error('Error fetching epics:', err);
-      } finally {
-        setIsLoadingEpics(false);
-      }
-    };
-
-    fetchEpics();
-  }, [callTool, isConnected, entityType, createMode, projects]);
-
   // Initialize create mode values after template properties are loaded
   useEffect(() => {
     if (createMode && orderedProperties.length > 0) {
@@ -485,27 +429,6 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
       // Set default values for specific fields
       // Set initial stage for all entity types
       initialValues['stage'] = initialStage;
-      
-      // Set parent_id from selected project if available
-      if (selectedProjectId !== null) {
-        if (entityType === 'task') {
-          // For tasks, set the selected project in our local state
-          setSelectedProjectForTask(selectedProjectId.toString());
-          initialValues['project_id'] = selectedProjectId.toString();
-          initialValues['epic_id'] = 'none';
-        } else if (entityType === 'epic' || entityType === 'rule') {
-          initialValues['parent_id'] = selectedProjectId.toString();
-        }
-      } else {
-        // No project selected - initialize with 'none'
-        if (entityType === 'task') {
-          setSelectedProjectForTask(null);
-          initialValues['project_id'] = 'none';
-          initialValues['epic_id'] = 'none';
-        } else if (entityType === 'epic' || entityType === 'rule') {
-          initialValues['parent_id'] = 'none';
-        }
-      }
 
       setEditValues(initialValues);
       setOriginalValues({ ...initialValues });
@@ -519,7 +442,113 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
         }
       }, 0);
     }
-  }, [createMode, orderedProperties, entityType, initialStage, selectedProjectId]);
+  }, [createMode, orderedProperties, initialStage]);
+
+  useEffect(() => {
+    const loadTemplateRelationships = async () => {
+      if (!callTool || !isConnected || !templateId) return;
+
+      try {
+        const result = await callTool('list_templates');
+        if (result?.content?.[0]?.text) {
+          const templates = JSON.parse(result.content[0].text);
+          const currentTemplate = templates.find((t: any) => t.id === templateId);
+          const schema = currentTemplate?.related_schema;
+          if (Array.isArray(schema)) {
+            setTemplateRelationships(schema);
+          } else {
+            setTemplateRelationships([]);
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching template relationships:', err);
+        setTemplateRelationships([]);
+      }
+    };
+
+    loadTemplateRelationships();
+  }, [callTool, isConnected, templateId]);
+
+  useEffect(() => {
+    setRelationshipsInitialized(false);
+  }, [entity?.id, templateRelationships, createMode]);
+
+  useEffect(() => {
+    if (templateRelationships.length === 0) {
+      setRelationshipSelections({});
+      setRelationshipsInitialized(true);
+      return;
+    }
+
+    if (relationshipsInitialized === true) {
+      return;
+    }
+
+    const baseSelections: Record<string, RelationshipSelection[]> = {};
+    templateRelationships.forEach(entry => {
+      baseSelections[entry.key] = [];
+    });
+
+    if (!createMode && entity && Array.isArray((entity as any).related)) {
+      const relatedEntries = (entity as any).related as RelationshipSelection[];
+
+      relatedEntries.forEach(rel => {
+        const templateIdForObject = OBJECT_TO_TEMPLATE_ID[rel.object as RelationshipSelection["object"]];
+        if (!templateIdForObject) return;
+        const schemaEntry = templateRelationships.find(entry =>
+          Array.isArray(entry.allowed_types) && entry.allowed_types.includes(templateIdForObject)
+        );
+        if (!schemaEntry) return;
+        if (schemaEntry.cardinality === 'single') {
+          baseSelections[schemaEntry.key] = [rel];
+        } else {
+          baseSelections[schemaEntry.key] = [...(baseSelections[schemaEntry.key] || []), rel];
+        }
+      });
+    } else if (createMode && selectedProjectId) {
+      templateRelationships.forEach(entry => {
+        if (entry.allowed_types?.includes(TEMPLATE_ID.PROJECT)) {
+          baseSelections[entry.key] = [{
+            id: selectedProjectId,
+            object: 'project'
+          }];
+        }
+      });
+    }
+
+    setRelationshipSelections(baseSelections);
+    setRelationshipsInitialized(true);
+  }, [templateRelationships, entity, createMode, selectedProjectId, relationshipsInitialized]);
+
+  const handleRelationshipSelectionChange = (key: string, value: RelationshipSelection[]) => {
+    setRelationshipSelections(prev => ({
+      ...prev,
+      [key]: value,
+    }));
+  };
+
+  const getSelectedRelatedEntries = (): RelationshipSelection[] => {
+    const entries: RelationshipSelection[] = [];
+    templateRelationships.forEach(entry => {
+      const selections = relationshipSelections[entry.key] || [];
+      selections.forEach(selection => {
+        entries.push(selection);
+      });
+    });
+    return entries;
+  };
+
+  const validateRequiredRelationships = (): string | null => {
+    for (const relationship of templateRelationships) {
+      if (relationship.required) {
+        const selection = relationshipSelections[relationship.key];
+        if (!selection || selection.length === 0) {
+          return `Relationship "${relationship.label}" is required.`;
+        }
+      }
+    }
+    return null;
+  };
 
   const getDefaultTemplateId = (entityType: EntityType): number => {
     switch (entityType) {
@@ -825,39 +854,6 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
     });
     
     // For tasks in edit mode, set up project/epic fields
-    if (entityType === 'task') {
-      if (entity.parent_id) {
-        // Check if parent is an epic or project
-        const parentEpic = allEpics.find(e => e.id === entity.parent_id);
-        if (parentEpic) {
-          // Parent is an epic, set both project and epic
-          setSelectedProjectForTask(parentEpic.parent_id.toString());
-          values['project_id'] = parentEpic.parent_id.toString();
-          values['epic_id'] = entity.parent_id.toString();
-        } else {
-          // Parent is a project
-          setSelectedProjectForTask(entity.parent_id.toString());
-          values['project_id'] = entity.parent_id.toString();
-          values['epic_id'] = 'none';
-        }
-      } else {
-        // No parent - set to 'none'
-        setSelectedProjectForTask(null);
-        values['project_id'] = 'none';
-        values['epic_id'] = 'none';
-      }
-    }
-    
-    // For epics and rules in edit mode, set up parent_id field
-    if (entityType === 'epic' || entityType === 'rule') {
-      if (entity.parent_id) {
-        values['parent_id'] = entity.parent_id.toString();
-      } else {
-        // No parent - set to 'none' for global epic/rule
-        values['parent_id'] = 'none';
-      }
-    }
-    
     setOriginalValues({ ...values });
     setEditValues({ ...values });
     setMode('global-edit');
@@ -911,8 +907,19 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
         }
       });
 
-      const relatedEntries = buildRelatedEntries(editValues);
-      if (['task', 'project', 'epic', 'rule'].includes(entityType)) {
+      const relationshipError = validateRequiredRelationships();
+      if (relationshipError) {
+        setError(relationshipError);
+        toast({
+          title: "Missing relationship",
+          description: relationshipError,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const relatedEntries = getSelectedRelatedEntries();
+      if (relatedEntries.length > 0) {
         createPayload.related = relatedEntries;
       }
 
@@ -1032,10 +1039,23 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
         delete finalPayload.parent_id;
       }
 
+      if (templateRelationships.length > 0) {
+        const relationshipError = validateRequiredRelationships();
+        if (relationshipError) {
+          setError(relationshipError);
+          toast({
+            title: "Missing relationship",
+            description: relationshipError,
+            variant: "destructive",
+          });
+          return;
+        }
+      }
+
       if (entityType === 'task' || entityType === 'project' || entityType === 'epic' || entityType === 'rule') {
-        const nextRelated = buildRelatedEntries(editValues);
+        const nextRelated = getSelectedRelatedEntries();
         const originalRelated = Array.isArray(entity?.related)
-          ? (entity!.related as RelatedEntry[])
+          ? (entity!.related as RelationshipSelection[])
           : [];
         const relatedChanged = JSON.stringify(originalRelated) !== JSON.stringify(nextRelated);
 
@@ -1347,104 +1367,68 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
                     </Select>
                   </div>
 
-                  {/* Parent Project/Epic Selectors - shown for tasks, epics, and rules */}
-                  {entityType === 'task' ? (
-                    <>
-                      {/* Project Selector for Tasks */}
-                      <div className="group relative -mx-4 px-4 py-2 border rounded-xl border-border bg-muted/10">
-                        <div className="flex items-center justify-between mb-2">
-                          <h3 className="text-sm font-semibold">Project</h3>
-                        </div>
-                        <Select
-                          value={selectedProjectForTask || editValues['project_id'] || 'none'}
-                          onValueChange={(value) => {
-                            const newValue = value === 'none' ? null : value;
-                            setSelectedProjectForTask(newValue);
-                            handleInputChange('project_id', value);
-                            // Clear epic selection when project changes
-                            handleInputChange('epic_id', 'none');
-                          }}
-                          disabled={isLoadingProjects}
-                        >
-                          <SelectTrigger className="w-full">
-                            <SelectValue placeholder="Select project (optional)" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="none">No Project</SelectItem>
-                            {projects.map((project) => (
-                              <SelectItem key={project.id} value={project.id.toString()}>
-                                <div className="flex items-center gap-2">
-                                  <div
-                                    className="w-3 h-3 rounded-sm"
-                                    style={{ backgroundColor: project.color }}
-                                  />
-                                  <span>{project.name}</span>
-                                </div>
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      {/* Epic Selector for Tasks - only enabled when project is selected */}
-                      <div className="group relative -mx-4 px-4 py-2 border rounded-xl border-border bg-muted/10">
-                        <div className="flex items-center justify-between mb-2">
-                          <h3 className="text-sm font-semibold">Epic</h3>
-                          {!selectedProjectForTask && (
-                            <span className="text-xs text-muted-foreground">Select a project first</span>
-                          )}
-                        </div>
-                        <Select
-                          value={editValues['epic_id'] || 'none'}
-                          onValueChange={(value) => handleInputChange('epic_id', value)}
-                          disabled={!selectedProjectForTask || isLoadingEpics}
-                        >
-                          <SelectTrigger className="w-full">
-                            <SelectValue placeholder={selectedProjectForTask ? "Select epic (optional)" : "Select a project first"} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="none">No Epic</SelectItem>
-                            {selectedProjectForTask && allEpics
-                              .filter(epic => epic.parent_id === parseInt(selectedProjectForTask))
-                              .map((epic) => (
-                                <SelectItem key={epic.id} value={epic.id.toString()}>
-                                  <span>{epic.title}</span>
-                                </SelectItem>
-                              ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </>
-                  ) : (entityType === 'epic' || entityType === 'rule') && (
+                  {templateRelationships.length > 0 && (
                     <div className="group relative -mx-4 px-4 py-2 border rounded-xl border-border bg-muted/10">
                       <div className="flex items-center justify-between mb-2">
-                        <h3 className="text-sm font-semibold">Parent Project</h3>
+                        <h3 className="text-sm font-semibold">Parent Relationships</h3>
+                        <span className="text-xs text-muted-foreground">
+                          Select parent objects for this {entityType}
+                        </span>
                       </div>
-                      <Select
-                        value={editValues['parent_id'] || 'none'}
-                        onValueChange={(value) => handleInputChange('parent_id', value)}
-                        disabled={isLoadingProjects}
-                      >
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Select project (optional)" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">No Project</SelectItem>
-                          {projects.map((project) => (
-                            <SelectItem key={project.id} value={project.id.toString()}>
-                              <div className="flex items-center gap-2">
-                                <div
-                                  className="w-3 h-3 rounded-sm"
-                                  style={{ backgroundColor: project.color }}
-                                />
-                                <span>{project.name}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <div className="space-y-3">
+                        {templateRelationships.map((relationship) => (
+                          <DynamicRelationshipField
+                            key={relationship.key}
+                            schemaEntry={relationship}
+                            value={relationshipSelections[relationship.key] || []}
+                            onChange={(value) => handleRelationshipSelectionChange(relationship.key, value)}
+                          />
+                        ))}
+                      </div>
                     </div>
                   )}
+                </div>
+              )}
+
+              {!createMode && mode === 'view' && templateRelationships.length > 0 && (
+                <div className="mb-6 space-y-4">
+                  <div className="group relative -mx-4 px-4 py-2 border rounded-xl border-border bg-muted/5">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-sm font-semibold">Parent Relationships</h3>
+                      <span className="text-xs text-muted-foreground">
+                        {entityType.charAt(0).toUpperCase() + entityType.slice(1)} parents
+                      </span>
+                    </div>
+                    {templateRelationships.map((relationship) => {
+                      const selections = relationshipSelections[relationship.key] || [];
+                      if (selections.length === 0) {
+                        return null;
+                      }
+                      return (
+                        <div key={`relationship-view-${relationship.key}`} className="flex items-center justify-between rounded-lg border border-border/60 bg-background/60 px-3 py-2 mb-2 last:mb-0">
+                          <div>
+                            <p className="text-sm font-medium">{relationship.label}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {selections.map(selection => `${selection.object} #${selection.id}`).join(', ')}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="secondary" className="text-xs capitalize">
+                              {relationship.cardinality}
+                            </Badge>
+                            {relationship.required && (
+                              <Badge variant="destructive" className="text-xs">
+                                Required
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {templateRelationships.every(rel => (relationshipSelections[rel.key] || []).length === 0) && (
+                      <p className="text-xs text-muted-foreground">No parent relationships set.</p>
+                    )}
+                  </div>
                 </div>
               )}
 
