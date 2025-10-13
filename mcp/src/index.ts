@@ -10,7 +10,7 @@
 import DatabaseService from "./database.js";
 import { createExpressApp } from "./server/express-server.js";
 import { ConnectionManager } from "./server/connection-manager.js";
-import { createMcpServer } from "./mcp/server-factory.js";
+import { createMcpServer, registerWorkflow, unregisterWorkflow, listDynamicWorkflows, getWorkflow } from "./mcp/server-factory.js";
 import { createNotificationHandler } from "./server/notification-handler.js";
 
 // Initialize shared database service for all connections
@@ -41,6 +41,101 @@ app.post("/messages", async (req: any, res: any) => {
 const notificationHandler = createNotificationHandler();
 app.get("/notifications", async (req: any, res: any) => {
   await notificationHandler.handleConnection(req, res);
+});
+
+// REST API endpoints for dynamic workflow management
+app.post("/api/workflows", async (req: any, res: any) => {
+  try {
+    const workflow = req.body;
+    const result = registerWorkflow(workflow);
+    
+    if (result.success) {
+      res.status(201).json({
+        success: true,
+        message: `Workflow '${workflow.name}' registered successfully`,
+        workflow: workflow.name
+      });
+    } else {
+      res.status(400).json({
+        success: false,
+        error: result.error
+      });
+    }
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: (error as Error).message
+    });
+  }
+});
+
+app.delete("/api/workflows/:name", async (req: any, res: any) => {
+  try {
+    const { name } = req.params;
+    const result = unregisterWorkflow(name);
+    
+    if (result.success) {
+      res.status(200).json({
+        success: true,
+        message: `Workflow '${name}' unregistered successfully`
+      });
+    } else {
+      res.status(404).json({
+        success: false,
+        error: result.error
+      });
+    }
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: (error as Error).message
+    });
+  }
+});
+
+app.get("/api/workflows", async (req: any, res: any) => {
+  try {
+    const workflows = listDynamicWorkflows();
+    res.status(200).json({
+      success: true,
+      count: workflows.length,
+      workflows: workflows.map(w => ({
+        name: w.name,
+        description: w.description,
+        inputSchema: w.inputSchema,
+        stepCount: w.steps.length
+      }))
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: (error as Error).message
+    });
+  }
+});
+
+app.get("/api/workflows/:name", async (req: any, res: any) => {
+  try {
+    const { name } = req.params;
+    const workflow = getWorkflow(name);
+    
+    if (workflow) {
+      res.status(200).json({
+        success: true,
+        workflow
+      });
+    } else {
+      res.status(404).json({
+        success: false,
+        error: `Workflow '${name}' not found`
+      });
+    }
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: (error as Error).message
+    });
+  }
 });
 
 async function main() {

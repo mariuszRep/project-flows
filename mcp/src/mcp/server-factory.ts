@@ -1,5 +1,5 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { ListToolsRequestSchema, CallToolRequestSchema, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { SchemaProperties, ExecutionChainItem, ToolContext } from "../types/property.js";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
@@ -13,10 +13,15 @@ import { createEpicTools } from "../tools/epic-tools.js";
 import { createRuleTools } from "../tools/rule-tools.js";
 import { createWorkflowTools } from "../tools/workflow-tools.js";
 import { createTemplateTools } from "../tools/template-tools.js";
+import { WorkflowDefinition, WorkflowExecutor } from "../tools/workflow-executor.js";
 import pg from 'pg';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+// Global in-memory storage for dynamic workflow tools
+const dynamicWorkflows = new Map<string, WorkflowDefinition>();
+const workflowExecutor = new WorkflowExecutor();
 
 export function createMcpServer(clientId: string = 'unknown', sharedDbService: DatabaseService): Server {
   const server = new Server(
@@ -452,6 +457,13 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
     const epicSchemaProperties = cleanSchemaProperties(epicProperties);
     const ruleSchemaProperties = cleanSchemaProperties(ruleProperties);
 
+    // Generate dynamic workflow tools
+    const dynamicWorkflowTools: Tool[] = Array.from(dynamicWorkflows.values()).map(workflow => ({
+      name: workflow.name,
+      description: workflow.description,
+      inputSchema: workflow.inputSchema,
+    }));
+
     return {
       tools: [
         ...propertyTools.getToolDefinitions(),
@@ -466,6 +478,8 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
         // Keep generic object tools available
         ...objectTools.getToolDefinitions(),
         ...workflowTools.getToolDefinitions(),
+        // Add dynamic workflow tools
+        ...dynamicWorkflowTools,
       ],
     };
   });
@@ -514,8 +528,126 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
       return await workflowTools.handle(name, toolArgs);
     }
 
+    // Handle dynamic workflow tools
+    if (dynamicWorkflows.has(name)) {
+      return await handleDynamicWorkflow(name, toolArgs || {});
+    }
+
     throw new Error(`Unknown tool: ${name}`);
   });
 
   return server;
+}
+
+/**
+ * Handle execution of a dynamic workflow tool
+ */
+async function handleDynamicWorkflow(name: string, args: Record<string, any>) {
+  const workflow = dynamicWorkflows.get(name);
+  if (!workflow) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            success: false,
+            error: `Workflow '${name}' not found`
+          })
+        }
+      ]
+    };
+  }
+
+  try {
+    const context = await workflowExecutor.execute(workflow, args);
+    
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            success: true,
+            workflow: name,
+            result: context.result,
+            logs: context.logs,
+            variables: Object.fromEntries(context.variables)
+          }, null, 2)
+        }
+      ]
+    };
+  } catch (error) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            success: false,
+            workflow: name,
+            error: (error as Error).message
+          }, null, 2)
+        }
+      ]
+    };
+  }
+}
+
+/**
+ * Register a new dynamic workflow tool
+ */
+export function registerWorkflow(workflow: WorkflowDefinition): { success: boolean; error?: string } {
+  // Validate workflow definition
+  if (!workflow.name || typeof workflow.name !== 'string') {
+    return { success: false, error: 'Workflow name is required and must be a string' };
+  }
+
+  if (!workflow.description || typeof workflow.description !== 'string') {
+    return { success: false, error: 'Workflow description is required and must be a string' };
+  }
+
+  if (!workflow.inputSchema || typeof workflow.inputSchema !== 'object') {
+    return { success: false, error: 'Workflow inputSchema is required and must be an object' };
+  }
+
+  if (!Array.isArray(workflow.steps) || workflow.steps.length === 0) {
+    return { success: false, error: 'Workflow must have at least one step' };
+  }
+
+  // Check for duplicate names
+  if (dynamicWorkflows.has(workflow.name)) {
+    return { success: false, error: `Workflow '${workflow.name}' already exists` };
+  }
+
+  // Store workflow
+  dynamicWorkflows.set(workflow.name, workflow);
+  console.log(`✅ Registered dynamic workflow: ${workflow.name}`);
+
+  return { success: true };
+}
+
+/**
+ * Unregister a dynamic workflow tool
+ */
+export function unregisterWorkflow(name: string): { success: boolean; error?: string } {
+  if (!dynamicWorkflows.has(name)) {
+    return { success: false, error: `Workflow '${name}' not found` };
+  }
+
+  dynamicWorkflows.delete(name);
+  console.log(`🗑️  Unregistered dynamic workflow: ${name}`);
+
+  return { success: true };
+}
+
+/**
+ * List all registered dynamic workflows
+ */
+export function listDynamicWorkflows(): WorkflowDefinition[] {
+  return Array.from(dynamicWorkflows.values());
+}
+
+/**
+ * Get a specific workflow by name
+ */
+export function getWorkflow(name: string): WorkflowDefinition | undefined {
+  return dynamicWorkflows.get(name);
 }
