@@ -24,10 +24,66 @@ SET row_security = off;
 -- Data for Name: templates; Type: TABLE DATA; Schema: public; Owner: -
 --
 
-INSERT INTO public.templates VALUES (1, 'Task', 'Default template for managing tasks', '2025-07-24 08:49:24.200024+00', '2025-07-24 08:49:24.200024+00', 'system', 'system');
-INSERT INTO public.templates VALUES (2, 'Project', 'Template for project-type parent tasks', '2025-08-04 10:42:31.309172+00', '2025-08-04 10:42:31.309172+00', 'system', 'system');
-INSERT INTO public.templates VALUES (3, 'Epic', 'Simplified template for organizing tasks under projects', '2025-08-28 00:00:00+00', '2025-08-28 00:00:00+00', 'system', 'system');
-INSERT INTO public.templates VALUES (4, 'Rule', 'Template for defining and managing project rules', '2025-09-25 15:54:11.595139+00', '2025-09-25 15:54:11.595139+00', 'claude-code', 'claude-code');
+INSERT INTO public.templates VALUES (1, 'Task', 'Default template for managing tasks', '[]'::jsonb, '2025-07-24 08:49:24.200024+00', '2025-07-24 08:49:24.200024+00', 'system', 'system');
+INSERT INTO public.templates VALUES (2, 'Project', 'Template for project-type parent tasks', '[]'::jsonb, '2025-08-04 10:42:31.309172+00', '2025-08-04 10:42:31.309172+00', 'system', 'system');
+INSERT INTO public.templates VALUES (3, 'Epic', 'Simplified template for organizing tasks under projects', '[]'::jsonb, '2025-08-28 00:00:00+00', '2025-08-28 00:00:00+00', 'system', 'system');
+INSERT INTO public.templates VALUES (4, 'Rule', 'Template for defining and managing project rules', '[]'::jsonb, '2025-09-25 15:54:11.595139+00', '2025-09-25 15:54:11.595139+00', 'claude-code', 'claude-code');
+
+-- Update templates with default related_schema values
+-- Task template: allows project (id=2) and epic (id=3) parents, single cardinality each
+UPDATE public.templates
+SET related_schema = '[
+  {
+    "key": "project",
+    "label": "Project",
+    "allowed_types": [2],
+    "cardinality": "single",
+    "required": false,
+    "order": 1
+  },
+  {
+    "key": "epic",
+    "label": "Epic",
+    "allowed_types": [3],
+    "cardinality": "single",
+    "required": false,
+    "order": 2
+  }
+]'::jsonb
+WHERE id = 1;
+
+-- Project template: empty schema (no parents allowed)
+UPDATE public.templates
+SET related_schema = '[]'::jsonb
+WHERE id = 2;
+
+-- Epic template: allows project (id=2) parent with single cardinality
+UPDATE public.templates
+SET related_schema = '[
+  {
+    "key": "project",
+    "label": "Project",
+    "allowed_types": [2],
+    "cardinality": "single",
+    "required": false,
+    "order": 1
+  }
+]'::jsonb
+WHERE id = 3;
+
+-- Rule template: allows project (id=2) parent with single cardinality
+UPDATE public.templates
+SET related_schema = '[
+  {
+    "key": "project",
+    "label": "Project",
+    "allowed_types": [2],
+    "cardinality": "single",
+    "required": false,
+    "order": 1
+  }
+]'::jsonb
+WHERE id = 4;
 
 
 --

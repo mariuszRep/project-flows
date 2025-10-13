@@ -12,6 +12,7 @@ import { createProjectTools } from "../tools/project-tools.js";
 import { createEpicTools } from "../tools/epic-tools.js";
 import { createRuleTools } from "../tools/rule-tools.js";
 import { createWorkflowTools } from "../tools/workflow-tools.js";
+import { createTemplateTools } from "../tools/template-tools.js";
 import pg from 'pg';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -331,7 +332,8 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
 
   // Create tool handlers
   const propertyTools = createPropertyTools(sharedDbService, clientId);
-  
+  const templateTools = createTemplateTools(sharedDbService, clientId);
+
   const objectTools = createObjectTools(
     sharedDbService
   );
@@ -453,6 +455,7 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
     return {
       tools: [
         ...propertyTools.getToolDefinitions(),
+        ...templateTools.getToolDefinitions(),
         // Expose restored task and project tools
         ...taskTools.getToolDefinitions(taskSchemaProperties),
         ...projectTools.getToolDefinitions(projectSchemaProperties),
@@ -474,6 +477,11 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
     // Handle property tools
     if (propertyTools.canHandle(name)) {
       return await propertyTools.handle(name, toolArgs);
+    }
+
+    // Handle template tools
+    if (templateTools.canHandle(name)) {
+      return await templateTools.handle(name, toolArgs);
     }
 
     // Handle task tools

@@ -503,14 +503,129 @@ class DatabaseService {
     }
   }
 
-  async getTemplates(): Promise<Array<{id: number, name: string, description: string, created_at: Date, updated_at: Date, created_by: string, updated_by: string}>> {
+  async getTemplates(): Promise<Array<{
+    id: number;
+    name: string;
+    description: string;
+    related_schema: any;
+    created_at: Date;
+    updated_at: Date;
+    created_by: string;
+    updated_by: string;
+  }>> {
     try {
-      const query = 'SELECT id, name, description, created_at, updated_at, created_by, updated_by FROM templates ORDER BY name';
+      const query = `
+        SELECT
+          id,
+          name,
+          description,
+          COALESCE(related_schema, '[]'::jsonb) AS related_schema,
+          created_at,
+          updated_at,
+          created_by,
+          updated_by
+        FROM templates
+        ORDER BY name
+      `;
       const result = await this.pool.query(query);
-      return result.rows;
+      return result.rows.map(row => {
+        let relatedSchema = row.related_schema ?? [];
+
+        // Handle cases where the driver returns JSONB as string
+        if (typeof relatedSchema === 'string') {
+          try {
+            relatedSchema = JSON.parse(relatedSchema);
+          } catch (parseError) {
+            console.error('Failed to parse related_schema JSON:', parseError);
+            relatedSchema = [];
+          }
+        }
+
+        return {
+          ...row,
+          related_schema: Array.isArray(relatedSchema) ? relatedSchema : []
+        };
+      });
     } catch (error) {
       console.error('Error fetching templates:', error);
       return [];
+    }
+  }
+
+  /**
+   * Updates the related_schema JSONB column for a template.
+   * @param templateId - The ID of the template to update
+   * @param relatedSchema - Array of schema entries defining allowed parent relationships
+   * @param userId - The user ID performing the update (defaults to 'system')
+   * @returns True if update was successful, false otherwise
+   */
+  async updateTemplateSchema(
+    templateId: number,
+    relatedSchema: Array<{
+      key: string;
+      label: string;
+      allowed_types: number[];
+      cardinality: 'single' | 'multiple';
+      required: boolean;
+      order: number;
+    }>,
+    userId: string = 'system'
+  ): Promise<boolean> {
+    try {
+      // Validate templateId
+      if (!Number.isInteger(templateId) || templateId < 1) {
+        throw new Error('Invalid template_id: must be a positive integer');
+      }
+
+      // Validate each schema entry
+      for (const entry of relatedSchema) {
+        if (!entry.key || typeof entry.key !== 'string') {
+          throw new Error('Invalid schema entry: key must be a non-empty string');
+        }
+        if (!entry.label || typeof entry.label !== 'string') {
+          throw new Error('Invalid schema entry: label must be a non-empty string');
+        }
+        if (!Array.isArray(entry.allowed_types) || entry.allowed_types.length === 0) {
+          throw new Error('Invalid schema entry: allowed_types must be a non-empty array');
+        }
+        if (!entry.allowed_types.every(id => Number.isInteger(id) && id > 0)) {
+          throw new Error('Invalid schema entry: allowed_types must contain positive integers');
+        }
+        if (entry.cardinality !== 'single' && entry.cardinality !== 'multiple') {
+          throw new Error('Invalid schema entry: cardinality must be "single" or "multiple"');
+        }
+        if (typeof entry.required !== 'boolean') {
+          throw new Error('Invalid schema entry: required must be a boolean');
+        }
+        if (!Number.isInteger(entry.order) || entry.order < 0) {
+          throw new Error('Invalid schema entry: order must be a non-negative integer');
+        }
+      }
+
+      // Check if template exists
+      const checkQuery = 'SELECT id FROM templates WHERE id = $1';
+      const checkResult = await this.pool.query(checkQuery, [templateId]);
+
+      if (checkResult.rows.length === 0) {
+        throw new Error(`Template with ID ${templateId} not found`);
+      }
+
+      // Update the related_schema column
+      const updateQuery = `
+        UPDATE templates
+        SET related_schema = $1, updated_at = CURRENT_TIMESTAMP, updated_by = $2
+        WHERE id = $3
+      `;
+      const result = await this.pool.query(updateQuery, [
+        JSON.stringify(relatedSchema),
+        userId,
+        templateId
+      ]);
+
+      return (result.rowCount || 0) > 0;
+    } catch (error) {
+      console.error('Error updating template schema:', error);
+      throw error;
     }
   }
 
