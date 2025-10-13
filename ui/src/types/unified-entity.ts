@@ -1,5 +1,10 @@
 import { TaskStage } from './task';
 
+export interface RelatedEntry {
+  id: number;
+  object: 'task' | 'project' | 'epic' | 'rule';
+}
+
 export interface UnifiedEntity {
   id: number;
   title: string;
@@ -7,7 +12,9 @@ export interface UnifiedEntity {
   stage?: TaskStage;
   type: 'Task' | 'Project' | 'Epic' | 'Rule';
   template_id: number;
-  parent_id?: number;
+  parent_id?: number; // Legacy field, use related array instead
+  related?: RelatedEntry[];
+  dependencies?: any[];
   created_at?: string;
   updated_at?: string;
   created_by?: string;
@@ -36,7 +43,9 @@ export const mapToUnifiedEntity = (obj: any): UnifiedEntity => {
       obj.type === 'Project' ? 2 :
       1
     ),
-    parent_id: obj.parent_id ?? obj.project_id,
+    parent_id: obj.parent_id ?? obj.project_id, // Legacy field
+    related: obj.related,
+    dependencies: obj.dependencies,
     created_at: obj.created_at,
     updated_at: obj.updated_at,
     created_by: obj.created_by,

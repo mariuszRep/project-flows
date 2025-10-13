@@ -187,6 +187,8 @@ interface Entity {
   parent_id?: number;
   parent_name?: string;
   parent_type?: string;
+  related?: RelationshipSelection[];
+  dependencies?: any[];
   created_at?: string;
   updated_at?: string;
   created_by?: string;
@@ -469,18 +471,52 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
     loadTemplateRelationships();
   }, [callTool, isConnected, templateId]);
 
+  // Debug: Log template relationships whenever they change
   useEffect(() => {
-    setRelationshipsInitialized(false);
-  }, [entity?.id, templateRelationships, createMode]);
+    if (templateRelationships.length > 0) {
+      console.log('[ObjectForm] Template relationships loaded:', templateRelationships);
+      templateRelationships.forEach(rel => {
+        console.log(`[ObjectForm] Relationship schema - ${rel.key}:`, {
+          label: rel.label,
+          allowed_types: rel.allowed_types,
+          cardinality: rel.cardinality,
+          required: rel.required
+        });
+      });
+    }
+  }, [templateRelationships]);
 
   useEffect(() => {
+    console.log('[ObjectForm] Resetting relationships initialization due to entity/mode change');
+    setRelationshipsInitialized(false);
+  }, [entity?.id, createMode, mode]);
+
+  useEffect(() => {
+    console.log('[ObjectForm] Relationship initialization effect triggered', {
+      templateRelationshipsLength: templateRelationships.length,
+      relationshipsInitialized,
+      createMode,
+      entityId: entity?.id,
+      entityRelated: entity?.related,
+      entityRelatedLength: entity?.related?.length,
+      mode
+    });
+
+    // Don't initialize if we don't have template relationships yet
     if (templateRelationships.length === 0) {
-      setRelationshipSelections({});
-      setRelationshipsInitialized(true);
+      console.log('[ObjectForm] No template relationships, skipping initialization');
       return;
     }
 
+    // Skip if already initialized (prevents infinite loops)
     if (relationshipsInitialized === true) {
+      console.log('[ObjectForm] Already initialized, skipping');
+      return;
+    }
+
+    // In view mode, wait for entity data to be loaded
+    if (!createMode && !entity) {
+      console.log('[ObjectForm] Waiting for entity data in view mode');
       return;
     }
 
@@ -489,16 +525,30 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
       baseSelections[entry.key] = [];
     });
 
-    if (!createMode && entity && Array.isArray((entity as any).related)) {
-      const relatedEntries = (entity as any).related as RelationshipSelection[];
+    console.log('[ObjectForm] Base selections initialized:', baseSelections);
+
+    if (!createMode && entity && Array.isArray(entity.related) && entity.related.length > 0) {
+      const relatedEntries = entity.related;
+      console.log('[ObjectForm] Processing entity.related:', relatedEntries);
 
       relatedEntries.forEach(rel => {
         const templateIdForObject = OBJECT_TO_TEMPLATE_ID[rel.object as RelationshipSelection["object"]];
-        if (!templateIdForObject) return;
+        console.log(`[ObjectForm] Processing related entry:`, {
+          rel,
+          templateIdForObject
+        });
+        if (!templateIdForObject) {
+          console.warn(`[ObjectForm] No template ID found for object type: ${rel.object}`);
+          return;
+        }
         const schemaEntry = templateRelationships.find(entry =>
           Array.isArray(entry.allowed_types) && entry.allowed_types.includes(templateIdForObject)
         );
-        if (!schemaEntry) return;
+        console.log(`[ObjectForm] Found schema entry:`, schemaEntry);
+        if (!schemaEntry) {
+          console.warn(`[ObjectForm] No schema entry found for template ID: ${templateIdForObject}`);
+          return;
+        }
         if (schemaEntry.cardinality === 'single') {
           baseSelections[schemaEntry.key] = [rel];
         } else {
@@ -506,6 +556,7 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
         }
       });
     } else if (createMode && selectedProjectId) {
+      console.log('[ObjectForm] Create mode with selectedProjectId:', selectedProjectId);
       templateRelationships.forEach(entry => {
         if (entry.allowed_types?.includes(TEMPLATE_ID.PROJECT)) {
           baseSelections[entry.key] = [{
@@ -514,27 +565,43 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
           }];
         }
       });
+    } else {
+      console.log('[ObjectForm] Skipping relationship processing:', {
+        createMode,
+        hasEntity: !!entity,
+        hasRelated: !!entity?.related,
+        isArray: Array.isArray(entity?.related),
+        relatedLength: entity?.related?.length
+      });
     }
 
+    console.log('[ObjectForm] Final selections:', baseSelections);
     setRelationshipSelections(baseSelections);
     setRelationshipsInitialized(true);
-  }, [templateRelationships, entity, createMode, selectedProjectId, relationshipsInitialized]);
+  }, [templateRelationships, entity, createMode, selectedProjectId, relationshipsInitialized, mode]);
 
   const handleRelationshipSelectionChange = (key: string, value: RelationshipSelection[]) => {
-    setRelationshipSelections(prev => ({
-      ...prev,
-      [key]: value,
-    }));
+    console.log('[ObjectForm] handleRelationshipSelectionChange:', { key, value });
+    setRelationshipSelections(prev => {
+      const updated = {
+        ...prev,
+        [key]: value,
+      };
+      console.log('[ObjectForm] Updated relationshipSelections:', updated);
+      return updated;
+    });
   };
 
   const getSelectedRelatedEntries = (): RelationshipSelection[] => {
     const entries: RelationshipSelection[] = [];
     templateRelationships.forEach(entry => {
       const selections = relationshipSelections[entry.key] || [];
+      console.log(`[ObjectForm] getSelectedRelatedEntries - ${entry.key}:`, selections);
       selections.forEach(selection => {
         entries.push(selection);
       });
     });
+    console.log('[ObjectForm] getSelectedRelatedEntries - total entries:', entries);
     return entries;
   };
 
@@ -840,24 +907,28 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
 
   const enterEditMode = () => {
     if (!entity) return;
-    
+
     const propertiesToEdit = getPropertiesToRender();
     const values: Record<string, string> = {};
-    
+
     // Include title in edit values
     const titleValue = String(entity.blocks?.Title || entity.title || entity.Title || '');
     values['Title'] = titleValue;
-    
+
     propertiesToEdit.forEach(propertyName => {
       const value = String(entity.blocks?.[propertyName] || entity[propertyName] || '');
       values[propertyName] = value;
     });
-    
+
     // For tasks in edit mode, set up project/epic fields
     setOriginalValues({ ...values });
     setEditValues({ ...values });
+
+    // Reset relationships initialization flag to allow re-initialization in edit mode
+    setRelationshipsInitialized(false);
+
     setMode('global-edit');
-    
+
     // Focus the first input after state update
     setTimeout(() => {
       if (firstInputRef.current) {
@@ -995,13 +1066,29 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
     try {
       // Prepare the update payload - only include changed values
       const updatePayload: Record<string, any> = {};
-      
+
       Object.keys(editValues).forEach(key => {
         if (editValues[key] !== originalValues[key]) {
           updatePayload[key] = editValues[key];
         }
       });
-      
+
+      // Check if relationships changed BEFORE early return
+      let relationshipsChanged = false;
+      if (entityType === 'task' || entityType === 'project' || entityType === 'epic' || entityType === 'rule') {
+        const nextRelated = getSelectedRelatedEntries();
+        const originalRelated = Array.isArray(entity?.related)
+          ? entity.related
+          : [];
+        relationshipsChanged = JSON.stringify(originalRelated) !== JSON.stringify(nextRelated);
+
+        console.log('[ObjectForm] Relationship comparison (early check):', {
+          originalRelated,
+          nextRelated,
+          relationshipsChanged
+        });
+      }
+
       console.log('ObjectView DEBUG: Save attempt');
       console.log('  entityType:', entityType);
       console.log('  entityId:', entity.id);
@@ -1009,8 +1096,9 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
       console.log('  editValues:', editValues);
       console.log('  updatePayload:', updatePayload);
       console.log('  hasChanges:', Object.keys(updatePayload).length > 0);
-      
-      if (Object.keys(updatePayload).length === 0) {
+      console.log('  relationshipsChanged:', relationshipsChanged);
+
+      if (Object.keys(updatePayload).length === 0 && !relationshipsChanged) {
         console.log('ObjectView DEBUG: No changes to save, exiting edit mode');
         // No changes to save
         exitEditMode();
@@ -1053,14 +1141,29 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
       }
 
       if (entityType === 'task' || entityType === 'project' || entityType === 'epic' || entityType === 'rule') {
+        console.log('[ObjectForm] Current relationshipSelections state:', relationshipSelections);
+        console.log('[ObjectForm] Template relationships:', templateRelationships);
+        
         const nextRelated = getSelectedRelatedEntries();
         const originalRelated = Array.isArray(entity?.related)
-          ? (entity!.related as RelationshipSelection[])
+          ? entity.related
           : [];
         const relatedChanged = JSON.stringify(originalRelated) !== JSON.stringify(nextRelated);
 
+        console.log('[ObjectForm] Relationship comparison:', {
+          originalRelated,
+          nextRelated,
+          relatedChanged,
+          relationshipSelections,
+          originalRelatedJSON: JSON.stringify(originalRelated),
+          nextRelatedJSON: JSON.stringify(nextRelated)
+        });
+
         if (relatedChanged) {
           finalPayload.related = nextRelated;
+          console.log('[ObjectForm] Adding related to payload:', nextRelated);
+        } else {
+          console.log('[ObjectForm] No relationship changes detected');
         }
       }
       
@@ -1376,14 +1479,22 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
                         </span>
                       </div>
                       <div className="space-y-3">
-                        {templateRelationships.map((relationship) => (
-                          <DynamicRelationshipField
-                            key={relationship.key}
-                            schemaEntry={relationship}
-                            value={relationshipSelections[relationship.key] || []}
-                            onChange={(value) => handleRelationshipSelectionChange(relationship.key, value)}
-                          />
-                        ))}
+                        {templateRelationships.map((relationship) => {
+                          const currentValue = relationshipSelections[relationship.key] || [];
+                          console.log(`[ObjectForm] Rendering relationship ${relationship.key}:`, {
+                            relationship,
+                            currentValue,
+                            relationshipSelections
+                          });
+                          return (
+                            <DynamicRelationshipField
+                              key={relationship.key}
+                              schemaEntry={relationship}
+                              value={currentValue}
+                              onChange={(value) => handleRelationshipSelectionChange(relationship.key, value)}
+                            />
+                          );
+                        })}
                       </div>
                     </div>
                   )}

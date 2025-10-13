@@ -184,7 +184,7 @@ const DraftTasks = () => {
     return counts;
   }, [allEntities]);
 
-  // Function to build hierarchical structure from flat entity list
+  // Function to build hierarchical structure from flat entity list using related array
   const buildHierarchy = (entities: UnifiedEntity[]): UnifiedEntity[] => {
     // Create a map for quick lookup
     const entityMap = new Map<number, UnifiedEntity>();
@@ -195,13 +195,31 @@ const DraftTasks = () => {
       entityMap.set(entity.id, { ...entity, children: [] });
     });
     
-    // Second pass: build parent-child relationships
+    // Second pass: build parent-child relationships using related array
     entities.forEach(entity => {
       const currentEntity = entityMap.get(entity.id)!;
       
-      if (entity.parent_id && entityMap.has(entity.parent_id)) {
+      // Determine parent from related array with priority logic
+      let parentId: number | null = null;
+      
+      if (entity.related && Array.isArray(entity.related) && entity.related.length > 0) {
+        // For tasks (template_id=1): prefer epic > project
+        // For epics/rules: use project
+        if (entity.template_id === 1) {
+          // Task: look for epic first, then project
+          const epicRelation = entity.related.find(rel => rel.object === 'epic');
+          const projectRelation = entity.related.find(rel => rel.object === 'project');
+          parentId = epicRelation?.id || projectRelation?.id || null;
+        } else {
+          // For non-tasks, use first project relationship
+          const projectRelation = entity.related.find(rel => rel.object === 'project');
+          parentId = projectRelation?.id || null;
+        }
+      }
+      
+      if (parentId && entityMap.has(parentId)) {
         // This entity has a parent - add it to parent's children
-        const parent = entityMap.get(entity.parent_id)!;
+        const parent = entityMap.get(parentId)!;
         parent.children!.push(currentEntity);
       } else {
         // This entity has no parent or parent not found - add to root level
@@ -962,30 +980,40 @@ const DraftTasks = () => {
         )}
 
         {/* Project/Epic Editing using ObjectView */}
-        {editingProjectId && (
-          <ObjectView
-            entityType={(() => {
-              // For editing, determine entity type from the actual entity data
-              const entity = allEntities.find(e => e.id === editingProjectId);
-              if (entity?.type === 'Epic') return 'epic';
-              if (entity?.type === 'Project') return 'project';
-              // Default fallback
-              return 'project';
-            })()}
-            entityId={editingProjectId}
-            isOpen={!!editingProjectId}
-            onClose={() => {
-              setEditingProjectId(null);
-              setError(null);
-            }}
-            onDelete={handleProjectDelete}
-            templateId={(() => {
-              // For editing, get template_id from the actual entity data
-              const entity = allEntities.find(e => e.id === editingProjectId);
-              return entity?.template_id || 2; // Fallback to project template
-            })()}
-          />
-        )}
+        {editingProjectId && (() => {
+          const entity = allEntities.find(e => e.id === editingProjectId);
+          const isEpic = entity?.type === 'Epic' || entity?.template_id === 3;
+          
+          if (isEpic) {
+            return (
+              <ObjectView
+                entityType="epic"
+                entityId={editingProjectId}
+                isOpen={true}
+                onClose={() => {
+                  setEditingProjectId(null);
+                  setError(null);
+                }}
+                onDelete={handleProjectDelete}
+                templateId={3}
+              />
+            );
+          } else {
+            return (
+              <ObjectView
+                entityType="project"
+                entityId={editingProjectId}
+                isOpen={true}
+                onClose={() => {
+                  setEditingProjectId(null);
+                  setError(null);
+                }}
+                onDelete={handleProjectDelete}
+                templateId={2}
+              />
+            );
+          }
+        })()}
 
         {/* Task Creation using ObjectView create mode */}
         <ObjectView

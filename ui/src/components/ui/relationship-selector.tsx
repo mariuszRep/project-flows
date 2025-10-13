@@ -81,25 +81,45 @@ export const DynamicRelationshipField: React.FC<DynamicRelationshipFieldProps> =
       setIsLoading(true);
       setError(null);
 
+      console.log(`[RelationshipSelector] Fetching objects for ${schemaEntry.label}`);
+      console.log(`[RelationshipSelector] Allowed types:`, schemaEntry.allowed_types);
+      console.log(`[RelationshipSelector] Current value:`, value);
+
       try {
         const allObjects: MCPObject[] = [];
 
         // Fetch objects for each allowed template type
         for (const templateId of schemaEntry.allowed_types) {
+          console.log(`[RelationshipSelector] Fetching template_id=${templateId}`);
           const result = await callTool("list_objects", {
             template_id: templateId,
           });
 
+          console.log(`[RelationshipSelector] Result for template ${templateId}:`, result);
+
           if (result?.content?.[0]?.text) {
             try {
               const parsed = JSON.parse(result.content[0].text);
+              console.log(`[RelationshipSelector] Parsed data for template ${templateId}:`, parsed);
+
+              // Handle the response format: { count: number, objects: Array }
+              let objectsArray: any[] = [];
               if (Array.isArray(parsed)) {
+                objectsArray = parsed;
+              } else if (parsed && Array.isArray(parsed.objects)) {
+                objectsArray = parsed.objects;
+              }
+
+              console.log(`[RelationshipSelector] Objects array:`, objectsArray);
+
+              if (objectsArray.length > 0) {
                 // Add objects with their template_id for type mapping
-                const objectsWithType = parsed.map((obj: any) => ({
+                const objectsWithType = objectsArray.map((obj: any) => ({
                   id: obj.id,
                   title: obj.Title || obj.title || `Object ${obj.id}`,
                   template_id: templateId,
                 }));
+                console.log(`[RelationshipSelector] Processed objects:`, objectsWithType);
                 allObjects.push(...objectsWithType);
               }
             } catch (parseError) {
@@ -108,9 +128,11 @@ export const DynamicRelationshipField: React.FC<DynamicRelationshipFieldProps> =
           }
         }
 
+        console.log(`[RelationshipSelector] Total available objects:`, allObjects);
         setAvailableObjects(allObjects);
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : "Failed to fetch objects";
+        console.error(`[RelationshipSelector] Error:`, err);
         setError(errorMessage);
         toast({
           variant: "destructive",
@@ -123,7 +145,7 @@ export const DynamicRelationshipField: React.FC<DynamicRelationshipFieldProps> =
     };
 
     fetchObjects();
-  }, [schemaEntry.allowed_types, callTool, toast]);
+  }, [schemaEntry.allowed_types, callTool, toast, schemaEntry.label, value]);
 
   // Convert MCPObject[] to Option[] for dropdown
   const options: Option[] = availableObjects.map((obj) => ({
@@ -131,13 +153,22 @@ export const DynamicRelationshipField: React.FC<DynamicRelationshipFieldProps> =
     label: obj.title,
   }));
 
+  console.log(`[RelationshipSelector] Generated options for ${schemaEntry.label}:`, options);
+
   // Convert RelatedEntry[] to Option[] for selected values
-  const selectedOptions: Option[] = value
-    .map((entry) => {
+  // Include all value entries, even if we haven't loaded their details yet
+  const selectedOptions: Option[] = React.useMemo(() => {
+    const selected = value.map((entry) => {
       const obj = availableObjects.find((o) => o.id === entry.id);
-      return obj ? { id: obj.id, label: obj.title } : null;
-    })
-    .filter((opt): opt is Option => opt !== null);
+      // If object is loaded, use its title; otherwise use a placeholder
+      return {
+        id: entry.id,
+        label: obj ? obj.title : `${entry.object} #${entry.id}`,
+      };
+    });
+    console.log(`[RelationshipSelector] Selected options for ${schemaEntry.label}:`, selected);
+    return selected;
+  }, [value, availableObjects, schemaEntry.label]);
 
   // Handle single select change
   const handleSingleSelectChange = (selectedId: string) => {
@@ -179,8 +210,9 @@ export const DynamicRelationshipField: React.FC<DynamicRelationshipFieldProps> =
           {schemaEntry.label}
           {schemaEntry.required && <span className="text-destructive ml-1">*</span>}
         </Label>
-        <div className="flex items-center justify-center h-10 border border-border rounded-md bg-background">
+        <div className="flex items-center justify-center h-10 border border-border rounded-md bg-background" role="status" aria-live="polite">
           <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          <span className="sr-only">Loading {schemaEntry.label}...</span>
         </div>
       </div>
     );
@@ -194,7 +226,7 @@ export const DynamicRelationshipField: React.FC<DynamicRelationshipFieldProps> =
           {schemaEntry.label}
           {schemaEntry.required && <span className="text-destructive ml-1">*</span>}
         </Label>
-        <div className="flex items-center gap-2 h-10 px-3 border border-destructive rounded-md bg-destructive/10 text-destructive">
+        <div className="flex items-center gap-2 h-10 px-3 border border-destructive rounded-md bg-destructive/10 text-destructive" role="alert">
           <AlertCircle className="h-4 w-4" />
           <span className="text-sm">{error}</span>
         </div>
@@ -238,7 +270,7 @@ export const DynamicRelationshipField: React.FC<DynamicRelationshipFieldProps> =
   // Render multi select
   return (
     <div className="space-y-2">
-      <Label htmlFor={`relationship-${schemaEntry.key}`}>
+      <Label>
         {schemaEntry.label}
         {schemaEntry.required && <span className="text-destructive ml-1">*</span>}
       </Label>

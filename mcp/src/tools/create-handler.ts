@@ -23,19 +23,16 @@ export interface CreateConfig {
 }
 
 /**
- * Validates related array for parent relationships only.
- * Ensures at most one parent entry with valid id and object fields.
+ * Validates related array for parent relationships.
+ * Validates each entry has valid id and object fields.
  * Verifies referenced parent exists in database.
+ * Note: Multiple related entries are allowed (e.g., task can have both project and epic).
+ * The template's related_schema defines cardinality constraints per relationship type.
  */
 async function validateRelatedArray(
   related: RelatedEntry[],
   dbService: DatabaseService
 ): Promise<void> {
-  // Validate array length - only one parent allowed
-  if (related.length > 1) {
-    throw new Error(`Error: Related array can only contain one parent entry. Found ${related.length} entries.`);
-  }
-
   // Validate each entry
   for (const entry of related) {
     // Check required fields
