@@ -350,6 +350,7 @@ CREATE TABLE public.templates (
     id integer NOT NULL,
     name text NOT NULL,
     description text NOT NULL,
+    related_schema jsonb DEFAULT '[]'::jsonb NOT NULL,
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
     created_by text DEFAULT 'system'::text NOT NULL,

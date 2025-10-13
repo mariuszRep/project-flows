@@ -113,17 +113,8 @@ export async function handleUpdate(
     try {
       const inputRelated = toolArgs.related as RelatedEntry[];
 
-      // Validate array length - only one parent allowed
-      if (inputRelated.length > 1) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Error: Related array can only contain one parent entry. Found ${inputRelated.length} entries.`,
-            } as TextContent,
-          ],
-        };
-      }
+      // Note: Multiple related entries are allowed (e.g., task can have both project and epic)
+      // The template's related_schema defines cardinality constraints per relationship type
 
       // Validate each entry
       for (const entry of inputRelated) {

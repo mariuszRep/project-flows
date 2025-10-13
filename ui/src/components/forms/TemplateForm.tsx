@@ -3,10 +3,11 @@ import { createPortal } from 'react-dom';
 import { DragDropContext, Droppable, Draggable, DropResult } from 'react-beautiful-dnd';
 import MarkdownRenderer from '@/components/ui/MarkdownRenderer';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { AutoTextarea } from '@/components/ui/auto-textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { X, Edit, GripVertical, Trash2, Plus, Save, XCircle, Info } from 'lucide-react';
 import { useMCP } from '@/contexts/MCPContext';
 import { useToast } from '@/hooks/use-toast';
@@ -33,6 +34,20 @@ interface TemplateProperty {
   updated_at?: string;
 }
 
+interface RelatedSchemaEntry {
+  key: string;
+  label: string;
+  allowed_types: number[];
+  cardinality: 'single' | 'multiple';
+  required: boolean;
+  order: number;
+}
+
+interface TemplateOption {
+  id: number;
+  name: string;
+}
+
 type ViewMode = 'view' | 'edit-property' | 'create-property';
 
 const NewTemplateForm: React.FC<NewTemplateFormProps> = ({ isOpen, onClose, templateId }) => {
@@ -49,6 +64,12 @@ const NewTemplateForm: React.FC<NewTemplateFormProps> = ({ isOpen, onClose, temp
   const [templateName, setTemplateName] = useState('');
   const firstInputRef = useRef<HTMLInputElement>(null);
   const firstTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Related schema state
+  const [relatedSchema, setRelatedSchema] = useState<RelatedSchemaEntry[]>([]);
+  const [relationshipDrafts, setRelationshipDrafts] = useState<RelatedSchemaEntry[]>([]);
+  const [isRelationshipsEditing, setIsRelationshipsEditing] = useState(false);
+  const [availableTemplates, setAvailableTemplates] = useState<TemplateOption[]>([]);
 
   // Fetch template properties
   const fetchTemplateProperties = useCallback(async () => {
@@ -90,26 +111,35 @@ const NewTemplateForm: React.FC<NewTemplateFormProps> = ({ isOpen, onClose, temp
     }
   }, [isConnected, templateId, callTool]);
 
-  // Determine template type
+  // Fetch templates and related schema
   useEffect(() => {
-    const checkTemplateType = async () => {
+    const fetchTemplates = async () => {
       if (!templateId || !isConnected) return;
 
       try {
         const result = await callTool('list_templates');
         if (result?.content?.[0]?.text) {
           const templates = JSON.parse(result.content[0].text);
+
+          // Set available templates for dropdown
+          setAvailableTemplates(templates.map((t: any) => ({ id: t.id, name: t.name })));
+
+          // Find current template
           const template = templates.find((t: any) => t.id === templateId);
           const isProject = template?.name?.toLowerCase() === 'project';
           setIsProjectTemplate(isProject);
           setTemplateName(template?.name || 'Template');
+
+          // Load related_schema
+          const schema = template?.related_schema || [];
+          setRelatedSchema(Array.isArray(schema) ? schema : []);
         }
       } catch (err) {
-        console.error('Error determining template type:', err);
+        console.error('Error fetching templates:', err);
       }
     };
 
-    checkTemplateType();
+    fetchTemplates();
   }, [templateId, isConnected, callTool]);
 
   // Fetch properties when template changes
@@ -118,6 +148,13 @@ const NewTemplateForm: React.FC<NewTemplateFormProps> = ({ isOpen, onClose, temp
       fetchTemplateProperties();
     }
   }, [isOpen, templateId, isConnected, fetchTemplateProperties]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setIsRelationshipsEditing(false);
+      setRelationshipDrafts([]);
+    }
+  }, [isOpen]);
 
   const handleDragEnd = (result: DropResult) => {
     if (!result.destination) return;
@@ -334,6 +371,200 @@ const NewTemplateForm: React.FC<NewTemplateFormProps> = ({ isOpen, onClose, temp
     }
   };
 
+  // Relationship management functions
+  const getTemplateName = (templateId?: number): string => {
+    const template = availableTemplates.find(t => t.id === templateId);
+    return template?.name || 'Unknown';
+  };
+
+  const beginRelationshipsEdit = () => {
+    setIsRelationshipsEditing(true);
+    setRelationshipDrafts(
+      relatedSchema.length > 0
+        ? JSON.parse(JSON.stringify(relatedSchema))
+        : [
+            {
+              key: '',
+              label: '',
+              allowed_types: [],
+              cardinality: 'single',
+              required: false,
+              order: 1,
+            },
+          ]
+    );
+    setError(null);
+  };
+
+  const cancelRelationshipsEdit = () => {
+    setIsRelationshipsEditing(false);
+    setRelationshipDrafts([]);
+    setError(null);
+  };
+
+  const updateRelationshipDraft = (
+    index: number,
+    updates: Partial<RelatedSchemaEntry>
+  ) => {
+    setRelationshipDrafts(prev => {
+      const next = [...prev];
+      if (!next[index]) {
+        return prev;
+      }
+      const current = { ...next[index], ...updates };
+
+      // Auto-generate key/label when allowed_types changes
+      if (
+        updates.allowed_types &&
+        Array.isArray(updates.allowed_types) &&
+        updates.allowed_types.length > 0
+      ) {
+        const templateId = updates.allowed_types[0];
+        const templateName = getTemplateName(templateId);
+        current.key = templateName.toLowerCase();
+        current.label = templateName;
+      }
+
+      if (updates.order !== undefined) {
+        const numericOrder = Number.isNaN(Number(updates.order))
+          ? current.order
+          : Math.max(0, Number(updates.order));
+        current.order = numericOrder;
+      }
+
+      next[index] = current;
+      return next;
+    });
+  };
+
+  const addRelationshipDraft = () => {
+    setRelationshipDrafts(prev => {
+      const nextOrder =
+        prev.length > 0
+          ? Math.max(...prev.map(entry => entry.order ?? 0)) + 1
+          : 1;
+      return [
+        ...prev,
+        {
+          key: '',
+          label: '',
+          allowed_types: [],
+          cardinality: 'single',
+          required: false,
+          order: nextOrder,
+        },
+      ];
+    });
+  };
+
+  const removeRelationshipDraft = (index: number) => {
+    setRelationshipDrafts(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const persistRelatedSchema = async (
+    schema: RelatedSchemaEntry[],
+    successMessage: string
+  ): Promise<RelatedSchemaEntry[]> => {
+    if (!templateId || !callTool) {
+      throw new Error('Missing template context');
+    }
+
+    const normalizedSchema = [...schema]
+      .map(entry => ({
+        ...entry,
+        order: typeof entry.order === 'number' ? entry.order : 0
+      }))
+      .sort((a, b) => {
+        const orderA = typeof a.order === 'number' ? a.order : Number.MAX_SAFE_INTEGER;
+        const orderB = typeof b.order === 'number' ? b.order : Number.MAX_SAFE_INTEGER;
+        if (orderA === orderB) {
+          return a.key.localeCompare(b.key);
+        }
+        return orderA - orderB;
+      });
+
+    const result = await callTool('update_template_schema', {
+      template_id: templateId,
+      related_schema: normalizedSchema
+    });
+
+    const resultText = result?.content?.[0]?.text;
+    if (result?.isError || (resultText && resultText.toLowerCase().includes('error'))) {
+      throw new Error(resultText || 'Failed to update template schema');
+    }
+
+    toast({
+      title: 'Saved',
+      description: successMessage,
+    });
+
+    return normalizedSchema;
+  };
+
+  const validateRelationshipDrafts = (
+    drafts: RelatedSchemaEntry[]
+  ): string | null => {
+    for (const draft of drafts) {
+      if (!draft.allowed_types || draft.allowed_types.length === 0) {
+        return 'Each relationship must specify a parent template.';
+      }
+      if (!draft.cardinality || !['single', 'multiple'].includes(draft.cardinality)) {
+        return 'Each relationship needs a valid cardinality.';
+      }
+    }
+
+    const seen = new Set<number>();
+    for (const draft of drafts) {
+      const parentId = draft.allowed_types[0];
+      if (seen.has(parentId)) {
+        return 'Each parent template can only be listed once.';
+      }
+      seen.add(parentId);
+    }
+
+    return null;
+  };
+
+  const saveRelationshipDrafts = async () => {
+    const errorMessage = validateRelationshipDrafts(relationshipDrafts);
+    if (errorMessage) {
+      setError(errorMessage);
+      toast({
+        title: 'Validation error',
+        description: errorMessage,
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      const normalizedSchema = await persistRelatedSchema(
+        relationshipDrafts,
+        'Parent relationships updated'
+      );
+      setRelatedSchema(normalizedSchema);
+      setIsRelationshipsEditing(false);
+      setRelationshipDrafts([]);
+      setError(null);
+    } catch (err) {
+      console.error('Error saving relationships:', err);
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      setError(`Failed to save relationships: ${message}`);
+      toast({
+        title: 'Error',
+        description: `Failed to save relationships: ${message}`,
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const sortedRelationships = [...relatedSchema].sort((a, b) => {
+    const orderA = typeof a.order === 'number' ? a.order : Number.MAX_SAFE_INTEGER;
+    const orderB = typeof b.order === 'number' ? b.order : Number.MAX_SAFE_INTEGER;
+    return orderA - orderB;
+  });
+  const isPropertyListVisible = mode !== 'create-property' && mode !== 'edit-property';
+
   if (!isOpen) return null;
 
   return createPortal(
@@ -368,8 +599,170 @@ const NewTemplateForm: React.FC<NewTemplateFormProps> = ({ isOpen, onClose, temp
 
           {/* Properties List */}
           {!isLoading && (
-            <div className="space-y-4">
-              {properties.length === 0 && mode === 'view' && (
+            <div className="space-y-6">
+              {/* Relationship Configuration */}
+              <div className="border rounded-xl border-border bg-muted/5 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-semibold">Parent Relationships</h3>
+                    <p className="text-xs text-muted-foreground">
+                      Manage which templates can act as parents for this object type.
+                    </p>
+                  </div>
+                  {isRelationshipsEditing ? (
+                    <div className="flex items-center gap-2">
+                      <Button variant="default" size="sm" onClick={saveRelationshipDrafts}>
+                        <Save className="h-4 w-4 mr-2" />
+                        Save
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={cancelRelationshipsEdit}>
+                        <XCircle className="h-4 w-4 mr-2" />
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button variant="ghost" size="sm" onClick={beginRelationshipsEdit}>
+                      <Edit className="h-4 w-4 mr-2" />
+                      Configure
+                    </Button>
+                  )}
+                </div>
+
+                {!isRelationshipsEditing && (
+                  <div className="mt-4 space-y-3">
+                    {sortedRelationships.length === 0 ? (
+                      <div className="border border-dashed border-border rounded-lg px-4 py-6 text-sm text-muted-foreground text-center">
+                        No parent relationships defined yet.
+                      </div>
+                    ) : (
+                      sortedRelationships.map((relationship, index) => {
+                        const allowedTypes = Array.isArray(relationship.allowed_types)
+                          ? relationship.allowed_types
+                          : [];
+                        const parentId = allowedTypes[0];
+                        const parentName = getTemplateName(parentId);
+                        const parentInitial = parentName.charAt(0).toUpperCase();
+                        return (
+                          <div
+                            key={`${relationship.key}-${allowedTypes.join('-')}-${index}`}
+                            className="flex items-center justify-between rounded-xl border border-border/60 bg-background/70 px-4 py-3"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="h-9 w-9 rounded-full bg-primary/10 text-primary flex items-center justify-center text-sm font-semibold">
+                                {parentInitial || index + 1}
+                              </div>
+                              <div>
+                                <p className="text-sm font-semibold text-foreground">
+                                  {parentName}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Badge variant="secondary" className="text-xs capitalize">
+                                {relationship.cardinality}
+                              </Badge>
+                              {relationship.required && (
+                                <Badge variant="destructive" className="text-xs">
+                                  Required
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
+
+                {isRelationshipsEditing && (
+                  <div className="mt-5 space-y-3">
+                    {relationshipDrafts.map((draft, index) => (
+                      <div
+                        key={`relationship-draft-${index}`}
+                        className="grid grid-cols-[60px,1fr,160px,110px,auto] items-center gap-3 rounded-xl border border-border/70 bg-background/80 px-3 py-3"
+                      >
+                        <Input
+                          type="number"
+                          min={0}
+                          value={draft.order ?? index + 1}
+                          onChange={(e) =>
+                            updateRelationshipDraft(index, { order: parseInt(e.target.value || '0', 10) })
+                          }
+                          className="h-9 w-16 text-center text-sm"
+                        />
+
+                        <Select
+                          value={draft.allowed_types?.[0]?.toString() || ''}
+                          onValueChange={(value) =>
+                            updateRelationshipDraft(index, { allowed_types: [parseInt(value, 10)] })
+                          }
+                        >
+                          <SelectTrigger className="h-9 text-sm">
+                            <SelectValue placeholder="Parent template" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {availableTemplates
+                              .filter(t => t.id !== templateId)
+                              .map(template => (
+                                <SelectItem key={template.id} value={template.id.toString()}>
+                                  {template.name}
+                                </SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
+
+                        <Select
+                          value={draft.cardinality || 'single'}
+                          onValueChange={(value: 'single' | 'multiple') =>
+                            updateRelationshipDraft(index, { cardinality: value })
+                          }
+                        >
+                          <SelectTrigger className="h-9 text-sm capitalize">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="single">Single</SelectItem>
+                            <SelectItem value="multiple">Multiple</SelectItem>
+                          </SelectContent>
+                        </Select>
+
+                        <label className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+                          <input
+                            type="checkbox"
+                            checked={draft.required || false}
+                            onChange={(e) => updateRelationshipDraft(index, { required: e.target.checked })}
+                            className="h-4 w-4 rounded border-gray-300"
+                          />
+                          Req.
+                        </label>
+
+                        <div className="flex items-center justify-end gap-2">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-red-600 hover:text-red-700"
+                            onClick={() => removeRelationshipDraft(index)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+
+                    <div className="border-2 border-dashed border-border rounded-xl px-4 py-6 text-center">
+                      <Button variant="ghost" size="sm" onClick={addRelationshipDraft}>
+                        <Plus className="h-4 w-4 mr-2" />
+                        Add Relationship
+                      </Button>
+                    </div>
+
+                    <p className="text-xs text-muted-foreground">
+                      Adjust order to control display priority. Cardinality determines whether a single or multiple parent objects are permitted.
+                    </p>
+                  </div>
+                )}
+              </div>
+              {properties.length === 0 && isPropertyListVisible && (
                 <div className="text-center py-8 border-2 border-dashed border-border rounded-lg">
                   <p className="text-muted-foreground mb-4">
                     No properties found for this template.
@@ -470,7 +863,7 @@ const NewTemplateForm: React.FC<NewTemplateFormProps> = ({ isOpen, onClose, temp
               )}
 
               {/* Draggable Properties List */}
-              {mode === 'view' && properties.length > 0 && (
+              {isPropertyListVisible && properties.length > 0 && (
                 <DragDropContext onDragEnd={handleDragEnd}>
                   <Droppable droppableId="properties">
                     {(provided, snapshot) => (
@@ -581,7 +974,7 @@ const NewTemplateForm: React.FC<NewTemplateFormProps> = ({ isOpen, onClose, temp
               )}
 
               {/* Add New Property Button */}
-              {mode === 'view' && properties.length > 0 && (
+              {isPropertyListVisible && properties.length > 0 && (
                 <div className="border-2 border-dashed border-border rounded-lg p-8 text-center">
                   <Button variant="ghost" onClick={enterCreateMode}>
                     <Plus className="h-4 w-4 mr-2" />
@@ -589,6 +982,7 @@ const NewTemplateForm: React.FC<NewTemplateFormProps> = ({ isOpen, onClose, temp
                   </Button>
                 </div>
               )}
+
             </div>
           )}
         </div>
