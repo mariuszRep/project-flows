@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, useEffect } from 'react';
+import { useCallback, useMemo, useState, useEffect, useRef } from 'react';
 import ReactFlow, {
   Background,
   Controls,
@@ -9,6 +9,10 @@ import ReactFlow, {
   BackgroundVariant,
   useNodesState,
   useEdgesState,
+  useReactFlow,
+  addEdge,
+  Connection,
+  ReactFlowProvider,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { CallToolNode } from './nodes/CallToolNode';
@@ -16,6 +20,9 @@ import { LogNode } from './nodes/LogNode';
 import { ConditionalNode } from './nodes/ConditionalNode';
 import { SetVariableNode } from './nodes/SetVariableNode';
 import { ReturnNode } from './nodes/ReturnNode';
+import { StartNode } from './nodes/StartNode';
+import { EndNode } from './nodes/EndNode';
+import { NodeEditModal } from './NodeEditModal';
 import { GitBranch } from 'lucide-react';
 import { useMCP } from '@/contexts/MCPContext';
 
@@ -38,6 +45,8 @@ interface WorkflowData {
 }
 
 const nodeTypes: NodeTypes = {
+  start: StartNode,
+  end: EndNode,
   call_tool: CallToolNode,
   log: LogNode,
   conditional: ConditionalNode,
@@ -78,12 +87,17 @@ function workflowToReactFlow(workflow: WorkflowData): { nodes: Node[]; edges: Ed
   return { nodes, edges };
 }
 
-export function WorkflowCanvas({ workflowId }: WorkflowCanvasProps) {
+function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
   const { callTool, isConnected, tools } = useMCP();
+  const { screenToFlowPosition, getViewport } = useReactFlow();
   const [workflow, setWorkflow] = useState<WorkflowData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [selectedNode, setSelectedNode] = useState<Node | null>(null);
+  const [isPanelOpen, setIsPanelOpen] = useState(false);
+  const [nodeIdCounter, setNodeIdCounter] = useState(1);
+  const reactFlowWrapper = useRef<HTMLDivElement>(null);
 
   // Fetch workflow data when workflowId changes
   useEffect(() => {
@@ -187,11 +201,179 @@ export function WorkflowCanvas({ workflowId }: WorkflowCanvasProps) {
       const { nodes: newNodes, edges: newEdges } = workflowToReactFlow(workflow);
       setNodes(newNodes);
       setEdges(newEdges);
+      // Update counter to be higher than existing node IDs
+      const maxId = newNodes.reduce((max, node) => {
+        const nodeNum = parseInt(node.id.replace(/\D/g, '')) || 0;
+        return Math.max(max, nodeNum);
+      }, 0);
+      setNodeIdCounter(maxId + 1);
     } else {
       setNodes([]);
       setEdges([]);
+      setNodeIdCounter(1);
     }
   }, [workflow, setNodes, setEdges]);
+
+  // Drag and drop handlers
+  const onDragOver = useCallback((event: React.DragEvent) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+  }, []);
+
+  const onDrop = useCallback(
+    (event: React.DragEvent) => {
+      event.preventDefault();
+
+      const type = event.dataTransfer.getData('application/reactflow');
+      if (!type) return;
+
+      const position = screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
+      });
+
+      const newNode: Node = {
+        id: `node-${nodeIdCounter}`,
+        type,
+        position,
+        data: {
+          label: `${type.charAt(0).toUpperCase() + type.slice(1)} ${nodeIdCounter}`,
+          stepType: type,
+          config: {},
+        },
+      };
+
+      setNodes((nds) => nds.concat(newNode));
+      setNodeIdCounter((id) => id + 1);
+
+      // Auto-select and open property panel
+      setSelectedNode(newNode);
+      setIsPanelOpen(true);
+    },
+    [screenToFlowPosition, nodeIdCounter, setNodes]
+  );
+
+  // Click to add node (from palette or elsewhere)
+  const addNodeToCenter = useCallback(
+    (nodeType: string) => {
+      const viewport = getViewport();
+      const position = screenToFlowPosition({
+        x: window.innerWidth / 2,
+        y: window.innerHeight / 2,
+      });
+
+      const newNode: Node = {
+        id: `node-${nodeIdCounter}`,
+        type: nodeType,
+        position,
+        data: {
+          label: `${nodeType.charAt(0).toUpperCase() + nodeType.slice(1)} ${nodeIdCounter}`,
+          stepType: nodeType,
+          config: {},
+        },
+      };
+
+      setNodes((nds) => nds.concat(newNode));
+      setNodeIdCounter((id) => id + 1);
+
+      // Auto-select and open property panel
+      setSelectedNode(newNode);
+      setIsPanelOpen(true);
+    },
+    [screenToFlowPosition, getViewport, nodeIdCounter, setNodes]
+  );
+
+  // Edge connection handler
+  const onConnect = useCallback(
+    (connection: Connection) => {
+      const edge = {
+        ...connection,
+        type: 'default',
+        animated: false,
+        style: { stroke: 'hsl(var(--border))', strokeWidth: 1.5 },
+      };
+      setEdges((eds) => addEdge(edge, eds));
+    },
+    [setEdges]
+  );
+
+  // Node double-click handler
+  const onNodeDoubleClick = useCallback((_event: React.MouseEvent, node: Node) => {
+    setSelectedNode(node);
+    setIsPanelOpen(true);
+  }, []);
+
+  // Node delete handler
+  const onNodesDelete = useCallback(
+    (deleted: Node[]) => {
+      // Close panel if deleted node was selected
+      if (selectedNode && deleted.find(n => n.id === selectedNode.id)) {
+        setSelectedNode(null);
+        setIsPanelOpen(false);
+      }
+    },
+    [selectedNode]
+  );
+
+  // Property panel handlers
+  const handlePropertySave = useCallback(
+    (nodeId: string, data: any) => {
+      setNodes((nds) =>
+        nds.map((node) =>
+          node.id === nodeId ? { ...node, data } : node
+        )
+      );
+    },
+    [setNodes]
+  );
+
+  const handlePropertyDelete = useCallback(
+    (nodeId: string) => {
+      setNodes((nds) => nds.filter((node) => node.id !== nodeId));
+      setSelectedNode(null);
+      setIsPanelOpen(false);
+    },
+    [setNodes]
+  );
+
+  const handlePanelClose = useCallback(() => {
+    setIsPanelOpen(false);
+    setSelectedNode(null);
+  }, []);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Delete selected nodes/edges
+      if (event.key === 'Delete' || event.key === 'Backspace') {
+        const selectedNodes = nodes.filter(node => node.selected);
+        const selectedEdges = edges.filter(edge => edge.selected);
+
+        if (selectedNodes.length > 0) {
+          setNodes((nds) => nds.filter(node => !node.selected));
+          if (selectedNode && selectedNodes.find(n => n.id === selectedNode.id)) {
+            setSelectedNode(null);
+            setIsPanelOpen(false);
+          }
+        }
+
+        if (selectedEdges.length > 0) {
+          setEdges((eds) => eds.filter(edge => !edge.selected));
+        }
+      }
+
+      // Escape to deselect
+      if (event.key === 'Escape') {
+        setNodes((nds) => nds.map(node => ({ ...node, selected: false })));
+        setEdges((eds) => eds.map(edge => ({ ...edge, selected: false })));
+        setIsPanelOpen(false);
+        setSelectedNode(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [nodes, edges, selectedNode, setNodes, setEdges]);
 
   if (isLoading) {
     return (
@@ -215,7 +397,7 @@ export function WorkflowCanvas({ workflowId }: WorkflowCanvasProps) {
   }
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full flex flex-col" ref={reactFlowWrapper}>
       <div className="border-b bg-background p-4">
         <div className="flex items-center justify-between">
           <div>
@@ -237,9 +419,14 @@ export function WorkflowCanvas({ workflowId }: WorkflowCanvasProps) {
           edges={edges}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          onNodeDoubleClick={onNodeDoubleClick}
+          onNodesDelete={onNodesDelete}
+          onDrop={onDrop}
+          onDragOver={onDragOver}
           nodeTypes={nodeTypes}
           nodesDraggable={true}
-          nodesConnectable={false}
+          nodesConnectable={true}
           elementsSelectable={true}
           fitView
           minZoom={0.1}
@@ -250,10 +437,11 @@ export function WorkflowCanvas({ workflowId }: WorkflowCanvasProps) {
           }}
           connectionLineStyle={{ stroke: 'hsl(var(--border))', strokeWidth: 1.5 }}
           style={{ background: 'hsl(var(--background))' }}
+          deleteKeyCode={null}
         >
-          <Background 
-            variant={BackgroundVariant.Dots} 
-            gap={16} 
+          <Background
+            variant={BackgroundVariant.Dots}
+            gap={16}
             size={1}
             color="hsl(var(--muted-foreground))"
             style={{ opacity: 0.15 }}
@@ -266,7 +454,23 @@ export function WorkflowCanvas({ workflowId }: WorkflowCanvasProps) {
             className="bg-background border border-border"
           />
         </ReactFlow>
+
+        <NodeEditModal
+          node={selectedNode}
+          isOpen={isPanelOpen}
+          onClose={handlePanelClose}
+          onSave={handlePropertySave}
+          onDelete={handlePropertyDelete}
+        />
       </div>
     </div>
+  );
+}
+
+export function WorkflowCanvas({ workflowId }: WorkflowCanvasProps) {
+  return (
+    <ReactFlowProvider>
+      <WorkflowCanvasInner workflowId={workflowId} />
+    </ReactFlowProvider>
   );
 }

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Plus, GitBranch } from 'lucide-react';
 import { useMCP } from '@/contexts/MCPContext';
+import { NodePalette } from './NodePalette';
 
 interface Workflow {
   id: number;
@@ -176,7 +177,7 @@ export function WorkflowSideMenu({
           <p className="text-xs text-muted-foreground">No workflows yet</p>
         </div>
       ) : (
-        <div className="space-y-1">
+        <div className="space-y-1 mb-6">
           {workflows.map((workflow) => (
             <Button
               key={workflow.id}
@@ -190,6 +191,14 @@ export function WorkflowSideMenu({
             </Button>
           ))}
         </div>
+      )}
+
+      {/* Node Palette - shown when a workflow is selected */}
+      {selectedWorkflowId && (
+        <>
+          <div className="border-t my-4" />
+          <NodePalette />
+        </>
       )}
     </div>
   );
