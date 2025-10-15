@@ -6,8 +6,10 @@
 -- PostgreSQL database dump
 --
 
--- Dumped from database version 15.13 (Debian 15.13-1.pgdg120+1)
--- Dumped by pg_dump version 15.13 (Debian 15.13-1.pgdg120+1)
+\restrict d2bOSaqvkktBX5TzCUjl48rh2izp5nV3JO8CVVhAuzZXXe4c0YE8euHwyRVFuXK
+
+-- Dumped from database version 15.14 (Debian 15.14-1.pgdg13+1)
+-- Dumped by pg_dump version 15.14 (Debian 15.14-1.pgdg13+1)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -24,85 +26,34 @@ SET row_security = off;
 -- Data for Name: templates; Type: TABLE DATA; Schema: public; Owner: -
 --
 
-INSERT INTO public.templates VALUES (1, 'Task', 'Default template for managing tasks', '[]'::jsonb, '2025-07-24 08:49:24.200024+00', '2025-07-24 08:49:24.200024+00', 'system', 'system');
-INSERT INTO public.templates VALUES (2, 'Project', 'Template for project-type parent tasks', '[]'::jsonb, '2025-08-04 10:42:31.309172+00', '2025-08-04 10:42:31.309172+00', 'system', 'system');
-INSERT INTO public.templates VALUES (3, 'Epic', 'Simplified template for organizing tasks under projects', '[]'::jsonb, '2025-08-28 00:00:00+00', '2025-08-28 00:00:00+00', 'system', 'system');
-INSERT INTO public.templates VALUES (4, 'Rule', 'Template for defining and managing project rules', '[]'::jsonb, '2025-09-25 15:54:11.595139+00', '2025-09-25 15:54:11.595139+00', 'claude-code', 'claude-code');
-
--- Update templates with default related_schema values
--- Task template: allows project (id=2) and epic (id=3) parents, single cardinality each
-UPDATE public.templates
-SET related_schema = '[
-  {
-    "key": "project",
-    "label": "Project",
-    "allowed_types": [2],
-    "cardinality": "single",
-    "required": false,
-    "order": 1
-  },
-  {
-    "key": "epic",
-    "label": "Epic",
-    "allowed_types": [3],
-    "cardinality": "single",
-    "required": false,
-    "order": 2
-  }
-]'::jsonb
-WHERE id = 1;
-
--- Project template: empty schema (no parents allowed)
-UPDATE public.templates
-SET related_schema = '[]'::jsonb
-WHERE id = 2;
-
--- Epic template: allows project (id=2) parent with single cardinality
-UPDATE public.templates
-SET related_schema = '[
-  {
-    "key": "project",
-    "label": "Project",
-    "allowed_types": [2],
-    "cardinality": "single",
-    "required": false,
-    "order": 1
-  }
-]'::jsonb
-WHERE id = 3;
-
--- Rule template: allows project (id=2) parent with single cardinality
-UPDATE public.templates
-SET related_schema = '[
-  {
-    "key": "project",
-    "label": "Project",
-    "allowed_types": [2],
-    "cardinality": "single",
-    "required": false,
-    "order": 1
-  }
-]'::jsonb
-WHERE id = 4;
+INSERT INTO public.templates VALUES (2, 'Project', 'Template for project-type parent tasks', '2025-08-04 10:42:31.309172+00', '2025-08-04 10:42:31.309172+00', 'system', 'system', '[]', 'object', '{}');
+INSERT INTO public.templates VALUES (3, 'Epic', 'Simplified template for organizing tasks under projects', '2025-08-28 00:00:00+00', '2025-08-28 00:00:00+00', 'system', 'system', '[{"key": "project", "label": "Project", "order": 1, "required": false, "cardinality": "single", "allowed_types": [2]}]', 'object', '{}');
+INSERT INTO public.templates VALUES (4, 'Rule', 'Template for defining and managing project rules', '2025-09-25 15:54:11.595139+00', '2025-10-13 12:29:07.906938+00', 'claude-code', 'ui-client', '[{"key": "project", "label": "Project", "order": 1, "required": false, "cardinality": "multiple", "allowed_types": [2]}]', 'object', '{}');
+INSERT INTO public.templates VALUES (1, 'Task', 'Default template for managing tasks', '2025-07-24 08:49:24.200024+00', '2025-10-13 15:49:59.104638+00', 'system', 'ui-client', '[{"key": "project", "label": "Project", "order": 1, "required": false, "cardinality": "single", "allowed_types": [2]}, {"key": "epic", "label": "Epic", "order": 2, "required": false, "cardinality": "single", "allowed_types": [3]}, {"key": "rule", "label": "Rule", "order": 3, "required": false, "cardinality": "multiple", "allowed_types": [4]}]', 'object', '{}');
+INSERT INTO public.templates VALUES (5, 'Execute Task Workflow', 'Example workflow that loads task context and guides execution with branch management', '2025-10-15 09:27:33.367715+00', '2025-10-15 09:27:33.367715+00', 'system', 'system', '[]', 'workflow', '{"enabled": true, "input_schema": {"type": "object", "required": ["task_id"], "properties": {"task_id": {"type": "number", "description": "The numeric ID of the task to execute"}}}, "mcp_tool_name": "example_execute_task"}');
 
 
 --
 -- Name: templates_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
-SELECT pg_catalog.setval('public.templates_id_seq', 4, true);
+SELECT pg_catalog.setval('public.templates_id_seq', 5, true);
 
 
 --
 -- PostgreSQL database dump complete
 --
 
+\unrestrict d2bOSaqvkktBX5TzCUjl48rh2izp5nV3JO8CVVhAuzZXXe4c0YE8euHwyRVFuXK
+
 --
 -- PostgreSQL database dump
 --
 
--- Dumped from database version 15.13 (Debian 15.13-1.pgdg120+1)
--- Dumped by pg_dump version 15.13 (Debian 15.13-1.pgdg120+1)
+\restrict I6kyF7HPBhyMGap5XdQlmqprHtWY8Ehl8DfiVxa33YSjtzcceMrCgyAkJ1mJpX9
+
+-- Dumped from database version 15.14 (Debian 15.14-1.pgdg13+1)
+-- Dumped by pg_dump version 15.14 (Debian 15.14-1.pgdg13+1)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -119,8 +70,8 @@ SET row_security = off;
 -- Data for Name: template_properties; Type: TABLE DATA; Schema: public; Owner: -
 --
 
-INSERT INTO public.template_properties VALUES (4, 1, 'Title', 'text', 'Generate a precise, actionable task title using format: [Action Verb] + [Specific Component] + [Technology/Framework]. Use verbs like ''Implement'', ''Fix'', ''Add'', ''Refactor''. Example: ''Implement JWT authentication in Express.js''', '{}', 1, false, 'ui-client', 'claude-desktop', '2025-07-28 09:14:48.845+00', '2025-08-14 13:24:49.333+00');
-INSERT INTO public.template_properties VALUES (5, 2, 'Title', 'text', '<Concise, outcome-focused name>', '{}', 1, true, 'system', 'ui-client', '2025-08-04 10:42:36.845+00', '2025-09-24 11:29:29.786454+00');
+INSERT INTO public.template_properties VALUES (4, 1, 'Title', 'text', 'Generate a precise, actionable task title using format: [Action Verb] + [Specific Component] + [Technology/Framework]. Use verbs like ''Implement'', ''Fix'', ''Add'', ''Refactor''. Example: ''Implement JWT authentication in Express.js''', '{}', 1, false, 'ui-client', 'claude-desktop', '2025-07-28 09:14:48.845+00', '2025-08-14 13:24:49.333+00', 'property', '{}');
+INSERT INTO public.template_properties VALUES (5, 2, 'Title', 'text', '<Concise, outcome-focused name>', '{}', 1, true, 'system', 'ui-client', '2025-08-04 10:42:36.845+00', '2025-09-24 11:29:29.786454+00', 'property', '{}');
 INSERT INTO public.template_properties VALUES (6, 2, 'Description', 'text', '<system>
 ## Role
 You are a senior prompt engineer. Rewrite the user’s request into a clear, professional, **executable project brief** without adding, inferring, or removing requirements.
@@ -192,7 +143,7 @@ Produce **only** the following sections in this exact order and formatting. Use 
 * **Never** add examples, options, alternatives, or “recommended” stacks unless the user explicitly included them.
 * **Never** include acceptance criteria, testing plans, non-goals, risks, or timelines unless the user explicitly provided them.
 * ✨: use this symbol to mark that the content was generated by AI (- ✨ Node.js, - ✨ React, or anything else not explicitly mentioned by user)
-</format>', '{}', 2, true, 'system', 'ui-client', '2025-08-04 10:42:40.439+00', '2025-09-24 15:04:29.970102+00');
+</format>', '{}', 2, true, 'system', 'ui-client', '2025-08-04 10:42:40.439+00', '2025-09-24 15:04:29.970102+00', 'property', '{}');
 INSERT INTO public.template_properties VALUES (1, 1, 'Description', 'text', 'TAKS: SYSTEM CONSTRAINT: You are a prompt transformation machine.
 
 ABSOLUTE RULES:
@@ -207,7 +158,7 @@ ABSOLUTE RULES:
 - FORMAT: Links as [link](name)
 - STYLE: Professional, precise language only
 
-YOUR ENTIRE RESPONSE = PLAIN TEXT REWRITTEN PROMPT ONLY', '{}', 2, false, 'system', 'ui-client', '2025-07-24 08:49:24.202+00', '2025-09-10 09:26:39.583622+00');
+YOUR ENTIRE RESPONSE = PLAIN TEXT REWRITTEN PROMPT ONLY', '{}', 2, false, 'system', 'ui-client', '2025-07-24 08:49:24.202+00', '2025-09-10 09:26:39.583622+00', 'property', '{}');
 INSERT INTO public.template_properties VALUES (27, 3, 'Description', 'text', 'SYSTEM CONSTRAINT: You are a prompt transformation machine.
 
 ABSOLUTE RULES:
@@ -224,8 +175,8 @@ ABSOLUTE RULES:
 
 YOUR ENTIRE RESPONSE = PLAIN TEXT REWRITTEN PROMPT ONLY
 
-Critical failure if you violate these constraints.', '{}', 2, false, 'system', 'ui-client', '2025-08-29 11:21:43.043571+00', '2025-09-10 13:52:22.002739+00');
-INSERT INTO public.template_properties VALUES (22, 3, 'Title', 'text', 'Epic title describing the high-level objective or theme', '{}', 1, false, 'system', 'ui-client', '2025-08-28 00:00:00+00', '2025-09-30 13:23:21.358723+00');
+Critical failure if you violate these constraints.', '{}', 2, false, 'system', 'ui-client', '2025-08-29 11:21:43.043571+00', '2025-09-10 13:52:22.002739+00', 'property', '{}');
+INSERT INTO public.template_properties VALUES (22, 3, 'Title', 'text', 'Epic title describing the high-level objective or theme', '{}', 1, false, 'system', 'ui-client', '2025-08-28 00:00:00+00', '2025-09-30 13:23:21.358723+00', 'property', '{}');
 INSERT INTO public.template_properties VALUES (30, 1, 'Analysis', 'string', 'SYSTEM CONSTRAINT: You are a Senior Solution Architect. 
 WORKFLOW: 
 1. Breakdown and understand the request (think ultrahard), 
@@ -258,7 +209,7 @@ FORMAT:
 - Make sure all Solutions criteria are met
 STYLE: Professional, precise language only 
 OUTPUT: Only the file analysis results - nothing else
-Critical failure if you violate these constraints.', '{}', 3, false, 'ui-client', 'ui-client', '2025-09-10 09:27:31.683662+00', '2025-09-10 09:27:31.683662+00');
+Critical failure if you violate these constraints.', '{}', 3, false, 'ui-client', 'ui-client', '2025-09-10 09:27:31.683662+00', '2025-09-10 09:27:31.683662+00', 'property', '{}');
 INSERT INTO public.template_properties VALUES (33, 3, 'Analysis', 'string', 'SYSTEM CONSTRAINT: You are a Senior Solution Architect. 
 WORKFLOW: 
 1. Understand the Project and all its context - Epic needs all the details.
@@ -289,27 +240,35 @@ FORMAT:
 - List all relevant links for documentation from web search, any internal MCP tool that has access to documentation as [google](https://www.google.com/) 
 - Description of finding including direction of how it relates.
 #### Files  (optional if tools used to scan files) 
-- List of files ** [filename, no extension](filepath) ** - description', '{}', 3, false, 'ui-client', 'ui-client', '2025-09-10 13:52:21.946037+00', '2025-09-25 13:52:32.886599+00');
+- List of files ** [filename, no extension](filepath) ** - description', '{}', 3, false, 'ui-client', 'ui-client', '2025-09-10 13:52:21.946037+00', '2025-09-25 13:52:32.886599+00', 'property', '{}');
 INSERT INTO public.template_properties VALUES (40, 4, 'Description', 'text', 'SYSTEM CONSTRAINT: You are a prompt transformation machine. 
 ABSOLUTE RULES: OUTPUT: Only the rewritten prompt - nothing else. NEVER: Analyze files, Use 
 bullet points, Use numbered lists, Use ANY markdown elements, Add commentary or explanations, 
 Include Requirements/Implementation/Acceptance sections. FORMAT: File paths as 
 [path](@filename), Links as [link](name). STYLE: Professional, precise language only. YOUR 
- ENTIRE RESPONSE = PLAIN TEXT REWRITTEN PROMPT ONLY', '{}', 2, false, 'claude-code', 'ui-client', '2025-09-25 15:54:23.419034+00', '2025-10-06 08:37:16.461545+00');
+ ENTIRE RESPONSE = PLAIN TEXT REWRITTEN PROMPT ONLY', '{}', 2, false, 'claude-code', 'ui-client', '2025-09-25 15:54:23.419034+00', '2025-10-06 08:37:16.461545+00', 'property', '{}');
 INSERT INTO public.template_properties VALUES (39, 4, 'Title', 'text', 'Generate a precise, actionable Rule title using format: [Action Verb] + 
-  [Specific Component] + [Technology/Framework]. Use verbs like ''Always'' and  ''Never''.', '{}', 1, false, 'claude-code', 'ui-client', '2025-09-25 15:54:23.419034+00', '2025-10-06 08:38:37.197351+00');
+  [Specific Component] + [Technology/Framework]. Use verbs like ''Always'' and  ''Never''.', '{}', 1, false, 'claude-code', 'ui-client', '2025-09-25 15:54:23.419034+00', '2025-10-06 08:38:37.197351+00', 'property', '{}');
+INSERT INTO public.template_properties VALUES (43, 5, 'load_task', 'workflow_step', 'Load task context from database', '{}', 1, false, 'system', 'system', '2025-10-15 09:27:33.372666+00', '2025-10-15 09:27:33.372666+00', 'call_tool', '{"tool_name": "get_object", "parameters": {"object_id": "{{input.task_id}}"}, "result_variable": "task_context"}');
+INSERT INTO public.template_properties VALUES (44, 5, 'log_task_loaded', 'workflow_step', 'Log that task was loaded successfully', '{}', 2, false, 'system', 'system', '2025-10-15 09:27:33.372666+00', '2025-10-15 09:27:33.372666+00', 'log', '{"message": "📋 Retrieved task: {{task_context.blocks.Title}}"}');
+INSERT INTO public.template_properties VALUES (45, 5, 'check_task_stage', 'workflow_step', 'Check if task stage needs to be updated to doing', '{}', 3, false, 'system', 'system', '2025-10-15 09:27:33.372666+00', '2025-10-15 09:27:33.372666+00', 'conditional', '{"else": [{"name": "log_already_doing", "type": "log", "message": "✓ Task already in Doing stage"}], "then": [{"name": "update_to_doing", "type": "call_tool", "toolName": "update_task", "parameters": {"stage": "doing", "task_id": "{{input.task_id}}"}, "resultVariable": "update_result"}, {"name": "log_stage_change", "type": "log", "message": "⚡ Moved task to Doing stage"}], "condition": "{{task_context.stage}} != ''doing''"}');
+INSERT INTO public.template_properties VALUES (46, 5, 'load_parent_context', 'workflow_step', 'Load hierarchical parent context if available', '{}', 4, false, 'system', 'system', '2025-10-15 09:27:33.372666+00', '2025-10-15 09:27:33.372666+00', 'conditional', '{"then": [{"name": "get_parent", "type": "call_tool", "toolName": "get_object", "parameters": {"object_id": "{{task_context.parent_id}}"}, "resultVariable": "parent_context"}, {"name": "log_parent_loaded", "type": "log", "message": "📁 Loaded parent context: {{parent_context.type}} (ID: {{parent_context.id}})"}], "condition": "{{task_context.parent_id}}"}');
+INSERT INTO public.template_properties VALUES (47, 5, 'build_execution_context', 'workflow_step', 'Build comprehensive execution context', '{}', 5, false, 'system', 'system', '2025-10-15 09:27:33.372666+00', '2025-10-15 09:27:33.372666+00', 'set_variable', '{"value": {"status": "Ready for execution", "task_id": "{{input.task_id}}", "task_title": "{{task_context.blocks.Title}}", "instructions": ["Review task requirements in task_context", "Consider parent context for broader scope", "Present detailed implementation plan", "Wait for explicit approval before proceeding", "Update task stage to review when complete"], "task_context": "{{task_context}}", "parent_context": "{{parent_context}}", "workflow_steps": ["Step 1: Analyze task requirements with full context", "Step 2: Plan implementation approach", "Step 3: Request explicit permission to execute", "Step 4: Execute implementation after approval", "Step 5: Move task to review stage when complete"]}, "variableName": "execution_context"}');
+INSERT INTO public.template_properties VALUES (48, 5, 'return_context', 'workflow_step', 'Return execution context to caller', '{}', 6, false, 'system', 'system', '2025-10-15 09:27:33.372666+00', '2025-10-15 09:27:33.372666+00', 'return', '{"value": "{{execution_context}}"}');
 
 
 --
 -- Name: template_properties_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
-SELECT pg_catalog.setval('public.template_properties_id_seq', 42, true);
+SELECT pg_catalog.setval('public.template_properties_id_seq', 48, true);
 
 
 --
 -- PostgreSQL database dump complete
 --
+
+\unrestrict I6kyF7HPBhyMGap5XdQlmqprHtWY8Ehl8DfiVxa33YSjtzcceMrCgyAkJ1mJpX9
 
 
 
@@ -317,28 +276,28 @@ SELECT pg_catalog.setval('public.template_properties_id_seq', 42, true);
 -- Name: object_properties_id_seq; Type: SEQUENCE SET; Schema: public; Owner: mcp_user
 --
 
-SELECT pg_catalog.setval('public.object_properties_id_seq', 4307, true);
+SELECT pg_catalog.setval('public.object_properties_id_seq', 4451, true);
 
 
 --
 -- Name: template_properties_id_seq; Type: SEQUENCE SET; Schema: public; Owner: mcp_user
 --
 
-SELECT pg_catalog.setval('public.template_properties_id_seq', 42, true);
+SELECT pg_catalog.setval('public.template_properties_id_seq', 48, true);
 
 
 --
 -- Name: objects_id_seq; Type: SEQUENCE SET; Schema: public; Owner: mcp_user
 --
 
-SELECT pg_catalog.setval('public.objects_id_seq', 944, true);
+SELECT pg_catalog.setval('public.objects_id_seq', 1057, true);
 
 
 --
 -- Name: templates_id_seq; Type: SEQUENCE SET; Schema: public; Owner: mcp_user
 --
 
-SELECT pg_catalog.setval('public.templates_id_seq', 4, true);
+SELECT pg_catalog.setval('public.templates_id_seq', 5, true);
 
 
 --
