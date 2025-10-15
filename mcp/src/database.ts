@@ -851,7 +851,7 @@ class DatabaseService {
     }
   }
 
-  async listProperties(templateId?: number): Promise<Array<SchemaProperty & { key: string }>> {
+  async listProperties(templateId?: number): Promise<Array<SchemaProperty & { key: string; step_type?: string; step_config?: any }>> {
     try {
       let query = `
         SELECT id, template_id, key, type, description, dependencies, execution_order, fixed,
@@ -1050,6 +1050,31 @@ class DatabaseService {
       const templateId = result.rows[0].id;
 
       console.log(`Template created successfully with ID: ${templateId}`);
+
+      // Auto-create start node for workflow templates
+      if (type === 'workflow') {
+        const toolName = templateData.name.toLowerCase().replace(/\s+/g, '_');
+        await this.createProperty(
+          templateId,
+          {
+            key: 'start',
+            type: 'text',
+            description: 'Workflow start node - defines tool parameters and metadata',
+            execution_order: 0,
+            fixed: true,
+            step_type: 'start',
+            step_config: {
+              tool_name: toolName,
+              display_description: templateData.description.trim(),
+              tool_description: templateData.description.trim(),
+              input_parameters: []
+            }
+          },
+          userId
+        );
+        console.log(`Auto-created start node for workflow template ${templateId} with tool_name: ${toolName}`);
+      }
+
       return templateId;
     } catch (error) {
       console.error('Error creating template:', error);
@@ -1263,6 +1288,217 @@ class DatabaseService {
     } catch (error) {
       console.error('Error fetching template:', error);
       return null;
+    }
+  }
+
+  /**
+   * Gets the start node for a workflow template.
+   * Start node is identified by step_type='start' and execution_order=0.
+   * @param templateId - The workflow template ID
+   * @returns The start node property if found, null otherwise
+   */
+  async getWorkflowStartNode(templateId: number): Promise<(SchemaProperty & { key: string; step_type?: string; step_config?: any }) | null> {
+    try {
+      const query = `
+        SELECT id, template_id, key, type, description, dependencies, execution_order, fixed,
+               created_by, updated_by, created_at, updated_at, step_type, step_config
+        FROM template_properties
+        WHERE template_id = $1 AND step_type = 'start' AND execution_order = 0
+        LIMIT 1
+      `;
+      const result = await this.pool.query(query, [templateId]);
+
+      if (result.rows.length === 0) {
+        return null;
+      }
+
+      const row = result.rows[0];
+      return {
+        id: row.id,
+        template_id: row.template_id,
+        key: row.key,
+        type: row.type,
+        description: row.description,
+        dependencies: row.dependencies,
+        execution_order: row.execution_order,
+        fixed: row.fixed,
+        created_by: row.created_by,
+        updated_by: row.updated_by,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+        step_type: row.step_type,
+        step_config: row.step_config
+      };
+    } catch (error) {
+      console.error('Error fetching workflow start node:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Updates the publish state of a workflow template.
+   * Sets metadata.published flag to true or false.
+   * @param templateId - The workflow template ID
+   * @param published - Whether the workflow should be published
+   * @param userId - The user ID performing the update (defaults to 'system')
+   * @returns True if update was successful, false otherwise
+   */
+  async updateWorkflowPublishState(templateId: number, published: boolean, userId: string = 'system'): Promise<boolean> {
+    try {
+      // Get current metadata
+      const template = await this.getTemplate(templateId);
+      if (!template) {
+        throw new Error(`Template with ID ${templateId} not found`);
+      }
+
+      // Validate it's a workflow
+      if (template.type !== 'workflow') {
+        throw new Error(`Template ${templateId} is not a workflow (type: ${template.type})`);
+      }
+
+      // Update metadata with published flag
+      const metadata = { ...template.metadata, published };
+
+      const query = `
+        UPDATE templates
+        SET metadata = $1, updated_at = CURRENT_TIMESTAMP, updated_by = $2
+        WHERE id = $3
+      `;
+      const result = await this.pool.query(query, [
+        JSON.stringify(metadata),
+        userId,
+        templateId
+      ]);
+
+      return (result.rowCount || 0) > 0;
+    } catch (error) {
+      console.error('Error updating workflow publish state:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Validates that a workflow has a valid structure for publishing.
+   * Checks for start node presence and valid configuration.
+   * @param templateId - The workflow template ID
+   * @returns Validation result with success flag and error message if failed
+   */
+  async validateWorkflowStructure(templateId: number): Promise<{ valid: boolean; error?: string }> {
+    try {
+      // Check if template exists and is a workflow
+      const template = await this.getTemplate(templateId);
+      if (!template) {
+        return { valid: false, error: `Template with ID ${templateId} not found` };
+      }
+
+      if (template.type !== 'workflow') {
+        return { valid: false, error: `Template ${templateId} is not a workflow (type: ${template.type})` };
+      }
+
+      // Check for start node
+      const startNode = await this.getWorkflowStartNode(templateId);
+      if (!startNode) {
+        return { valid: false, error: 'Workflow must have a start node (step_type="start", execution_order=0)' };
+      }
+
+      // Validate start node configuration
+      const stepConfig = startNode.step_config || {};
+
+      if (!stepConfig.tool_name || typeof stepConfig.tool_name !== 'string' || !stepConfig.tool_name.trim()) {
+        return { valid: false, error: 'Start node must have a valid tool_name in step_config' };
+      }
+
+      // Validate input_parameters if present
+      if (stepConfig.input_parameters) {
+        if (!Array.isArray(stepConfig.input_parameters)) {
+          return { valid: false, error: 'Start node input_parameters must be an array' };
+        }
+
+        // Validate each parameter
+        for (const param of stepConfig.input_parameters) {
+          if (!param.name || typeof param.name !== 'string') {
+            return { valid: false, error: 'Each input parameter must have a name' };
+          }
+          if (!param.type || !['string', 'number', 'boolean', 'array', 'object'].includes(param.type)) {
+            return { valid: false, error: `Input parameter "${param.name}" has invalid type: ${param.type}` };
+          }
+        }
+      }
+
+      return { valid: true };
+    } catch (error) {
+      console.error('Error validating workflow structure:', error);
+      return { valid: false, error: `Validation error: ${(error as Error).message}` };
+    }
+  }
+
+  /**
+   * Gets all published workflow templates.
+   * @returns Array of published workflow templates
+   */
+  async getPublishedWorkflows(): Promise<Array<{
+    id: number;
+    name: string;
+    description: string;
+    related_schema: any;
+    type: string;
+    metadata: any;
+    created_at: Date;
+    updated_at: Date;
+    created_by: string;
+    updated_by: string;
+  }>> {
+    try {
+      const query = `
+        SELECT
+          id,
+          name,
+          description,
+          COALESCE(related_schema, '[]'::jsonb) AS related_schema,
+          type,
+          COALESCE(metadata, '{}'::jsonb) AS metadata,
+          created_at,
+          updated_at,
+          created_by,
+          updated_by
+        FROM templates
+        WHERE type = 'workflow' AND metadata->>'published' = 'true'
+        ORDER BY name
+      `;
+      const result = await this.pool.query(query);
+
+      return result.rows.map(row => {
+        let relatedSchema = row.related_schema ?? [];
+        let metadata = row.metadata ?? {};
+
+        // Handle cases where the driver returns JSONB as string
+        if (typeof relatedSchema === 'string') {
+          try {
+            relatedSchema = JSON.parse(relatedSchema);
+          } catch (parseError) {
+            console.error('Failed to parse related_schema JSON:', parseError);
+            relatedSchema = [];
+          }
+        }
+
+        if (typeof metadata === 'string') {
+          try {
+            metadata = JSON.parse(metadata);
+          } catch (parseError) {
+            console.error('Failed to parse metadata JSON:', parseError);
+            metadata = {};
+          }
+        }
+
+        return {
+          ...row,
+          related_schema: Array.isArray(relatedSchema) ? relatedSchema : [],
+          metadata: typeof metadata === 'object' ? metadata : {}
+        };
+      });
+    } catch (error) {
+      console.error('Error fetching published workflows:', error);
+      return [];
     }
   }
 

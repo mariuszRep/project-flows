@@ -75,6 +75,7 @@ const GetTemplateArgsSchema = z.object({
   template_id: z.number().int().positive("template_id must be a positive integer")
 });
 
+
 export function createTemplateTools(
   dbService: DatabaseService,
   clientId: string
@@ -346,7 +347,13 @@ This tool is useful when you need to modify which parent object types (project, 
           content: [
             {
               type: "text",
-              text: `Successfully created template with ID ${templateId}. Template name: "${validatedArgs.name}", type: "${validatedArgs.type || 'object'}".`
+              text: JSON.stringify({
+                success: true,
+                id: templateId,
+                name: validatedArgs.name,
+                type: validatedArgs.type || 'object',
+                message: `Successfully created template with ID ${templateId}`
+              })
             }
           ]
         };
@@ -403,9 +410,11 @@ This tool is useful when you need to modify which parent object types (project, 
         );
 
         if (success) {
-          // Refresh workflows if this is a workflow template or if type was changed to workflow
+          // Refresh workflows if this is a workflow template or if metadata was updated
+          // This ensures published workflows are automatically loaded/unloaded
           const template = await dbService.getTemplate(validatedArgs.template_id);
           if (template && template.type === 'workflow') {
+            console.log(`Refreshing workflows after template ${validatedArgs.template_id} update`);
             await refreshWorkflows(dbService);
           }
 

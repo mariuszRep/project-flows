@@ -23,7 +23,7 @@ import { ReturnNode } from './nodes/ReturnNode';
 import { StartNode } from './nodes/StartNode';
 import { EndNode } from './nodes/EndNode';
 import { NodeEditModal } from './NodeEditModal';
-import { GitBranch, Save, Loader2 } from 'lucide-react';
+import { GitBranch, Save, Loader2, Rocket, XCircle } from 'lucide-react';
 import { useMCP } from '@/contexts/MCPContext';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
@@ -59,6 +59,8 @@ const nodeTypes: NodeTypes = {
 function workflowToReactFlow(workflow: WorkflowData): { nodes: Node[]; edges: Edge[] } {
   const nodes: Node[] = workflow.steps.map((step, index) => {
     const stepType = step.step_type || step.type || 'log';
+    const isStartNode = stepType === 'start';
+    
     return {
       id: `step-${index}`,
       type: stepType,
@@ -68,7 +70,8 @@ function workflowToReactFlow(workflow: WorkflowData): { nodes: Node[]; edges: Ed
         stepType: stepType,
         config: step.step_config || step,
       },
-      draggable: true,
+      draggable: !isStartNode,
+      deletable: !isStartNode,
     };
   });
 
@@ -104,6 +107,8 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
   const [nodeIdCounter, setNodeIdCounter] = useState(1);
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const [originalSteps, setOriginalSteps] = useState<WorkflowStep[]>([]);
+  const [isPublished, setIsPublished] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
 
   // Fetch workflow data when workflowId changes
   useEffect(() => {
@@ -187,6 +192,10 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
               });
               setOriginalSteps(steps);
               setIsDirty(false);
+              
+              // Check if workflow is published
+              const metadata = template.metadata || {};
+              setIsPublished(metadata.published === true);
             }
           } else {
             setWorkflow(null);
@@ -207,8 +216,35 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
   useEffect(() => {
     if (workflow) {
       const { nodes: newNodes, edges: newEdges } = workflowToReactFlow(workflow);
-      setNodes(newNodes);
-      setEdges(newEdges);
+      
+      // Auto-create start node if workflow has no steps
+      if (newNodes.length === 0) {
+        const startNode: Node = {
+          id: 'start-node',
+          type: 'start',
+          position: { x: 50, y: 150 },
+          data: {
+            label: 'Start',
+            stepType: 'start',
+            config: {
+              tool_name: workflow.name.toLowerCase().replace(/\s+/g, '_'),
+              display_description: workflow.description,
+              tool_description: workflow.description,
+              input_parameters: []
+            }
+          },
+          draggable: true,
+          deletable: false,
+          selectable: true,
+          connectable: true
+        };
+        setNodes([startNode]);
+        setEdges([]);
+        setIsDirty(true);
+      } else {
+        setNodes(newNodes);
+        setEdges(newEdges);
+      }
       // Update counter to be higher than existing node IDs
       const maxId = newNodes.reduce((max, node) => {
         const nodeNum = parseInt(node.id.replace(/\D/g, '')) || 0;
@@ -228,9 +264,9 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
 
     setIsSaving(true);
     try {
-      // Convert React Flow nodes back to workflow steps
+      // Convert React Flow nodes back to workflow steps (include start node, exclude end node)
       const currentSteps = nodes
-        .filter(node => node.type !== 'start' && node.type !== 'end')
+        .filter(node => node.type !== 'end')
         .map((node, index) => ({
           name: node.data.label || `Step ${index + 1}`,
           type: node.data.stepType || node.type,
@@ -329,6 +365,51 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
     }
   }, [workflowId, workflow, nodes, originalSteps, callTool, toast]);
 
+  // Toggle publish/unpublish workflow
+  const handleTogglePublish = useCallback(async () => {
+    if (!workflowId || !workflow || !callTool) return;
+
+    setIsPublishing(true);
+    try {
+      // Get current template
+      const template = await callTool('get_template', { template_id: workflowId });
+      if (!template || !template.content || !template.content[0]) {
+        throw new Error('Failed to fetch template');
+      }
+
+      const templateData = JSON.parse(template.content[0].text);
+      const metadata = templateData.metadata || {};
+      const newPublishedState = !isPublished;
+
+      // Update metadata.published
+      await callTool('update_template', {
+        template_id: workflowId,
+        metadata: {
+          ...metadata,
+          published: newPublishedState
+        }
+      });
+
+      setIsPublished(newPublishedState);
+
+      toast({
+        title: newPublishedState ? "Workflow Published" : "Workflow Unpublished",
+        description: newPublishedState
+          ? "Your workflow is now available as an MCP tool."
+          : "Your workflow has been removed from available MCP tools.",
+      });
+    } catch (error) {
+      console.error('Error toggling publish state:', error);
+      toast({
+        title: "Operation Failed",
+        description: "Failed to update workflow publish state. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsPublishing(false);
+    }
+  }, [workflowId, workflow, isPublished, callTool, toast]);
+
   // Drag and drop handlers
   const onDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault();
@@ -416,6 +497,9 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
 
   // Node double-click handler
   const onNodeDoubleClick = useCallback((_event: React.MouseEvent, node: Node) => {
+    console.log('Double-clicked node:', node);
+    console.log('Node type:', node.type);
+    console.log('Setting selectedNode and opening panel');
     setSelectedNode(node);
     setIsPanelOpen(true);
   }, []);
@@ -527,7 +611,7 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
             </h2>
             <p className="text-sm text-muted-foreground mt-1">{workflow.description}</p>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             <div className="text-sm text-muted-foreground">
               {nodes.filter(n => n.type !== 'start' && n.type !== 'end').length} node{nodes.filter(n => n.type !== 'start' && n.type !== 'end').length !== 1 ? 's' : ''}
             </div>
@@ -535,6 +619,7 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
               onClick={handleSaveWorkflow}
               disabled={!isDirty || isSaving || !isConnected}
               size="sm"
+              variant="outline"
               className="gap-2"
             >
               {isSaving ? (
@@ -545,7 +630,31 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
               ) : (
                 <>
                   <Save className="w-4 h-4" />
-                  Save Workflow
+                  Save
+                </>
+              )}
+            </Button>
+            <Button
+              onClick={handleTogglePublish}
+              disabled={isPublishing || !isConnected}
+              size="sm"
+              variant={isPublished ? "secondary" : "default"}
+              className="gap-2"
+            >
+              {isPublishing ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  {isPublished ? 'Unpublishing...' : 'Publishing...'}
+                </>
+              ) : isPublished ? (
+                <>
+                  <XCircle className="w-4 h-4" />
+                  Unpublish
+                </>
+              ) : (
+                <>
+                  <Rocket className="w-4 h-4" />
+                  Publish
                 </>
               )}
             </Button>

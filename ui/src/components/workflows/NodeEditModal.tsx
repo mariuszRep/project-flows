@@ -3,10 +3,14 @@ import { createPortal } from 'react-dom';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { AutoTextarea } from '@/components/ui/auto-textarea';
-import { X, Save, Trash2 } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { X, Save, Trash2, Plus } from 'lucide-react';
 import { Node } from 'reactflow';
 import { useToast } from '@/hooks/use-toast';
+import { useMCP } from '@/contexts/MCPContext';
 
 interface NodeEditModalProps {
   node: Node | null;
@@ -18,14 +22,18 @@ interface NodeEditModalProps {
 
 export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeEditModalProps) {
   const { toast } = useToast();
+  const { tools } = useMCP();
   const [label, setLabel] = useState('');
   const [description, setDescription] = useState('');
-  const [config, setConfig] = useState<Record<string, string>>({});
+  const [config, setConfig] = useState<Record<string, any>>({});
   const [error, setError] = useState<string | null>(null);
   const firstInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (node && isOpen) {
+      console.log('NodeEditModal opened for node:', node);
+      console.log('Node type:', node.type);
+      console.log('Node data:', node.data);
       setLabel(node.data.label || '');
       setDescription(node.data.description || '');
       setConfig(node.data.config || {});
@@ -148,32 +156,77 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
             </div>
 
             {/* Node-specific configuration fields */}
+            {node.type === 'start' && (
+              <div className="border rounded-xl border-border bg-muted/5 p-4 space-y-3">
+                <h3 className="text-sm font-semibold mb-2">Workflow Tool Configuration</h3>
+                <div>
+                  <Label className="text-xs">Tool Name</Label>
+                  <Input
+                    value={config.tool_name || ''}
+                    onChange={(e) => setConfig({ ...config, tool_name: e.target.value })}
+                    placeholder="my_workflow_tool"
+                    className="font-mono"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">Lowercase, underscores only</p>
+                </div>
+                <div>
+                  <Label className="text-xs">Tool Description</Label>
+                  <AutoTextarea
+                    value={config.tool_description || ''}
+                    onChange={(e) => setConfig({ ...config, tool_description: e.target.value })}
+                    placeholder="Description for MCP tool"
+                    minRows={2}
+                    maxRows={4}
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Input Parameters (JSON)</Label>
+                  <AutoTextarea
+                    value={typeof config.input_parameters === 'string' ? config.input_parameters : JSON.stringify(config.input_parameters || [], null, 2)}
+                    onChange={(e) => setConfig({ ...config, input_parameters: e.target.value })}
+                    placeholder='[{"name": "task_id", "type": "number", "required": true}]'
+                    minRows={3}
+                    maxRows={6}
+                    className="font-mono text-xs"
+                  />
+                </div>
+              </div>
+            )}
+
             {node.type === 'call_tool' && (
               <div className="border rounded-xl border-border bg-muted/5 p-4 space-y-3">
                 <h3 className="text-sm font-semibold mb-2">Tool Configuration</h3>
                 <div>
-                  <label className="text-xs font-medium text-muted-foreground mb-2 block">
-                    Tool Name
-                  </label>
-                  <Input
+                  <Label className="text-xs">Select Tool</Label>
+                  <Select
                     value={config.tool_name || ''}
-                    onChange={(e) => setConfig({ ...config, tool_name: e.target.value })}
-                    placeholder="e.g., get_object, update_task"
-                    className="w-full"
-                  />
+                    onValueChange={(value) => setConfig({ ...config, tool_name: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a tool..." />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-[300px]">
+                      {tools.filter(t => !['execute_task', 'initiate_object'].includes(t.name)).map((tool) => (
+                        <SelectItem key={tool.name} value={tool.name}>
+                          {tool.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-muted-foreground mb-2 block">
-                    Parameters (JSON)
-                  </label>
+                  <Label className="text-xs">Parameters (JSON)</Label>
                   <AutoTextarea
                     value={config.parameters || ''}
                     onChange={(e) => setConfig({ ...config, parameters: e.target.value })}
                     placeholder='{"object_id": 123}'
-                    minRows={2}
-                    maxRows={4}
+                    minRows={4}
+                    maxRows={8}
                     className="w-full font-mono text-xs"
                   />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Use ${'{{input.paramName}}'} to reference start node parameters
+                  </p>
                 </div>
               </div>
             )}

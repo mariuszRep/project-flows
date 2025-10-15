@@ -34,13 +34,13 @@ async function loadWorkflowsFromDatabase(dbService: DatabaseService): Promise<vo
     // Get all templates
     const templates = await dbService.getTemplates();
 
-    // Filter workflow templates that are enabled
+    // Filter workflow templates that are published
     const workflowTemplates = templates.filter((t: any) => {
       const metadata = t.metadata || {};
-      return t.type === 'workflow' && metadata.enabled === true;
+      return t.type === 'workflow' && metadata.published === true;
     });
 
-    console.log(`Found ${workflowTemplates.length} enabled workflow(s)`);
+    console.log(`Found ${workflowTemplates.length} published workflow(s)`);
 
     // Clear existing workflows
     dynamicWorkflows.clear();
@@ -49,15 +49,7 @@ async function loadWorkflowsFromDatabase(dbService: DatabaseService): Promise<vo
     // Load each workflow
     for (const template of workflowTemplates) {
       try {
-        const metadata = template.metadata || {};
-        const toolName = metadata.mcp_tool_name;
-
-        if (!toolName) {
-          console.warn(`Workflow template ${template.id} missing mcp_tool_name in metadata`);
-          continue;
-        }
-
-        // Load workflow definition using workflow executor
+        // Load workflow definition using workflow executor (extracts tool name from start node)
         const workflow = await workflowExecutor.loadWorkflowFromDatabase(template.id);
 
         if (!workflow) {
@@ -65,11 +57,17 @@ async function loadWorkflowsFromDatabase(dbService: DatabaseService): Promise<vo
           continue;
         }
 
-        // Register workflow
-        dynamicWorkflows.set(toolName, workflow);
-        workflowTemplateMap.set(toolName, template.id);
+        // Check for duplicate tool names
+        if (dynamicWorkflows.has(workflow.name)) {
+          console.error(`⚠️  Duplicate tool name detected: ${workflow.name} (template_id: ${template.id}). Skipping.`);
+          continue;
+        }
 
-        console.log(`✅ Registered database workflow: ${toolName} (template_id: ${template.id})`);
+        // Register workflow
+        dynamicWorkflows.set(workflow.name, workflow);
+        workflowTemplateMap.set(workflow.name, template.id);
+
+        console.log(`✅ Registered workflow: ${workflow.name} (template_id: ${template.id})`);
         console.log(`   Steps loaded: ${workflow.steps.length}`);
       } catch (error) {
         console.error(`Error loading workflow template ${template.id}:`, error);

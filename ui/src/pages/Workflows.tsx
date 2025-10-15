@@ -62,18 +62,56 @@ export default function Workflows() {
         }
       });
 
+      console.log('Create template result:', result);
+
       if (result && result.content && result.content[0]) {
         const text = result.content[0].text;
-        const match = text.match(/ID (\d+)/);
+        console.log('Response text:', text);
+        console.log('Response type:', typeof text);
+        
+        // Try to parse as JSON first
+        try {
+          const jsonResponse = JSON.parse(text);
+          if (jsonResponse.id) {
+            const newId = jsonResponse.id;
+            setSelectedWorkflowId(newId);
+            setSidebarRefreshTrigger(prev => prev + 1);
+            setIsCreateDialogOpen(false);
+            setNewWorkflowName('');
+            setNewWorkflowDescription('');
+
+            toast({
+              title: "Workflow Created",
+              description: `"${newWorkflowName}" has been created successfully.`,
+            });
+            return;
+          }
+        } catch (e) {
+          // Not JSON, try regex
+          console.log('Not JSON, trying regex match');
+        }
+        
+        // Fallback to regex matching
+        const match = text.match(/ID[:\s]+(\d+)/i) || text.match(/template[:\s]+(\d+)/i) || text.match(/(\d+)/);
         if (match) {
           const newId = parseInt(match[1]);
+          console.log('Extracted ID:', newId);
           setSelectedWorkflowId(newId);
           setSidebarRefreshTrigger(prev => prev + 1);
           setIsCreateDialogOpen(false);
+          setNewWorkflowName('');
+          setNewWorkflowDescription('');
 
           toast({
             title: "Workflow Created",
             description: `"${newWorkflowName}" has been created successfully.`,
+          });
+        } else {
+          console.error('Could not extract ID from response:', text);
+          toast({
+            title: "Warning",
+            description: "Workflow may have been created but ID could not be extracted. Please refresh.",
+            variant: "destructive",
           });
         }
       }
