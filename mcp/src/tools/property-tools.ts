@@ -52,6 +52,14 @@ export class PropertyTools {
             fixed: {
               type: "boolean",
               description: "Optional flag indicating if property is fixed/immutable (defaults to false)"
+            },
+            step_type: {
+              type: "string",
+              description: "Optional step type for workflow steps: 'property', 'call_tool', 'log', 'set_variable', 'conditional', 'return' (defaults to 'property')"
+            },
+            step_config: {
+              type: "object",
+              description: "Optional step configuration object for workflow steps (JSONB)"
             }
           },
           required: ["template_id", "key", "type", "description"],
@@ -91,6 +99,14 @@ export class PropertyTools {
             fixed: {
               type: "boolean",
               description: "Flag indicating if property is fixed/immutable"
+            },
+            step_type: {
+              type: "string",
+              description: "Step type for workflow steps: 'property', 'call_tool', 'log', 'set_variable', 'conditional', 'return'"
+            },
+            step_config: {
+              type: "object",
+              description: "Step configuration object for workflow steps (JSONB)"
             }
           },
           required: ["property_id"],
@@ -211,6 +227,8 @@ export class PropertyTools {
     const dependencies = (toolArgs?.dependencies as string[]) || [];
     const execution_order = (toolArgs?.execution_order as number) || 0;
     const fixed = (toolArgs?.fixed as boolean) || false;
+    const step_type = toolArgs?.step_type || 'property';
+    const step_config = toolArgs?.step_config || {};
     
     // Validate required parameters
     if (!templateId || typeof templateId !== 'number' || templateId < 1) {
@@ -266,6 +284,8 @@ export class PropertyTools {
         dependencies,
         execution_order,
         fixed,
+        step_type,
+        step_config,
         clientId: this.clientId
       });
 
@@ -275,7 +295,9 @@ export class PropertyTools {
         description: description.trim(),
         dependencies,
         execution_order,
-        fixed
+        fixed,
+        step_type,
+        step_config
       }, this.clientId);
 
       console.log('Property created successfully with ID:', propertyId);
@@ -325,6 +347,8 @@ export class PropertyTools {
     if (toolArgs?.dependencies !== undefined) updates.dependencies = toolArgs.dependencies;
     if (toolArgs?.execution_order !== undefined) updates.execution_order = toolArgs.execution_order;
     if (toolArgs?.fixed !== undefined) updates.fixed = toolArgs.fixed;
+    if (toolArgs?.step_type !== undefined) updates.step_type = toolArgs.step_type;
+    if (toolArgs?.step_config !== undefined) updates.step_config = toolArgs.step_config;
 
     try {
       const success = await this.sharedDbService.updateProperty(propertyId, updates, this.clientId);

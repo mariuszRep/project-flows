@@ -652,6 +652,8 @@ class DatabaseService {
     dependencies?: string[];
     execution_order?: number;
     fixed?: boolean;
+    step_type?: string;
+    step_config?: Record<string, any>;
   }, userId: string = 'system'): Promise<number> {
     try {
       console.log('Database createProperty called with:', {
@@ -661,8 +663,8 @@ class DatabaseService {
       });
 
       const query = `
-        INSERT INTO template_properties (template_id, key, type, description, dependencies, execution_order, fixed, created_by, updated_by) 
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) 
+        INSERT INTO template_properties (template_id, key, type, description, dependencies, execution_order, fixed, step_type, step_config, created_by, updated_by) 
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) 
         RETURNING id
       `;
       const values = [
@@ -673,6 +675,8 @@ class DatabaseService {
         propertyData.dependencies || [],
         propertyData.execution_order || 0,
         propertyData.fixed || false,
+        propertyData.step_type || 'property',
+        JSON.stringify(propertyData.step_config || {}),
         userId,
         userId
       ];
@@ -702,6 +706,8 @@ class DatabaseService {
     dependencies?: string[];
     execution_order?: number;
     fixed?: boolean;
+    step_type?: string;
+    step_config?: Record<string, any>;
   }, userId: string = 'system'): Promise<boolean> {
     try {
       const updateFields = [];
@@ -731,6 +737,14 @@ class DatabaseService {
       if (updates.fixed !== undefined) {
         updateFields.push(`fixed = $${paramIndex++}`);
         values.push(updates.fixed);
+      }
+      if (updates.step_type !== undefined) {
+        updateFields.push(`step_type = $${paramIndex++}`);
+        values.push(updates.step_type);
+      }
+      if (updates.step_config !== undefined) {
+        updateFields.push(`step_config = $${paramIndex++}`);
+        values.push(JSON.stringify(updates.step_config));
       }
 
       if (updateFields.length === 0) {

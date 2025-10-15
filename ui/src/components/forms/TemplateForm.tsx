@@ -32,6 +32,8 @@ interface TemplateProperty {
   updated_by?: string;
   created_at?: string;
   updated_at?: string;
+  step_type?: string;
+  step_config?: Record<string, any>;
 }
 
 interface RelatedSchemaEntry {
@@ -218,7 +220,9 @@ const NewTemplateForm: React.FC<NewTemplateFormProps> = ({ isOpen, onClose, temp
       type: property.type,
       description: property.description,
       dependencies: property.dependencies || [],
-      fixed: property.fixed || false
+      fixed: property.fixed || false,
+      step_type: property.step_type || 'property',
+      step_config: property.step_config || {}
     });
     setMode('edit-property');
   };
@@ -231,7 +235,9 @@ const NewTemplateForm: React.FC<NewTemplateFormProps> = ({ isOpen, onClose, temp
       description: '',
       dependencies: [],
       execution_order: properties.length + 1,
-      fixed: false
+      fixed: false,
+      step_type: 'property',
+      step_config: {}
     });
     setMode('create-property');
 
@@ -249,7 +255,7 @@ const NewTemplateForm: React.FC<NewTemplateFormProps> = ({ isOpen, onClose, temp
     setEditValues({});
   };
 
-  const handleInputChange = (field: keyof TemplateProperty, value: string | string[] | boolean | number) => {
+  const handleInputChange = (field: keyof TemplateProperty, value: string | string[] | boolean | number | Record<string, any>) => {
     setEditValues(prev => ({
       ...prev,
       [field]: value
@@ -278,7 +284,7 @@ const NewTemplateForm: React.FC<NewTemplateFormProps> = ({ isOpen, onClose, temp
 
       if (mode === 'create-property') {
         // Create new property
-        const result = await callTool('create_property', {
+        const params: any = {
           template_id: templateId,
           key: editValues.key!,
           type: editValues.type!,
@@ -286,7 +292,15 @@ const NewTemplateForm: React.FC<NewTemplateFormProps> = ({ isOpen, onClose, temp
           dependencies: editValues.dependencies || [],
           execution_order: editValues.execution_order || properties.length + 1,
           fixed: editValues.fixed || false
-        });
+        };
+        
+        // Add step_type and step_config if not a standard property
+        if (editValues.step_type && editValues.step_type !== 'property') {
+          params.step_type = editValues.step_type;
+          params.step_config = editValues.step_config || {};
+        }
+        
+        const result = await callTool('create_property', params);
 
         if (result?.content?.[0]?.text?.startsWith('Error:')) {
           throw new Error(result.content[0].text);
@@ -298,14 +312,22 @@ const NewTemplateForm: React.FC<NewTemplateFormProps> = ({ isOpen, onClose, temp
         });
       } else if (mode === 'edit-property' && editingProperty?.id) {
         // Update existing property
-        const result = await callTool('update_property', {
+        const params: any = {
           property_id: editingProperty.id,
           key: editValues.key!,
           type: editValues.type!,
           description: editValues.description!,
           dependencies: editValues.dependencies || [],
           fixed: editValues.fixed || false
-        });
+        };
+        
+        // Add step_type and step_config if not a standard property
+        if (editValues.step_type && editValues.step_type !== 'property') {
+          params.step_type = editValues.step_type;
+          params.step_config = editValues.step_config || {};
+        }
+        
+        const result = await callTool('update_property', params);
 
         if (result?.content?.[0]?.text?.startsWith('Error:')) {
           throw new Error(result.content[0].text);
@@ -836,6 +858,258 @@ const NewTemplateForm: React.FC<NewTemplateFormProps> = ({ isOpen, onClose, temp
 
                     <div>
                       <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                        Step Type
+                      </label>
+                      <Select
+                        value={editValues.step_type || 'property'}
+                        onValueChange={(value) => {
+                          handleInputChange('step_type', value);
+                          // Reset step_config when changing step type
+                          handleInputChange('step_config', {});
+                        }}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Select step type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="property">Property (Standard)</SelectItem>
+                          <SelectItem value="call_tool">Call Tool (Workflow)</SelectItem>
+                          <SelectItem value="log">Log (Workflow)</SelectItem>
+                          <SelectItem value="set_variable">Set Variable (Workflow)</SelectItem>
+                          <SelectItem value="conditional">Conditional (Workflow)</SelectItem>
+                          <SelectItem value="return">Return (Workflow)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Step Config Builder - shown only for workflow steps */}
+                    {editValues.step_type && editValues.step_type !== 'property' && (
+                      <div className="border rounded-lg p-3 bg-muted/30 space-y-3">
+                        <h4 className="text-xs font-semibold text-foreground">Step Configuration</h4>
+                        
+                        {/* Call Tool Config */}
+                        {editValues.step_type === 'call_tool' && (
+                          <>
+                            <div>
+                              <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                                Tool Name
+                              </label>
+                              <Input
+                                value={(editValues.step_config as any)?.tool_name || ''}
+                                onChange={(e) => handleInputChange('step_config', { 
+                                  ...(editValues.step_config || {}), 
+                                  tool_name: e.target.value 
+                                })}
+                                placeholder="e.g., get_object, update_task"
+                                className="w-full"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                                Parameters (JSON)
+                              </label>
+                              <AutoTextarea
+                                value={JSON.stringify((editValues.step_config as any)?.parameters || {}, null, 2)}
+                                onChange={(e) => {
+                                  try {
+                                    const parsed = JSON.parse(e.target.value);
+                                    handleInputChange('step_config', { 
+                                      ...(editValues.step_config || {}), 
+                                      parameters: parsed 
+                                    });
+                                  } catch (err) {
+                                    // Allow invalid JSON while typing
+                                  }
+                                }}
+                                placeholder='{"object_id": "{{input.task_id}}"}'
+                                minRows={2}
+                                maxRows={6}
+                                className="w-full font-mono text-xs"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                                Output Variable (optional)
+                              </label>
+                              <Input
+                                value={(editValues.step_config as any)?.output_variable || ''}
+                                onChange={(e) => handleInputChange('step_config', { 
+                                  ...(editValues.step_config || {}), 
+                                  output_variable: e.target.value 
+                                })}
+                                placeholder="e.g., task_data"
+                                className="w-full"
+                              />
+                            </div>
+                          </>
+                        )}
+
+                        {/* Log Config */}
+                        {editValues.step_type === 'log' && (
+                          <div>
+                            <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                              Message
+                            </label>
+                            <AutoTextarea
+                              value={(editValues.step_config as any)?.message || ''}
+                              onChange={(e) => handleInputChange('step_config', { 
+                                ...(editValues.step_config || {}), 
+                                message: e.target.value 
+                              })}
+                              placeholder="Task loaded: {{task.title}} (ID: {{input.task_id}})"
+                              minRows={2}
+                              maxRows={4}
+                              className="w-full"
+                            />
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Use {'{{'} and {'}}'}  for variable interpolation
+                            </p>
+                          </div>
+                        )}
+
+                        {/* Set Variable Config */}
+                        {editValues.step_type === 'set_variable' && (
+                          <>
+                            <div>
+                              <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                                Variable Name
+                              </label>
+                              <Input
+                                value={(editValues.step_config as any)?.variableName || ''}
+                                onChange={(e) => handleInputChange('step_config', { 
+                                  ...(editValues.step_config || {}), 
+                                  variableName: e.target.value 
+                                })}
+                                placeholder="e.g., result, context"
+                                className="w-full"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                                Value (JSON or template)
+                              </label>
+                              <AutoTextarea
+                                value={typeof (editValues.step_config as any)?.value === 'string' 
+                                  ? (editValues.step_config as any)?.value 
+                                  : JSON.stringify((editValues.step_config as any)?.value || '', null, 2)}
+                                onChange={(e) => {
+                                  let value = e.target.value;
+                                  try {
+                                    value = JSON.parse(e.target.value);
+                                  } catch (err) {
+                                    // Keep as string if not valid JSON
+                                  }
+                                  handleInputChange('step_config', { 
+                                    ...(editValues.step_config || {}), 
+                                    value 
+                                  });
+                                }}
+                                placeholder='"{{input.message}}" or {"key": "value"}'
+                                minRows={2}
+                                maxRows={6}
+                                className="w-full font-mono text-xs"
+                              />
+                            </div>
+                          </>
+                        )}
+
+                        {/* Return Config */}
+                        {editValues.step_type === 'return' && (
+                          <div>
+                            <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                              Return Value (JSON)
+                            </label>
+                            <AutoTextarea
+                              value={JSON.stringify((editValues.step_config as any)?.value || {}, null, 2)}
+                              onChange={(e) => {
+                                try {
+                                  const parsed = JSON.parse(e.target.value);
+                                  handleInputChange('step_config', { 
+                                    ...(editValues.step_config || {}), 
+                                    value: parsed 
+                                  });
+                                } catch (err) {
+                                  // Allow invalid JSON while typing
+                                }
+                              }}
+                              placeholder='{"success": true, "data": "{{result}}"}'
+                              minRows={3}
+                              maxRows={8}
+                              className="w-full font-mono text-xs"
+                            />
+                          </div>
+                        )}
+
+                        {/* Conditional Config */}
+                        {editValues.step_type === 'conditional' && (
+                          <div className="space-y-2">
+                            <div>
+                              <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                                Condition
+                              </label>
+                              <Input
+                                value={(editValues.step_config as any)?.condition || ''}
+                                onChange={(e) => handleInputChange('step_config', { 
+                                  ...(editValues.step_config || {}), 
+                                  condition: e.target.value 
+                                })}
+                                placeholder="e.g., {{task.stage}} === 'backlog'"
+                                className="w-full font-mono text-xs"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                                Then Steps (JSON array)
+                              </label>
+                              <AutoTextarea
+                                value={JSON.stringify((editValues.step_config as any)?.then_steps || [], null, 2)}
+                                onChange={(e) => {
+                                  try {
+                                    const parsed = JSON.parse(e.target.value);
+                                    handleInputChange('step_config', { 
+                                      ...(editValues.step_config || {}), 
+                                      then_steps: parsed 
+                                    });
+                                  } catch (err) {
+                                    // Allow invalid JSON while typing
+                                  }
+                                }}
+                                placeholder='[{"name": "step1", "type": "log", "message": "..."}]'
+                                minRows={2}
+                                maxRows={6}
+                                className="w-full font-mono text-xs"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                                Else Steps (JSON array, optional)
+                              </label>
+                              <AutoTextarea
+                                value={JSON.stringify((editValues.step_config as any)?.else_steps || [], null, 2)}
+                                onChange={(e) => {
+                                  try {
+                                    const parsed = JSON.parse(e.target.value);
+                                    handleInputChange('step_config', { 
+                                      ...(editValues.step_config || {}), 
+                                      else_steps: parsed 
+                                    });
+                                  } catch (err) {
+                                    // Allow invalid JSON while typing
+                                  }
+                                }}
+                                placeholder='[{"name": "step2", "type": "log", "message": "..."}]'
+                                minRows={2}
+                                maxRows={6}
+                                className="w-full font-mono text-xs"
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground mb-1 block">
                         Dependencies (comma-separated)
                       </label>
                       <Input
@@ -900,6 +1174,11 @@ const NewTemplateForm: React.FC<NewTemplateFormProps> = ({ isOpen, onClose, temp
                                     <div className="flex-1">
                                       <h3 className="text-sm font-semibold flex items-center gap-2">
                                         {property.key}
+                                        {property.step_type && property.step_type !== 'property' && (
+                                          <Badge variant="default" className="text-xs">
+                                            {property.step_type}
+                                          </Badge>
+                                        )}
                                         {property.fixed && (
                                           <Badge variant="secondary" className="text-xs">
                                             Fixed
@@ -947,7 +1226,7 @@ const NewTemplateForm: React.FC<NewTemplateFormProps> = ({ isOpen, onClose, temp
                                     <MarkdownRenderer content={property.description || 'No description'} />
                                   </div>
 
-                                  {(property.type || property.dependencies?.length) && (
+                                  {(property.type || property.dependencies?.length || (property.step_config && Object.keys(property.step_config).length > 0)) && (
                                     <div className="flex flex-wrap gap-2 mt-2">
                                       {property.type && (
                                         <Badge variant="outline" className="text-xs">
@@ -957,6 +1236,12 @@ const NewTemplateForm: React.FC<NewTemplateFormProps> = ({ isOpen, onClose, temp
                                       {property.dependencies && property.dependencies.length > 0 && (
                                         <Badge variant="outline" className="text-xs">
                                           Depends: {property.dependencies.join(', ')}
+                                        </Badge>
+                                      )}
+                                      {property.step_config && Object.keys(property.step_config).length > 0 && (
+                                        <Badge variant="outline" className="text-xs font-mono">
+                                          Config: {JSON.stringify(property.step_config).substring(0, 50)}
+                                          {JSON.stringify(property.step_config).length > 50 ? '...' : ''}
                                         </Badge>
                                       )}
                                     </div>
