@@ -14,6 +14,7 @@ const buttonVariants = cva(
         ghost: "text-foreground hover:bg-surface hover:text-foreground",
         outline: "bg-surface text-foreground border hover:bg-border",
         link: "bg-transparent underline-offset-4 hover:underline",
+        destructive: "bg-red-500 text-white hover:bg-red-600 dark:bg-red-600 dark:hover:bg-red-700",
       },
       size: {
         default: "h-9 ",
