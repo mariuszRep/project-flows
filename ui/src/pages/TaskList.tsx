@@ -317,13 +317,14 @@ const DraftTasks = () => {
   // Set up change event listeners for real-time updates
   // Suppress immediate refetch after our own optimistic updates using a timeout-based approach
   const suppressRefreshTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+  const isDeleting = React.useRef<boolean>(false);
 
   const suppressRefreshForDuration = (durationMs: number = 1000) => {
     // Clear any existing timeout
     if (suppressRefreshTimeoutRef.current) {
       clearTimeout(suppressRefreshTimeoutRef.current);
     }
-    
+
     // Set a new timeout to allow refreshes again after the duration
     suppressRefreshTimeoutRef.current = setTimeout(() => {
       suppressRefreshTimeoutRef.current = null;
@@ -331,7 +332,7 @@ const DraftTasks = () => {
   };
 
   const shouldSuppressRefresh = () => {
-    return suppressRefreshTimeoutRef.current !== null;
+    return suppressRefreshTimeoutRef.current !== null || isDeleting.current;
   };
 
   const { callToolWithEvent, emitTaskChanged, emitProjectChanged, emitDataChanged } = useChangeEvents({
@@ -473,62 +474,80 @@ const DraftTasks = () => {
   };
 
   const confirmTaskDelete = async () => {
-    if (!isConnected || !callToolWithEvent || !deleteDialog.taskId) {
+    const taskIdToDelete = deleteDialog.taskId;
+
+    if (!isConnected || !callTool || !taskIdToDelete) {
       console.log('MCP not connected or no task ID, skipping delete');
       setDeleteDialog({ isOpen: false, taskId: null, taskTitle: '' });
       return;
     }
 
+    // Close dialog immediately
+    setDeleteDialog({ isOpen: false, taskId: null, taskTitle: '' });
+
+    // Set delete flag to prevent notification-triggered refreshes
+    isDeleting.current = true;
+
     try {
       // Find the entity to get its template_id
-      const entity = findEntityById(allEntities, deleteDialog.taskId);
+      const entity = findEntityById(allEntities, taskIdToDelete);
       if (!entity) {
-        console.error('Entity not found:', deleteDialog.taskId);
+        console.error('Entity not found:', taskIdToDelete);
         return;
       }
 
-      // Resolve delete_object tool name (supports namespaced variants, e.g., mcp0_delete_object)
-      const deleteTool = tools.find(tool => tool.name === 'delete_object') 
+      const deleteTool = tools.find(tool => tool.name === 'delete_object')
         || tools.find(tool => tool.name.endsWith('delete_object') || tool.name.includes('delete_object'));
-      
-      if (deleteTool) {
-        // Use callToolWithEvent to trigger events after successful deletion
-        const result = await callToolWithEvent(deleteTool.name, {
-          object_id: deleteDialog.taskId,
-          template_id: entity.template_id
-        });
-        
-        console.log('Delete result:', result);
-        
-        // Remove entity from local state immediately for better UX (deep removal)
-        setAllEntities(prevEntities => removeEntityFromTree(prevEntities, deleteDialog.taskId!));
-        
-        // Close edit form if the deleted task was being edited
-        if (editingTaskId === deleteDialog.taskId) {
-          setEditingTaskId(null);
-        }
 
-        // Close any open viewers for this entity
-        if (viewingTaskId === deleteDialog.taskId) {
-          setViewingTaskId(null);
-        }
-        if (viewingEntityId === deleteDialog.taskId) {
-          setViewingEntityId(null);
-          setViewingEntityType(null);
-        }
-        
-        // No need to manually refresh - the event system will handle it
-      } else {
+      if (!deleteTool) {
         console.log('Delete tool not available');
         setError('Delete functionality is not available');
+        return;
       }
+
+      console.log('Starting delete for entity:', taskIdToDelete);
+
+      // Remove entity from local state immediately
+      setAllEntities(prevEntities => {
+        const updated = removeEntityFromTree(prevEntities, taskIdToDelete);
+        console.log('Entities after optimistic delete');
+        return updated;
+      });
+
+      // Close edit form if the deleted task was being edited
+      if (editingTaskId === taskIdToDelete) {
+        setEditingTaskId(null);
+      }
+
+      // Close any open viewers
+      if (viewingTaskId === taskIdToDelete) {
+        setViewingTaskId(null);
+      }
+      if (viewingEntityId === taskIdToDelete) {
+        setViewingEntityId(null);
+        setViewingEntityType(null);
+      }
+
+      // Call MCP delete WITHOUT event emission to avoid triggering fetchAllEntities
+      console.log('Calling delete_object via MCP');
+      await callTool(deleteTool.name, {
+        object_id: taskIdToDelete,
+        template_id: entity.template_id
+      });
+
+      console.log('Delete API call completed successfully');
+
+      // Wait a bit before allowing refreshes again
+      setTimeout(() => {
+        isDeleting.current = false;
+        console.log('Delete flag cleared, refreshes now allowed');
+      }, 500);
     } catch (err) {
       console.error('Error deleting task:', err);
       setError(err instanceof Error ? err.message : 'Failed to delete task');
-      // Refresh entities in case of error to restore correct state
-      await fetchAllEntities();
-    } finally {
-      setDeleteDialog({ isOpen: false, taskId: null, taskTitle: '' });
+      isDeleting.current = false;
+      // Only refresh on error
+      fetchAllEntities();
     }
   };
 

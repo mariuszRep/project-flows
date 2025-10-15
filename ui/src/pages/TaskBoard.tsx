@@ -252,52 +252,60 @@ export default function Board() {
     }
   };
 
-  const handleTaskDelete = (taskId: number, taskTitle: string) => {
-    setDeleteDialog({
-      isOpen: true,
-      taskId,
-      taskTitle,
-    });
-  };
-
-  const confirmTaskDelete = async () => {
-    if (!isConnected || !callToolWithEvent || !deleteDialog.taskId) {
-      console.log('MCP not connected or no task ID, skipping delete');
-      setDeleteDialog({ isOpen: false, taskId: null, taskTitle: '' });
+  const handleTaskDelete = async (taskId: number, taskTitle: string) => {
+    if (!isConnected || !callTool) {
+      console.log('MCP not connected, skipping delete');
       return;
     }
 
+    // TEMPORARY: Skip confirmation dialog to test if it's causing the freeze
+    console.log('DELETE STARTED for task:', taskId);
+
     try {
-      const deleteObjectTool = tools.find(tool => tool.name === 'delete_object') 
+      const deleteObjectTool = tools.find(tool => tool.name === 'delete_object')
         || tools.find(tool => tool.name.endsWith('delete_object') || tool.name.includes('delete_object'));
-      
-      if (deleteObjectTool) {
-        // Preferred: generic delete by object id
-        const result = await callToolWithEvent(deleteObjectTool.name, {
-          object_id: deleteDialog.taskId,
-          template_id: 1 // Task template
-        });
-        console.log('Delete result (delete_object):', result);
 
-        // Remove task from local state immediately for better UX
-        setTasks(prevTasks => prevTasks.filter(task => task.id !== deleteDialog.taskId));
-
-        // Close any open viewers for this task
-        if (viewingTaskId === deleteDialog.taskId) {
-          setViewingTaskId(null);
-        }
-      } else {
+      if (!deleteObjectTool) {
         console.log('Delete tool not available');
         setError('Delete functionality is not available');
+        return;
       }
+
+      console.log('DELETE: Found delete tool');
+
+      // Remove task from local state immediately
+      setTasks(prevTasks => {
+        const filtered = prevTasks.filter(task => task.id !== taskId);
+        console.log('DELETE: Tasks after removal:', filtered.length);
+        return filtered;
+      });
+
+      // Close any open viewers
+      if (viewingTaskId === taskId) {
+        setViewingTaskId(null);
+      }
+
+      console.log('DELETE: About to call MCP delete');
+
+      // Call MCP delete
+      const result = await callTool(deleteObjectTool.name, {
+        object_id: taskId,
+        template_id: 1
+      });
+
+      console.log('DELETE: MCP call completed', result);
     } catch (err) {
-      console.error('Error deleting task:', err);
+      console.error('DELETE: Error occurred', err);
       setError(err instanceof Error ? err.message : 'Failed to delete task');
-      // Refresh tasks in case of error to restore correct state
-      await fetchTasks();
-    } finally {
-      setDeleteDialog({ isOpen: false, taskId: null, taskTitle: '' });
+      fetchTasks();
     }
+
+    console.log('DELETE: Function completed');
+  };
+
+  const confirmTaskDelete = async () => {
+    // This function is no longer used but keeping it to avoid breaking references
+    console.log('confirmTaskDelete called but should not be used');
   };
 
   const cancelTaskDelete = () => {
@@ -606,7 +614,8 @@ export default function Board() {
           />
         )}
 
-        <ConfirmationDialog
+        {/* TEMPORARY: Disabled confirmation dialog to test freeze issue */}
+        {/* <ConfirmationDialog
           isOpen={deleteDialog.isOpen}
           onClose={cancelTaskDelete}
           onConfirm={confirmTaskDelete}
@@ -615,7 +624,7 @@ export default function Board() {
           confirmText="Delete"
           cancelText="Cancel"
           variant="destructive"
-        />
+        /> */}
       </div>
     </HeaderAndSidebarLayout>
   );
