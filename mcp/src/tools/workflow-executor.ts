@@ -1,17 +1,22 @@
 /**
  * Workflow Executor - Interprets and executes workflow step definitions
- * Supports: log, set_variable, conditional, and return step types
+ * Supports: log, set_variable, conditional, call_tool, and return step types
  */
+
+import DatabaseService from '../database.js';
 
 export interface WorkflowStep {
   name: string;
-  type: 'log' | 'set_variable' | 'conditional' | 'return';
+  type: 'log' | 'set_variable' | 'conditional' | 'call_tool' | 'return';
   message?: string;
   variableName?: string;
   value?: any;
   condition?: string;
   then?: WorkflowStep[];
   else?: WorkflowStep[];
+  toolName?: string;
+  parameters?: Record<string, any>;
+  resultVariable?: string;
   status?: 'pending' | 'completed' | 'failed';
 }
 
@@ -22,15 +27,137 @@ export interface WorkflowDefinition {
   steps: WorkflowStep[];
 }
 
+export interface StepResult {
+  step: string;
+  type: string;
+  status: 'completed' | 'failed';
+  output?: any;
+  error?: string;
+}
+
 export interface ExecutionContext {
   variables: Map<string, any>;
   inputs: Record<string, any>;
   logs: string[];
+  stepResults: StepResult[];
   result?: any;
   currentStep: number;
 }
 
+/**
+ * Tool caller interface for invoking MCP tools from workflows
+ */
+export interface ToolCaller {
+  callTool(toolName: string, parameters: Record<string, any>): Promise<any>;
+}
+
 export class WorkflowExecutor {
+  private dbService?: DatabaseService;
+  private toolCaller?: ToolCaller;
+
+  constructor(dbService?: DatabaseService, toolCaller?: ToolCaller) {
+    this.dbService = dbService;
+    this.toolCaller = toolCaller;
+  }
+
+  /**
+   * Load workflow definition from database by template_id
+   */
+  async loadWorkflowFromDatabase(templateId: number): Promise<WorkflowDefinition | null> {
+    if (!this.dbService) {
+      throw new Error('DatabaseService is required to load workflows from database');
+    }
+
+    try {
+      // Get workflow template
+      const templates = await this.dbService.getTemplates();
+      const template = templates.find(t => t.id === templateId);
+
+      if (!template) {
+        return null;
+      }
+
+      // Check if it's a workflow template
+      const templateData = template as any;
+      if (templateData.type !== 'workflow') {
+        throw new Error(`Template ${templateId} is not a workflow (type: ${templateData.type})`);
+      }
+
+      // Get workflow metadata
+      const metadata = templateData.metadata || {};
+
+      // Get workflow steps from template_properties
+      const properties = await this.dbService.listProperties(templateId);
+      console.log(`[Workflow Loader] Loaded ${properties.length} properties for template ${templateId}`);
+      console.log(`[Workflow Loader] Sample property:`, properties[0]);
+
+      // Filter only workflow steps (step_type != 'property')
+      const stepProperties = properties.filter((prop: any) => {
+        return prop.step_type && prop.step_type !== 'property';
+      });
+      console.log(`[Workflow Loader] Filtered to ${stepProperties.length} workflow steps`);
+
+      // Sort by execution_order
+      stepProperties.sort((a: any, b: any) => {
+        return (a.execution_order || 0) - (b.execution_order || 0);
+      });
+
+      // Convert database records to WorkflowStep objects
+      const steps: WorkflowStep[] = stepProperties.map((prop: any) => {
+        const config = prop.step_config || {};
+        const step: WorkflowStep = {
+          name: prop.key,
+          type: prop.step_type,
+        };
+
+        // Map config properties to step properties based on step type
+        switch (prop.step_type) {
+          case 'log':
+            step.message = config.message;
+            break;
+
+          case 'set_variable':
+            step.variableName = config.variableName;
+            step.value = config.value;
+            break;
+
+          case 'call_tool':
+            step.toolName = config.tool_name;
+            step.parameters = config.parameters;
+            step.resultVariable = config.result_variable;
+            break;
+
+          case 'conditional':
+            step.condition = config.condition;
+            step.then = config.then || [];
+            step.else = config.else || [];
+            break;
+
+          case 'return':
+            step.value = config.value;
+            break;
+        }
+
+        return step;
+      });
+
+      // Use mcp_tool_name from metadata as the workflow name (if available)
+      const workflowName = metadata.mcp_tool_name || template.name;
+
+      const workflow: WorkflowDefinition = {
+        name: workflowName,
+        description: template.description,
+        inputSchema: metadata.input_schema || {},
+        steps,
+      };
+
+      return workflow;
+    } catch (error) {
+      console.error('Error loading workflow from database:', error);
+      throw error;
+    }
+  }
+
   /**
    * Execute a workflow with given inputs
    */
@@ -75,19 +202,23 @@ export class WorkflowExecutor {
       case 'log':
         this.executeLog(step, context);
         break;
-      
+
       case 'set_variable':
         this.executeSetVariable(step, context);
         break;
-      
+
       case 'conditional':
         await this.executeConditional(step, context);
         break;
-      
+
+      case 'call_tool':
+        await this.executeCallTool(step, context);
+        break;
+
       case 'return':
         this.executeReturn(step, context);
         break;
-      
+
       default:
         throw new Error(`Unknown step type: ${(step as any).type}`);
     }
@@ -152,8 +283,47 @@ export class WorkflowExecutor {
     if (step.value === undefined) {
       throw new Error('return step requires a value');
     }
-    
+
     context.result = this.interpolateValue(step.value, context);
+  }
+
+  /**
+   * Execute call_tool step - invokes MCP tool with interpolated parameters
+   */
+  private async executeCallTool(step: WorkflowStep, context: ExecutionContext): Promise<void> {
+    if (!this.toolCaller) {
+      throw new Error('ToolCaller is required to execute call_tool steps. Provide toolCaller in constructor.');
+    }
+
+    if (!step.toolName) {
+      throw new Error('call_tool step requires a toolName');
+    }
+
+    if (!step.parameters) {
+      throw new Error('call_tool step requires parameters');
+    }
+
+    // Interpolate parameters with context values
+    const interpolatedParams = this.interpolateValue(step.parameters, context);
+
+    console.log(`[Workflow ${step.name}] Calling tool: ${step.toolName}`);
+    console.log(`[Workflow ${step.name}] Parameters:`, JSON.stringify(interpolatedParams, null, 2));
+
+    try {
+      // Call the tool via the tool caller interface
+      const result = await this.toolCaller.callTool(step.toolName, interpolatedParams);
+
+      console.log(`[Workflow ${step.name}] Tool result:`, JSON.stringify(result, null, 2));
+
+      // Store result in context variable if specified
+      if (step.resultVariable) {
+        context.variables.set(step.resultVariable, result);
+        console.log(`[Workflow ${step.name}] Stored result in variable: ${step.resultVariable}`);
+      }
+    } catch (error) {
+      console.error(`[Workflow ${step.name}] Tool execution failed:`, error);
+      throw new Error(`Tool '${step.toolName}' execution failed: ${(error as Error).message}`);
+    }
   }
 
   /**
@@ -196,7 +366,7 @@ export class WorkflowExecutor {
   }
 
   /**
-   * Resolve a value path (e.g., "variableName" or "input.fieldName")
+   * Resolve a value path (e.g., "variableName" or "input.fieldName" or "created_object.object_id")
    */
   private resolveValue(path: string, context: ExecutionContext): any {
     // Check if it's an input reference
@@ -204,13 +374,36 @@ export class WorkflowExecutor {
       const fieldName = path.substring(6);
       return context.inputs[fieldName];
     }
-    
+
     // Check if it's just "input" (all inputs)
     if (path === 'input') {
       return context.inputs;
     }
-    
-    // Otherwise, it's a variable
+
+    // Check for "logs" special variable
+    if (path === 'logs') {
+      return context.logs;
+    }
+
+    // Check if path contains dots (nested property access)
+    if (path.includes('.')) {
+      const parts = path.split('.');
+      const variableName = parts[0];
+      let value = context.variables.get(variableName);
+
+      // Navigate nested properties
+      for (let i = 1; i < parts.length && value !== undefined; i++) {
+        if (typeof value === 'object' && value !== null) {
+          value = value[parts[i]];
+        } else {
+          return undefined;
+        }
+      }
+
+      return value;
+    }
+
+    // Otherwise, it's a simple variable
     return context.variables.get(path);
   }
 

@@ -1,14 +1,67 @@
 import { Tool, TextContent } from "@modelcontextprotocol/sdk/types.js";
 import { TaskStage } from "../types/task.js";
 import DatabaseService from "../database.js";
+import { SchemaProperties, ExecutionChainItem } from "../types/property.js";
+import { handleCreate, CreateConfig } from "./create-handler.js";
 
 export class ObjectTools {
   constructor(
-    private sharedDbService: DatabaseService
+    private sharedDbService: DatabaseService,
+    private clientId: string,
+    private createExecutionChain: (properties: SchemaProperties) => ExecutionChainItem[],
+    private validateDependencies: (properties: SchemaProperties, args: Record<string, any>, isUpdateContext?: boolean) => boolean,
+    private loadDynamicSchemaProperties: () => Promise<SchemaProperties>,
+    private loadProjectSchemaProperties: () => Promise<SchemaProperties>,
+    private loadEpicSchemaProperties: () => Promise<SchemaProperties>,
+    private loadRuleSchemaProperties: () => Promise<SchemaProperties>,
+    private projectTools?: any
   ) {}
 
   getToolDefinitions(): Tool[] {
     return [
+      {
+        name: "create_object",
+        description: "Create any object type (task, project, epic, rule) by specifying template_id. Accepts template_id and all dynamic properties for that template type. This is a generic base tool that works with all object templates.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            template_id: {
+              type: "number",
+              description: "Required template ID (1=Task, 2=Project, 3=Epic, 4=Rule). Determines the object type to create."
+            },
+            Title: {
+              type: "string",
+              description: "Object title (usually required by template schema)"
+            },
+            Description: {
+              type: "string",
+              description: "Object description (usually required by template schema)"
+            },
+            Analysis: {
+              type: "string",
+              description: "Optional analysis field (available for some templates)"
+            },
+            stage: {
+              type: "string",
+              description: "Optional workflow stage",
+              enum: ["draft", "backlog", "doing", "review", "completed"]
+            },
+            related: {
+              type: "array",
+              description: "Optional parent relationship array. Example: [{\"id\": 42, \"object\": \"project\"}]",
+              items: {
+                type: "object",
+                properties: {
+                  id: { type: "number", description: "Parent object ID" },
+                  object: { type: "string", description: "Parent object type: 'task', 'project', 'epic', or 'rule'" }
+                },
+                required: ["id", "object"]
+              }
+            }
+          },
+          required: ["template_id"],
+        },
+      } as Tool,
       {
         name: "get_object",
         description: "Retrieve an object by its numeric ID. Returns the complete object data.",
@@ -62,11 +115,13 @@ export class ObjectTools {
   }
 
   canHandle(toolName: string): boolean {
-    return ["get_object", "delete_object", "list_objects"].includes(toolName);
+    return ["create_object", "get_object", "delete_object", "list_objects"].includes(toolName);
   }
 
   async handle(name: string, toolArgs?: Record<string, any>) {
     switch (name) {
+      case "create_object":
+        return await this.handleCreateObject(toolArgs);
       case "get_object":
         return await this.handleGetObject(toolArgs);
       case "delete_object":
@@ -78,6 +133,126 @@ export class ObjectTools {
     }
   }
 
+  /**
+   * Handle create_object tool - generic object creation for any template type
+   */
+  private async handleCreateObject(toolArgs?: Record<string, any>) {
+    const templateId = toolArgs?.template_id;
+
+    // Validate template_id parameter
+    if (!templateId || typeof templateId !== 'number' || templateId < 1) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: "Error: Valid numeric template_id is required (1=Task, 2=Project, 3=Epic, 4=Rule).",
+          } as TextContent,
+        ],
+      };
+    }
+
+    // Verify template exists and is an object template (not workflow)
+    try {
+      const templates = await this.sharedDbService.getTemplates();
+      const template = templates.find(t => t.id === templateId);
+
+      if (!template) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: Template with ID ${templateId} not found.`,
+            } as TextContent,
+          ],
+        };
+      }
+
+      // Check if template type is 'object' (not 'workflow')
+      // Note: templates table now has 'type' column from migration 001
+      if ((template as any).type && (template as any).type !== 'object') {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: Template ${templateId} is a '${(template as any).type}' template. Use create_object only with object templates (type='object').`,
+            } as TextContent,
+          ],
+        };
+      }
+    } catch (error) {
+      console.error('Error validating template:', error);
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error: Failed to validate template ${templateId}.`,
+          } as TextContent,
+        ],
+      };
+    }
+
+    // Map template_id to appropriate configuration
+    let config: CreateConfig;
+
+    switch (templateId) {
+      case 1:
+        config = {
+          templateId: 1,
+          typeName: "Task",
+          responseIdField: "task_id",
+          loadSchema: this.loadDynamicSchemaProperties,
+        };
+        break;
+
+      case 2:
+        config = {
+          templateId: 2,
+          typeName: "Project",
+          responseIdField: "project_id",
+          loadSchema: this.loadProjectSchemaProperties,
+        };
+        break;
+
+      case 3:
+        config = {
+          templateId: 3,
+          typeName: "Epic",
+          responseIdField: "epic_id",
+          loadSchema: this.loadEpicSchemaProperties,
+        };
+        break;
+
+      case 4:
+        config = {
+          templateId: 4,
+          typeName: "Rule",
+          responseIdField: "rule_id",
+          loadSchema: this.loadRuleSchemaProperties,
+        };
+        break;
+
+      default:
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: Unsupported template_id ${templateId}. Supported values: 1 (Task), 2 (Project), 3 (Epic), 4 (Rule).`,
+            } as TextContent,
+          ],
+        };
+    }
+
+    // Call the generic handleCreate function
+    return handleCreate(
+      config,
+      toolArgs,
+      this.sharedDbService,
+      this.clientId,
+      this.createExecutionChain,
+      this.validateDependencies,
+      this.projectTools
+    );
+  }
 
   private async handleGetObject(toolArgs?: Record<string, any>) {
     const objectId = toolArgs?.object_id;
@@ -305,9 +480,25 @@ export class ObjectTools {
 }
 
 export function createObjectTools(
-  sharedDbService: DatabaseService
+  sharedDbService: DatabaseService,
+  clientId: string,
+  createExecutionChain: (properties: SchemaProperties) => ExecutionChainItem[],
+  validateDependencies: (properties: SchemaProperties, args: Record<string, any>, isUpdateContext?: boolean) => boolean,
+  loadDynamicSchemaProperties: () => Promise<SchemaProperties>,
+  loadProjectSchemaProperties: () => Promise<SchemaProperties>,
+  loadEpicSchemaProperties: () => Promise<SchemaProperties>,
+  loadRuleSchemaProperties: () => Promise<SchemaProperties>,
+  projectTools?: any
 ): ObjectTools {
   return new ObjectTools(
-    sharedDbService
+    sharedDbService,
+    clientId,
+    createExecutionChain,
+    validateDependencies,
+    loadDynamicSchemaProperties,
+    loadProjectSchemaProperties,
+    loadEpicSchemaProperties,
+    loadRuleSchemaProperties,
+    projectTools
   );
 }
