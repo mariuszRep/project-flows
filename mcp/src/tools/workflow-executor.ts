@@ -166,6 +166,7 @@ export class WorkflowExecutor {
       variables: new Map(),
       inputs,
       logs: [],
+      stepResults: [],
       currentStep: 0,
     };
 

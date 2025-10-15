@@ -1,8 +1,25 @@
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Plus, GitBranch } from 'lucide-react';
+import { Plus, GitBranch, Trash2, MoreVertical } from 'lucide-react';
 import { useMCP } from '@/contexts/MCPContext';
 import { NodePalette } from './NodePalette';
+import { useToast } from '@/hooks/use-toast';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 interface Workflow {
   id: number;
@@ -18,16 +35,19 @@ interface WorkflowSidebarProps {
   refreshTrigger?: number;
 }
 
-export function WorkflowSideMenu({ 
-  isCollapsed, 
-  selectedWorkflowId, 
-  onWorkflowSelect, 
+export function WorkflowSideMenu({
+  isCollapsed,
+  selectedWorkflowId,
+  onWorkflowSelect,
   onCreateWorkflow,
-  refreshTrigger 
+  refreshTrigger
 }: WorkflowSidebarProps) {
   const { callTool, isConnected, tools } = useMCP();
+  const { toast } = useToast();
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [workflowToDelete, setWorkflowToDelete] = useState<Workflow | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Set up change event listeners for real-time updates
   // TODO: Add template change events when available
@@ -114,6 +134,41 @@ export function WorkflowSideMenu({
     }
   };
 
+  const handleDeleteWorkflow = async () => {
+    if (!workflowToDelete || !callTool) return;
+
+    setIsDeleting(true);
+    try {
+      await callTool('delete_template', {
+        template_id: workflowToDelete.id
+      });
+
+      // If the deleted workflow was selected, deselect it
+      if (selectedWorkflowId === workflowToDelete.id) {
+        onWorkflowSelect(null);
+      }
+
+      // Refresh the workflow list
+      fetchWorkflows();
+
+      toast({
+        title: "Workflow Deleted",
+        description: `"${workflowToDelete.name}" has been deleted successfully.`,
+      });
+
+      setWorkflowToDelete(null);
+    } catch (error) {
+      console.error('Error deleting workflow:', error);
+      toast({
+        title: "Deletion Failed",
+        description: "Failed to delete workflow. It may still be in use.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   if (isCollapsed) {
     return (
       <div className="px-1 py-2 space-y-2">
@@ -179,16 +234,33 @@ export function WorkflowSideMenu({
       ) : (
         <div className="space-y-1 mb-6">
           {workflows.map((workflow) => (
-            <Button
-              key={workflow.id}
-              variant="default"
-              size="sm"
-              onClick={() => handleWorkflowClick(workflow.id)}
-              className={`w-full justify-start ${selectedWorkflowId === workflow.id ? 'bg-border' : ''}`}
-            >
-              <GitBranch className="h-4 w-4 mr-2 flex-shrink-0" />
-              <span className="truncate flex-1 text-left">{workflow.name}</span>
-            </Button>
+            <div key={workflow.id} className="flex items-center gap-1">
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => handleWorkflowClick(workflow.id)}
+                className={`flex-1 justify-start ${selectedWorkflowId === workflow.id ? 'bg-border' : ''}`}
+              >
+                <GitBranch className="h-4 w-4 mr-2 flex-shrink-0" />
+                <span className="truncate flex-1 text-left">{workflow.name}</span>
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-8 w-8">
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    onClick={() => setWorkflowToDelete(workflow)}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           ))}
         </div>
       )}
@@ -200,6 +272,29 @@ export function WorkflowSideMenu({
           <NodePalette />
         </>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={!!workflowToDelete} onOpenChange={() => setWorkflowToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Workflow?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete "{workflowToDelete?.name}"? This will permanently
+              delete the workflow and all its steps. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteWorkflow}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? 'Deleting...' : 'Delete Workflow'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

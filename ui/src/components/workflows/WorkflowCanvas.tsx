@@ -23,8 +23,10 @@ import { ReturnNode } from './nodes/ReturnNode';
 import { StartNode } from './nodes/StartNode';
 import { EndNode } from './nodes/EndNode';
 import { NodeEditModal } from './NodeEditModal';
-import { GitBranch } from 'lucide-react';
+import { GitBranch, Save, Loader2 } from 'lucide-react';
 import { useMCP } from '@/contexts/MCPContext';
+import { Button } from '@/components/ui/button';
+import { useToast } from '@/hooks/use-toast';
 
 interface WorkflowCanvasProps {
   workflowId: number | null;
@@ -90,14 +92,18 @@ function workflowToReactFlow(workflow: WorkflowData): { nodes: Node[]; edges: Ed
 function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
   const { callTool, isConnected, tools } = useMCP();
   const { screenToFlowPosition, getViewport } = useReactFlow();
+  const { toast } = useToast();
   const [workflow, setWorkflow] = useState<WorkflowData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [nodeIdCounter, setNodeIdCounter] = useState(1);
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
+  const [originalSteps, setOriginalSteps] = useState<WorkflowStep[]>([]);
 
   // Fetch workflow data when workflowId changes
   useEffect(() => {
@@ -179,6 +185,8 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
                 description: template.description || '',
                 steps,
               });
+              setOriginalSteps(steps);
+              setIsDirty(false);
             }
           } else {
             setWorkflow(null);
@@ -214,6 +222,113 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
     }
   }, [workflow, setNodes, setEdges]);
 
+  // Save workflow handler
+  const handleSaveWorkflow = useCallback(async () => {
+    if (!workflowId || !workflow || !callTool) return;
+
+    setIsSaving(true);
+    try {
+      // Convert React Flow nodes back to workflow steps
+      const currentSteps = nodes
+        .filter(node => node.type !== 'start' && node.type !== 'end')
+        .map((node, index) => ({
+          name: node.data.label || `Step ${index + 1}`,
+          type: node.data.stepType || node.type,
+          step_type: node.data.stepType || node.type,
+          step_config: node.data.config || {},
+          position: node.position,
+          execution_order: index
+        }));
+
+      // Find steps to create, update, or delete
+      const stepsToCreate = currentSteps.filter(step =>
+        !originalSteps.find(orig => orig.name === step.name)
+      );
+
+      const stepsToUpdate = currentSteps.filter(step => {
+        const original = originalSteps.find(orig => orig.name === step.name);
+        return original && JSON.stringify(original.step_config) !== JSON.stringify(step.step_config);
+      });
+
+      const stepsToDelete = originalSteps.filter(orig =>
+        !currentSteps.find(step => step.name === orig.name)
+      );
+
+      // Create new steps
+      for (const step of stepsToCreate) {
+        await callTool('create_property', {
+          template_id: workflowId,
+          key: step.name,
+          type: 'text',
+          description: `Workflow step: ${step.name}`,
+          step_type: step.step_type,
+          step_config: step.step_config,
+          execution_order: step.execution_order
+        });
+      }
+
+      // Update existing steps
+      for (const step of stepsToUpdate) {
+        const original = originalSteps.find(orig => orig.name === step.name);
+        if (original && (original as any).id) {
+          await callTool('update_property', {
+            property_id: (original as any).id,
+            step_config: step.step_config,
+            execution_order: step.execution_order
+          });
+        }
+      }
+
+      // Delete removed steps
+      for (const step of stepsToDelete) {
+        if ((step as any).id) {
+          await callTool('delete_property', {
+            property_id: (step as any).id
+          });
+        }
+      }
+
+      // Update template metadata with node positions
+      const layout = {
+        nodes: nodes.map(node => ({
+          id: node.id,
+          position: node.position
+        }))
+      };
+
+      const template = await callTool('get_template', { template_id: workflowId });
+      if (template && template.content && template.content[0]) {
+        const templateData = JSON.parse(template.content[0].text);
+        const metadata = templateData.metadata || {};
+
+        await callTool('update_template', {
+          template_id: workflowId,
+          metadata: {
+            ...metadata,
+            layout
+          }
+        });
+      }
+
+      setIsDirty(false);
+      setOriginalSteps(currentSteps);
+
+      toast({
+        title: "Workflow Saved",
+        description: "Your workflow has been saved successfully.",
+      });
+    } catch (error) {
+      console.error('Error saving workflow:', error);
+      toast({
+        title: "Save Failed",
+        description: "Failed to save workflow. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  }, [workflowId, workflow, nodes, originalSteps, callTool, toast]);
+
   // Drag and drop handlers
   const onDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault();
@@ -245,6 +360,7 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
 
       setNodes((nds) => nds.concat(newNode));
       setNodeIdCounter((id) => id + 1);
+      setIsDirty(true);
 
       // Auto-select and open property panel
       setSelectedNode(newNode);
@@ -275,6 +391,7 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
 
       setNodes((nds) => nds.concat(newNode));
       setNodeIdCounter((id) => id + 1);
+      setIsDirty(true);
 
       // Auto-select and open property panel
       setSelectedNode(newNode);
@@ -323,6 +440,7 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
           node.id === nodeId ? { ...node, data } : node
         )
       );
+      setIsDirty(true);
     },
     [setNodes]
   );
@@ -332,6 +450,7 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
       setNodes((nds) => nds.filter((node) => node.id !== nodeId));
       setSelectedNode(null);
       setIsPanelOpen(false);
+      setIsDirty(true);
     },
     [setNodes]
   );
@@ -404,11 +523,32 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
             <h2 className="text-lg font-semibold flex items-center gap-2">
               <GitBranch className="w-5 h-5" />
               {workflow.name}
+              {isDirty && <span className="text-xs text-muted-foreground">(unsaved changes)</span>}
             </h2>
             <p className="text-sm text-muted-foreground mt-1">{workflow.description}</p>
           </div>
-          <div className="text-sm text-muted-foreground">
-            {workflow.steps.length} step{workflow.steps.length !== 1 ? 's' : ''}
+          <div className="flex items-center gap-4">
+            <div className="text-sm text-muted-foreground">
+              {nodes.filter(n => n.type !== 'start' && n.type !== 'end').length} node{nodes.filter(n => n.type !== 'start' && n.type !== 'end').length !== 1 ? 's' : ''}
+            </div>
+            <Button
+              onClick={handleSaveWorkflow}
+              disabled={!isDirty || isSaving || !isConnected}
+              size="sm"
+              className="gap-2"
+            >
+              {isSaving ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4" />
+                  Save Workflow
+                </>
+              )}
+            </Button>
           </div>
         </div>
       </div>

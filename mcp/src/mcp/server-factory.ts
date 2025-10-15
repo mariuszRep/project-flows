@@ -751,3 +751,13 @@ export function listDynamicWorkflows(): WorkflowDefinition[] {
 export function getWorkflow(name: string): WorkflowDefinition | undefined {
   return dynamicWorkflows.get(name);
 }
+
+/**
+ * Refresh workflows from database - call this after template CRUD operations
+ * @param dbService - Database service instance
+ */
+export async function refreshWorkflows(dbService: DatabaseService): Promise<void> {
+  console.log('Refreshing workflows from database...');
+  await loadWorkflowsFromDatabase(dbService);
+  console.log('Workflows refreshed successfully');
+}

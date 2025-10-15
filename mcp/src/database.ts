@@ -992,6 +992,280 @@ class DatabaseService {
     }
   }
 
+  /**
+   * Creates a new template (workflow or object) in the database.
+   * @param templateData - The template data including name, description, type, metadata, and related_schema
+   * @param userId - The user ID creating the template (defaults to 'system')
+   * @returns The ID of the newly created template
+   */
+  async createTemplate(templateData: {
+    name: string;
+    description: string;
+    type?: string;
+    metadata?: Record<string, any>;
+    related_schema?: any[];
+  }, userId: string = 'system'): Promise<number> {
+    try {
+      // Validate required fields
+      if (!templateData.name || typeof templateData.name !== 'string' || !templateData.name.trim()) {
+        throw new Error('Template name is required and must be a non-empty string');
+      }
+      if (!templateData.description || typeof templateData.description !== 'string' || !templateData.description.trim()) {
+        throw new Error('Template description is required and must be a non-empty string');
+      }
+
+      // Validate type if provided
+      const type = templateData.type || 'object';
+      if (type !== 'object' && type !== 'workflow') {
+        throw new Error('Template type must be "object" or "workflow"');
+      }
+
+      // Validate metadata for workflows
+      if (type === 'workflow' && templateData.metadata) {
+        const metadata = templateData.metadata;
+        if (metadata.mcp_tool_name && typeof metadata.mcp_tool_name !== 'string') {
+          throw new Error('metadata.mcp_tool_name must be a string');
+        }
+        if (metadata.enabled !== undefined && typeof metadata.enabled !== 'boolean') {
+          throw new Error('metadata.enabled must be a boolean');
+        }
+      }
+
+      const query = `
+        INSERT INTO templates (name, description, type, metadata, related_schema, created_by, updated_by)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING id
+      `;
+      const values = [
+        templateData.name.trim(),
+        templateData.description.trim(),
+        type,
+        JSON.stringify(templateData.metadata || {}),
+        JSON.stringify(templateData.related_schema || []),
+        userId,
+        userId
+      ];
+
+      const result = await this.pool.query(query, values);
+      const templateId = result.rows[0].id;
+
+      console.log(`Template created successfully with ID: ${templateId}`);
+      return templateId;
+    } catch (error) {
+      console.error('Error creating template:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Updates an existing template in the database.
+   * @param templateId - The ID of the template to update
+   * @param updates - Partial template data with fields to update
+   * @param userId - The user ID performing the update (defaults to 'system')
+   * @returns True if update was successful, false otherwise
+   */
+  async updateTemplate(templateId: number, updates: {
+    name?: string;
+    description?: string;
+    type?: string;
+    metadata?: Record<string, any>;
+    related_schema?: any[];
+  }, userId: string = 'system'): Promise<boolean> {
+    try {
+      // Validate templateId
+      if (!Number.isInteger(templateId) || templateId < 1) {
+        throw new Error('Invalid template_id: must be a positive integer');
+      }
+
+      // Check if template exists
+      const checkQuery = 'SELECT id, type FROM templates WHERE id = $1';
+      const checkResult = await this.pool.query(checkQuery, [templateId]);
+
+      if (checkResult.rows.length === 0) {
+        throw new Error(`Template with ID ${templateId} not found`);
+      }
+
+      // Build update query dynamically
+      const updateFields = [];
+      const values = [];
+      let paramIndex = 1;
+
+      if (updates.name !== undefined) {
+        if (typeof updates.name !== 'string' || !updates.name.trim()) {
+          throw new Error('Template name must be a non-empty string');
+        }
+        updateFields.push(`name = $${paramIndex++}`);
+        values.push(updates.name.trim());
+      }
+
+      if (updates.description !== undefined) {
+        if (typeof updates.description !== 'string' || !updates.description.trim()) {
+          throw new Error('Template description must be a non-empty string');
+        }
+        updateFields.push(`description = $${paramIndex++}`);
+        values.push(updates.description.trim());
+      }
+
+      if (updates.type !== undefined) {
+        if (updates.type !== 'object' && updates.type !== 'workflow') {
+          throw new Error('Template type must be "object" or "workflow"');
+        }
+        updateFields.push(`type = $${paramIndex++}`);
+        values.push(updates.type);
+      }
+
+      if (updates.metadata !== undefined) {
+        updateFields.push(`metadata = $${paramIndex++}`);
+        values.push(JSON.stringify(updates.metadata));
+      }
+
+      if (updates.related_schema !== undefined) {
+        updateFields.push(`related_schema = $${paramIndex++}`);
+        values.push(JSON.stringify(updates.related_schema));
+      }
+
+      if (updateFields.length === 0) {
+        return false; // No fields to update
+      }
+
+      updateFields.push(`updated_at = CURRENT_TIMESTAMP`);
+      updateFields.push(`updated_by = $${paramIndex++}`);
+      values.push(userId);
+      values.push(templateId);
+
+      const query = `UPDATE templates SET ${updateFields.join(', ')} WHERE id = $${paramIndex}`;
+      const result = await this.pool.query(query, values);
+
+      return (result.rowCount || 0) > 0;
+    } catch (error) {
+      console.error('Error updating template:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Deletes a template from the database.
+   * This will cascade delete all associated properties and fail if objects are using this template.
+   * @param templateId - The ID of the template to delete
+   * @param userId - The user ID performing the deletion (defaults to 'system')
+   * @returns True if deletion was successful, false if template not found
+   */
+  async deleteTemplate(templateId: number, userId: string = 'system'): Promise<boolean> {
+    const client = await this.pool.connect();
+
+    try {
+      await client.query('BEGIN');
+
+      // Check if template exists
+      const templateQuery = 'SELECT id, name, type FROM templates WHERE id = $1';
+      const templateResult = await client.query(templateQuery, [templateId]);
+
+      if (templateResult.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return false;
+      }
+
+      const template = templateResult.rows[0];
+
+      // Check if any objects are using this template
+      const objectsQuery = 'SELECT COUNT(*) as count FROM objects WHERE template_id = $1';
+      const objectsResult = await client.query(objectsQuery, [templateId]);
+      const objectCount = parseInt(objectsResult.rows[0].count);
+
+      if (objectCount > 0) {
+        await client.query('ROLLBACK');
+        throw new Error(`Cannot delete template "${template.name}": ${objectCount} object(s) are still using it. Delete those objects first.`);
+      }
+
+      // Delete template (will cascade to template_properties)
+      const deleteQuery = 'DELETE FROM templates WHERE id = $1';
+      const deleteResult = await client.query(deleteQuery, [templateId]);
+
+      await client.query('COMMIT');
+      console.log(`Template ${templateId} ("${template.name}") deleted successfully`);
+      return (deleteResult.rowCount || 0) > 0;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('Error deleting template:', error);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Gets a single template by ID.
+   * @param templateId - The ID of the template to retrieve
+   * @returns The template data if found, null otherwise
+   */
+  async getTemplate(templateId: number): Promise<{
+    id: number;
+    name: string;
+    description: string;
+    related_schema: any;
+    type: string;
+    metadata: any;
+    created_at: Date;
+    updated_at: Date;
+    created_by: string;
+    updated_by: string;
+  } | null> {
+    try {
+      const query = `
+        SELECT
+          id,
+          name,
+          description,
+          COALESCE(related_schema, '[]'::jsonb) AS related_schema,
+          type,
+          COALESCE(metadata, '{}'::jsonb) AS metadata,
+          created_at,
+          updated_at,
+          created_by,
+          updated_by
+        FROM templates
+        WHERE id = $1
+      `;
+      const result = await this.pool.query(query, [templateId]);
+
+      if (result.rows.length === 0) {
+        return null;
+      }
+
+      const row = result.rows[0];
+      let relatedSchema = row.related_schema ?? [];
+      let metadata = row.metadata ?? {};
+
+      // Handle cases where the driver returns JSONB as string
+      if (typeof relatedSchema === 'string') {
+        try {
+          relatedSchema = JSON.parse(relatedSchema);
+        } catch (parseError) {
+          console.error('Failed to parse related_schema JSON:', parseError);
+          relatedSchema = [];
+        }
+      }
+
+      if (typeof metadata === 'string') {
+        try {
+          metadata = JSON.parse(metadata);
+        } catch (parseError) {
+          console.error('Failed to parse metadata JSON:', parseError);
+          metadata = {};
+        }
+      }
+
+      return {
+        ...row,
+        related_schema: Array.isArray(relatedSchema) ? relatedSchema : [],
+        metadata: typeof metadata === 'object' ? metadata : {}
+      };
+    } catch (error) {
+      console.error('Error fetching template:', error);
+      return null;
+    }
+  }
+
   async close() {
     await this.pool.end();
   }
