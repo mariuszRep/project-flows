@@ -59,15 +59,17 @@ const DraftTasks = () => {
   // Project view state
   const [viewingProjectId, setViewingProjectId] = useState<number | null>(null);
   
-  // Delete task state
+  // Delete entity state (unified for all entity types)
   const [deleteDialog, setDeleteDialog] = useState<{
     isOpen: boolean;
-    taskId: number | null;
-    taskTitle: string;
+    entityId: number | null;
+    entityTitle: string;
+    entityType: string;
   }>({
     isOpen: false,
-    taskId: null,
-    taskTitle: '',
+    entityId: null,
+    entityTitle: '',
+    entityType: '',
   });
   
   const stages: { key: TaskStage; title: string; color: string }[] = [
@@ -450,12 +452,29 @@ const DraftTasks = () => {
     setError(null);
   };
 
-  const handleTaskDelete = (taskId: number, taskTitle: string) => {
+  // Unified delete handler for all entity types
+  const handleEntityDelete = (entityId: number, entityTitle: string, entityType?: string) => {
+    // Find entity to determine type if not provided
+    const entity = findEntityById(allEntities, entityId);
+    const type = entityType || entity?.type || 'Entity';
+
+    // Open confirmation dialog
     setDeleteDialog({
       isOpen: true,
-      taskId,
-      taskTitle,
+      entityId: entityId,
+      entityTitle: entityTitle,
+      entityType: type,
     });
+  };
+
+  // Backward compatibility: handleTaskDelete still works
+  const handleTaskDelete = (taskId: number, taskTitle: string) => {
+    handleEntityDelete(taskId, taskTitle, 'Task');
+  };
+
+  // Project/Epic delete now uses unified handler
+  const handleProjectDelete = (entityId: number, entityTitle: string) => {
+    handleEntityDelete(entityId, entityTitle);
   };
 
   // Helper: remove an entity from a nested tree immutably
@@ -473,26 +492,27 @@ const DraftTasks = () => {
     }, []);
   };
 
-  const confirmTaskDelete = async () => {
-    const taskIdToDelete = deleteDialog.taskId;
+  // Unified delete confirmation handler for all entity types
+  const confirmEntityDelete = async () => {
+    const entityIdToDelete = deleteDialog.entityId;
 
-    if (!isConnected || !callTool || !taskIdToDelete) {
-      console.log('MCP not connected or no task ID, skipping delete');
-      setDeleteDialog({ isOpen: false, taskId: null, taskTitle: '' });
+    if (!isConnected || !callTool || !entityIdToDelete) {
+      console.log('MCP not connected or no entity ID, skipping delete');
+      setDeleteDialog({ isOpen: false, entityId: null, entityTitle: '', entityType: '' });
       return;
     }
 
     // Close dialog immediately
-    setDeleteDialog({ isOpen: false, taskId: null, taskTitle: '' });
+    setDeleteDialog({ isOpen: false, entityId: null, entityTitle: '', entityType: '' });
 
     // Set delete flag to prevent notification-triggered refreshes
     isDeleting.current = true;
 
     try {
       // Find the entity to get its template_id
-      const entity = findEntityById(allEntities, taskIdToDelete);
+      const entity = findEntityById(allEntities, entityIdToDelete);
       if (!entity) {
-        console.error('Entity not found:', taskIdToDelete);
+        console.error('Entity not found:', entityIdToDelete);
         return;
       }
 
@@ -505,37 +525,51 @@ const DraftTasks = () => {
         return;
       }
 
-      console.log('Starting delete for entity:', taskIdToDelete);
+      console.log(`Starting delete for ${entity.type}:`, entityIdToDelete);
 
-      // Remove entity from local state immediately
+      // Remove entity from local state immediately (optimistic update)
       setAllEntities(prevEntities => {
-        const updated = removeEntityFromTree(prevEntities, taskIdToDelete);
+        const updated = removeEntityFromTree(prevEntities, entityIdToDelete);
         console.log('Entities after optimistic delete');
         return updated;
       });
 
-      // Close edit form if the deleted task was being edited
-      if (editingTaskId === taskIdToDelete) {
+      // Close edit forms and viewers if the deleted entity was being viewed/edited
+      if (editingTaskId === entityIdToDelete) {
         setEditingTaskId(null);
       }
-
-      // Close any open viewers
-      if (viewingTaskId === taskIdToDelete) {
+      if (editingProjectId === entityIdToDelete) {
+        setEditingProjectId(null);
+      }
+      if (viewingTaskId === entityIdToDelete) {
         setViewingTaskId(null);
       }
-      if (viewingEntityId === taskIdToDelete) {
+      if (viewingProjectId === entityIdToDelete) {
+        setViewingProjectId(null);
+      }
+      if (viewingEntityId === entityIdToDelete) {
         setViewingEntityId(null);
         setViewingEntityType(null);
       }
 
-      // Call MCP delete WITHOUT event emission to avoid triggering fetchAllEntities
+      // If deleted entity was the selected project, deselect it
+      if (selectedProjectId === entityIdToDelete) {
+        await handleProjectSelect(null);
+      }
+
+      // Call MCP delete
       console.log('Calling delete_object via MCP');
       await callTool(deleteTool.name, {
-        object_id: taskIdToDelete,
+        object_id: entityIdToDelete,
         template_id: entity.template_id
       });
 
       console.log('Delete API call completed successfully');
+
+      // Trigger sidebar refresh if project/epic was deleted
+      if (entity.type === 'Project' || entity.type === 'Epic') {
+        setSidebarRefreshTrigger(prev => prev + 1);
+      }
 
       // Wait a bit before allowing refreshes again
       setTimeout(() => {
@@ -543,16 +577,16 @@ const DraftTasks = () => {
         console.log('Delete flag cleared, refreshes now allowed');
       }, 500);
     } catch (err) {
-      console.error('Error deleting task:', err);
-      setError(err instanceof Error ? err.message : 'Failed to delete task');
+      console.error('Error deleting entity:', err);
+      setError(err instanceof Error ? err.message : 'Failed to delete entity');
       isDeleting.current = false;
       // Only refresh on error
       fetchAllEntities();
     }
   };
 
-  const cancelTaskDelete = () => {
-    setDeleteDialog({ isOpen: false, taskId: null, taskTitle: '' });
+  const cancelEntityDelete = () => {
+    setDeleteDialog({ isOpen: false, entityId: null, entityTitle: '', entityType: '' });
   };
 
   const handleMoveEntity = async (entityId: number, newStage: TaskStage) => {
@@ -711,49 +745,6 @@ const DraftTasks = () => {
     if (viewingProjectId) {
       setEditingProjectId(viewingProjectId);
       setViewingProjectId(null);
-    }
-  };
-
-  const handleProjectDelete = async (projectId: number, projectTitle: string) => {
-    if (!isConnected || !callToolWithEvent) {
-      console.log('MCP not connected, skipping project delete');
-      return;
-    }
-
-    try {
-      const deleteTool = tools.find(tool => tool.name === 'delete_object') 
-        || tools.find(tool => tool.name.endsWith('delete_object') || tool.name.includes('delete_object'));
-      
-      if (deleteTool) {
-        // Use callToolWithEvent to trigger events after successful deletion
-        const result = await callToolWithEvent(deleteTool.name, {
-          object_id: projectId,
-          template_id: 2 // Projects have template_id = 2
-        });
-        
-        console.log('Project delete result:', result);
-        
-        // Close the edit form
-        setEditingProjectId(null);
-        setShowCreateProjectForm(false);
-        
-        // If the deleted project was selected, deselect it
-        if (selectedProjectId === projectId) {
-          await handleProjectSelect(null);
-        }
-        
-        // Trigger sidebar refresh and optimistically remove from local state
-        setSidebarRefreshTrigger(prev => prev + 1);
-        setAllEntities(prev => removeEntityFromTree(prev, projectId));
-        
-        // No need to manually refresh - the event system will handle it
-      } else {
-        console.log('Delete tool not available');
-        setError('Delete functionality is not available');
-      }
-    } catch (err) {
-      console.error('Error deleting project:', err);
-      setError(err instanceof Error ? err.message : 'Failed to delete project');
     }
   };
 
@@ -974,10 +965,10 @@ const DraftTasks = () => {
         
         <ConfirmationDialog
           isOpen={deleteDialog.isOpen}
-          onClose={cancelTaskDelete}
-          onConfirm={confirmTaskDelete}
-          title="Delete Task"
-          description={`Are you sure you want to delete "${deleteDialog.taskTitle}"? This action cannot be undone.`}
+          onClose={cancelEntityDelete}
+          onConfirm={confirmEntityDelete}
+          title={`Delete ${deleteDialog.entityType}`}
+          description={`Are you sure you want to delete "${deleteDialog.entityTitle}"? This action cannot be undone.`}
           confirmText="Delete"
           cancelText="Cancel"
           variant="destructive"
@@ -1035,18 +1026,20 @@ const DraftTasks = () => {
         })()}
 
         {/* Task Creation using ObjectView create mode */}
-        <ObjectView
-          entityType="task"
-          createMode={true}
-          isOpen={showAddTaskForm}
-          onClose={() => {
-            setShowAddTaskForm(false);
-            setError(null);
-          }}
-          onSuccess={handleTaskSuccess}
-          initialStage="draft"
-          templateId={1}
-        />
+        {showAddTaskForm && (
+          <ObjectView
+            entityType="task"
+            createMode={true}
+            isOpen={true}
+            onClose={() => {
+              setShowAddTaskForm(false);
+              setError(null);
+            }}
+            onSuccess={handleTaskSuccess}
+            initialStage="draft"
+            templateId={1}
+          />
+        )}
 
         {/* Epic Creation using ObjectView create mode */}
         {showCreateEpicForm && (
@@ -1063,14 +1056,16 @@ const DraftTasks = () => {
           />
         )}
         
-        <ObjectView
-          entityType="task"
-          entityId={viewingTaskId || 0}
-          isOpen={!!viewingTaskId}
-          onClose={() => setViewingTaskId(null)}
-          onTaskUpdate={handleMoveEntity}
-          onDelete={handleTaskDelete}
-        />
+        {viewingTaskId && (
+          <ObjectView
+            entityType="task"
+            entityId={viewingTaskId}
+            isOpen={true}
+            onClose={() => setViewingTaskId(null)}
+            onTaskUpdate={handleMoveEntity}
+            onDelete={handleTaskDelete}
+          />
+        )}
         
         {viewingProjectId && viewingEntityType && (
           viewingEntityType === 'Epic' ? (

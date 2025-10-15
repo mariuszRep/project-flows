@@ -284,6 +284,9 @@ export default function Board() {
       if (viewingTaskId === taskId) {
         setViewingTaskId(null);
       }
+      if (editingTaskId === taskId) {
+        setEditingTaskId(null);
+      }
 
       console.log('DELETE: About to call MCP delete');
 
@@ -545,22 +548,26 @@ export default function Board() {
           />
         )}
         
-        <ObjectView
-          entityType="task"
-          entityId={viewingTaskId || 0}
-          isOpen={!!viewingTaskId}
-          onClose={() => setViewingTaskId(null)}
-          onTaskUpdate={handleTaskUpdate}
-          onDelete={handleTaskDelete}
-        />
-        
-        <ObjectView
-          entityType="project"
-          entityId={viewingProjectId || 0}
-          isOpen={!!viewingProjectId}
-          onClose={() => setViewingProjectId(null)}
-          onDelete={handleProjectDelete}
-        />
+        {viewingTaskId && (
+          <ObjectView
+            entityType="task"
+            entityId={viewingTaskId}
+            isOpen={true}
+            onClose={() => setViewingTaskId(null)}
+            onTaskUpdate={handleTaskUpdate}
+            onDelete={handleTaskDelete}
+          />
+        )}
+
+        {viewingProjectId && (
+          <ObjectView
+            entityType="project"
+            entityId={viewingProjectId}
+            isOpen={true}
+            onClose={() => setViewingProjectId(null)}
+            onDelete={handleProjectDelete}
+          />
+        )}
 
         {/* Project Creation using ObjectView create mode */}
         {showCreateProjectForm && !editingProjectId && (
