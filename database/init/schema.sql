@@ -2,8 +2,10 @@
 -- PostgreSQL database dump
 --
 
--- Dumped from database version 15.13 (Debian 15.13-1.pgdg120+1)
--- Dumped by pg_dump version 15.13 (Debian 15.13-1.pgdg120+1)
+\restrict 3ovflBuD2bDyjMHXN5Zmh0WmpDjwUqTc83BhHhchi12ZtnZI4QUePd2d2i8lDSx
+
+-- Dumped from database version 15.14 (Debian 15.14-1.pgdg13+1)
+-- Dumped by pg_dump version 15.14 (Debian 15.14-1.pgdg13+1)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -61,14 +63,11 @@ DECLARE
     new_parent_id integer := NULL;
     old_parent_id integer := NULL;
 BEGIN
-    -- Determine event type
     IF TG_OP = 'INSERT' THEN
         event_type = 'created';
-
         IF NEW.related IS NOT NULL AND jsonb_typeof(NEW.related) = 'array' AND jsonb_array_length(NEW.related) > 0 THEN
             new_parent_id := (NEW.related->0->>'id')::integer;
         END IF;
-
         notification_payload = json_build_object(
             'event_type', event_type,
             'object_type', CASE
@@ -89,23 +88,16 @@ BEGIN
         );
     ELSIF TG_OP = 'UPDATE' THEN
         event_type = 'updated';
-
         IF NEW.related IS NOT NULL AND jsonb_typeof(NEW.related) = 'array' AND jsonb_array_length(NEW.related) > 0 THEN
             new_parent_id := (NEW.related->0->>'id')::integer;
         END IF;
-
         IF OLD.related IS NOT NULL AND jsonb_typeof(OLD.related) = 'array' AND jsonb_array_length(OLD.related) > 0 THEN
             old_parent_id := (OLD.related->0->>'id')::integer;
         END IF;
-
-        -- Detect changes to related, dependencies, and derived parent relationship
         related_changed := (OLD.related IS DISTINCT FROM NEW.related);
         dependencies_changed := (OLD.dependencies IS DISTINCT FROM NEW.dependencies);
         parent_id_changed := (old_parent_id IS DISTINCT FROM new_parent_id);
-
-        -- Calculate relationship changes if related array changed
         IF related_changed THEN
-            -- Find added relationships (in NEW but not in OLD)
             SELECT COALESCE(jsonb_agg(new_elem), '[]'::jsonb)
             INTO added_relationships
             FROM jsonb_array_elements(NEW.related) AS new_elem
@@ -113,8 +105,6 @@ BEGIN
                 SELECT 1 FROM jsonb_array_elements(OLD.related) AS old_elem
                 WHERE old_elem = new_elem
             );
-
-            -- Find removed relationships (in OLD but not in NEW)
             SELECT COALESCE(jsonb_agg(old_elem), '[]'::jsonb)
             INTO removed_relationships
             FROM jsonb_array_elements(OLD.related) AS old_elem
@@ -123,8 +113,6 @@ BEGIN
                 WHERE new_elem = old_elem
             );
         END IF;
-
-        -- Build notification payload with relationship change details
         notification_payload = json_build_object(
             'event_type', event_type,
             'object_type', CASE
@@ -152,11 +140,9 @@ BEGIN
         );
     ELSE
         event_type = 'deleted';
-
         IF OLD.related IS NOT NULL AND jsonb_typeof(OLD.related) = 'array' AND jsonb_array_length(OLD.related) > 0 THEN
             old_parent_id := (OLD.related->0->>'id')::integer;
         END IF;
-
         notification_payload = json_build_object(
             'event_type', event_type,
             'object_type', CASE
@@ -172,11 +158,7 @@ BEGIN
             'timestamp', to_char(NOW(), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
         );
     END IF;
-
-    -- Send notification on appropriate channel
     PERFORM pg_notify('data_changed', notification_payload::text);
-
-    -- Return appropriate record based on operation
     IF TG_OP = 'DELETE' THEN
         RETURN OLD;
     ELSE
@@ -184,13 +166,6 @@ BEGIN
     END IF;
 END;
 $$;
-
-
---
--- Name: FUNCTION notify_data_change(); Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON FUNCTION public.notify_data_change() IS 'Trigger function that sends PostgreSQL notifications when objects (tasks/projects) are created, updated, or deleted. Used for real-time UI updates.';
 
 
 --
@@ -283,6 +258,20 @@ CREATE TABLE public.objects (
 
 
 --
+-- Name: COLUMN objects.related; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.objects.related IS 'JSONB array of related object references, e.g., [{"id": 123, "type": "task"}]';
+
+
+--
+-- Name: COLUMN objects.dependencies; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.objects.dependencies IS 'JSONB array of dependency relationships, e.g., [{"id": 456, "type": "task", "blocking": true}]';
+
+
+--
 -- Name: objects_id_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
@@ -318,7 +307,10 @@ CREATE TABLE public.template_properties (
     created_by text DEFAULT 'system'::text NOT NULL,
     updated_by text DEFAULT 'system'::text NOT NULL,
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
-    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
+    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    step_type text DEFAULT 'property'::text NOT NULL,
+    step_config jsonb DEFAULT '{}'::jsonb,
+    CONSTRAINT template_properties_step_type_check CHECK ((step_type = ANY (ARRAY['property'::text, 'call_tool'::text, 'log'::text, 'set_variable'::text, 'conditional'::text, 'return'::text])))
 );
 
 
@@ -350,12 +342,22 @@ CREATE TABLE public.templates (
     id integer NOT NULL,
     name text NOT NULL,
     description text NOT NULL,
-    related_schema jsonb DEFAULT '[]'::jsonb NOT NULL,
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
     created_by text DEFAULT 'system'::text NOT NULL,
-    updated_by text DEFAULT 'system'::text NOT NULL
+    updated_by text DEFAULT 'system'::text NOT NULL,
+    related_schema jsonb DEFAULT '[]'::jsonb NOT NULL,
+    type text DEFAULT 'object'::text NOT NULL,
+    metadata jsonb DEFAULT '{}'::jsonb,
+    CONSTRAINT templates_type_check CHECK ((type = ANY (ARRAY['object'::text, 'workflow'::text])))
 );
+
+
+--
+-- Name: COLUMN templates.related_schema; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.templates.related_schema IS 'JSONB array defining allowed parent relationships for objects using this template. Each entry specifies key, label, allowed_types (array of template IDs), cardinality (single/multiple), required (boolean), and order (number).';
 
 
 --
@@ -482,10 +484,10 @@ CREATE INDEX idx_global_state_key ON public.global_state USING btree (key);
 
 
 --
--- Name: idx_tasks_user_id; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_objects_dependencies; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_tasks_user_id ON public.objects USING btree (user_id);
+CREATE INDEX idx_objects_dependencies ON public.objects USING gin (dependencies);
 
 
 --
@@ -496,10 +498,38 @@ CREATE INDEX idx_objects_related ON public.objects USING gin (related);
 
 
 --
--- Name: idx_objects_dependencies; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_tasks_user_id; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_objects_dependencies ON public.objects USING gin (dependencies);
+CREATE INDEX idx_tasks_user_id ON public.objects USING btree (user_id);
+
+
+--
+-- Name: idx_template_properties_step_config; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_template_properties_step_config ON public.template_properties USING gin (step_config);
+
+
+--
+-- Name: idx_template_properties_step_type; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_template_properties_step_type ON public.template_properties USING btree (step_type);
+
+
+--
+-- Name: idx_templates_metadata; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_templates_metadata ON public.templates USING gin (metadata);
+
+
+--
+-- Name: idx_templates_type; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_templates_type ON public.templates USING btree (type);
 
 
 --
@@ -514,13 +544,6 @@ CREATE UNIQUE INDEX properties_template_id_key_key ON public.template_properties
 --
 
 CREATE TRIGGER objects_notify_change AFTER INSERT OR DELETE OR UPDATE ON public.objects FOR EACH ROW EXECUTE FUNCTION public.notify_data_change();
-
-
---
--- Name: TRIGGER objects_notify_change ON objects; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TRIGGER objects_notify_change ON public.objects IS 'Notifies data changes when tasks or projects are modified';
 
 
 --
@@ -586,3 +609,6 @@ ALTER TABLE ONLY public.objects
 --
 -- PostgreSQL database dump complete
 --
+
+\unrestrict 3ovflBuD2bDyjMHXN5Zmh0WmpDjwUqTc83BhHhchi12ZtnZI4QUePd2d2i8lDSx
+

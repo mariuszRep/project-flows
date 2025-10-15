@@ -1,5 +1,5 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { ListToolsRequestSchema, CallToolRequestSchema, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { SchemaProperties, ExecutionChainItem, ToolContext } from "../types/property.js";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
@@ -13,10 +13,74 @@ import { createEpicTools } from "../tools/epic-tools.js";
 import { createRuleTools } from "../tools/rule-tools.js";
 import { createWorkflowTools } from "../tools/workflow-tools.js";
 import { createTemplateTools } from "../tools/template-tools.js";
+import { WorkflowDefinition, WorkflowExecutor } from "../tools/workflow-executor.js";
 import pg from 'pg';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+// Global in-memory storage for dynamic workflow tools
+const dynamicWorkflows = new Map<string, WorkflowDefinition>();
+const workflowTemplateMap = new Map<string, number>(); // Maps tool name to template_id
+let workflowExecutor: WorkflowExecutor;
+
+/**
+ * Load workflows from database and register them as dynamic MCP tools
+ */
+async function loadWorkflowsFromDatabase(dbService: DatabaseService): Promise<void> {
+  try {
+    console.log('Loading workflows from database...');
+
+    // Get all templates
+    const templates = await dbService.getTemplates();
+
+    // Filter workflow templates that are enabled
+    const workflowTemplates = templates.filter((t: any) => {
+      const metadata = t.metadata || {};
+      return t.type === 'workflow' && metadata.enabled === true;
+    });
+
+    console.log(`Found ${workflowTemplates.length} enabled workflow(s)`);
+
+    // Clear existing workflows
+    dynamicWorkflows.clear();
+    workflowTemplateMap.clear();
+
+    // Load each workflow
+    for (const template of workflowTemplates) {
+      try {
+        const metadata = template.metadata || {};
+        const toolName = metadata.mcp_tool_name;
+
+        if (!toolName) {
+          console.warn(`Workflow template ${template.id} missing mcp_tool_name in metadata`);
+          continue;
+        }
+
+        // Load workflow definition using workflow executor
+        const workflow = await workflowExecutor.loadWorkflowFromDatabase(template.id);
+
+        if (!workflow) {
+          console.warn(`Failed to load workflow definition for template ${template.id}`);
+          continue;
+        }
+
+        // Register workflow
+        dynamicWorkflows.set(toolName, workflow);
+        workflowTemplateMap.set(toolName, template.id);
+
+        console.log(`✅ Registered database workflow: ${toolName} (template_id: ${template.id})`);
+        console.log(`   Steps loaded: ${workflow.steps.length}`);
+      } catch (error) {
+        console.error(`Error loading workflow template ${template.id}:`, error);
+      }
+    }
+
+    console.log(`Successfully registered ${dynamicWorkflows.size} workflow tool(s)`);
+  } catch (error) {
+    console.error('Error loading workflows from database:', error);
+  }
+}
 
 export function createMcpServer(clientId: string = 'unknown', sharedDbService: DatabaseService): Server {
   const server = new Server(
@@ -334,10 +398,7 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
   const propertyTools = createPropertyTools(sharedDbService, clientId);
   const templateTools = createTemplateTools(sharedDbService, clientId);
 
-  const objectTools = createObjectTools(
-    sharedDbService
-  );
-  // Restore task and project specific toolsets
+  // Create projectTools first (needed by other tools)
   const projectTools = createProjectTools(
     sharedDbService,
     clientId,
@@ -346,6 +407,20 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
     validateDependencies
   );
 
+  // Create objectTools with all required dependencies
+  const objectTools = createObjectTools(
+    sharedDbService,
+    clientId,
+    createExecutionChain,
+    validateDependencies,
+    loadDynamicSchemaProperties,
+    loadProjectSchemaProperties,
+    loadEpicSchemaProperties,
+    loadRuleSchemaProperties,
+    projectTools
+  );
+
+  // Create task, epic, and rule tools
   const taskTools = createTaskTools(
     sharedDbService,
     clientId,
@@ -375,6 +450,36 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
 
   // Inject the correct toolsets: taskTools for task operations, projectTools for project operations, and epicTools for epic operations
   const workflowTools = createWorkflowTools(sharedDbService, clientId, taskTools, projectTools, objectTools, propertyTools, epicTools);
+
+  // Initialize workflow executor with database service and tool caller
+  const toolCaller = {
+    callTool: async (toolName: string, parameters: Record<string, any>) => {
+      // Route tool calls through the appropriate handlers
+      if (objectTools.canHandle(toolName)) {
+        return await objectTools.handle(toolName, parameters);
+      }
+      if (taskTools.canHandle(toolName)) {
+        return await taskTools.handle(toolName, parameters);
+      }
+      if (projectTools.canHandle(toolName)) {
+        return await projectTools.handle(toolName, parameters);
+      }
+      if (epicTools.canHandle(toolName)) {
+        return await epicTools.handle(toolName, parameters);
+      }
+      if (ruleTools.canHandle(toolName)) {
+        return await ruleTools.handle(toolName, parameters);
+      }
+      throw new Error(`Tool '${toolName}' not found or not callable from workflow`);
+    }
+  };
+
+  workflowExecutor = new WorkflowExecutor(sharedDbService, toolCaller);
+
+  // Load workflows from database at startup
+  loadWorkflowsFromDatabase(sharedDbService).catch((error) => {
+    console.error('Failed to load workflows from database:', error);
+  });
 
   // Set up tool list handler
   server.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -452,6 +557,13 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
     const epicSchemaProperties = cleanSchemaProperties(epicProperties);
     const ruleSchemaProperties = cleanSchemaProperties(ruleProperties);
 
+    // Generate dynamic workflow tools
+    const dynamicWorkflowTools: Tool[] = Array.from(dynamicWorkflows.values()).map(workflow => ({
+      name: workflow.name,
+      description: workflow.description,
+      inputSchema: workflow.inputSchema,
+    }));
+
     return {
       tools: [
         ...propertyTools.getToolDefinitions(),
@@ -466,6 +578,8 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
         // Keep generic object tools available
         ...objectTools.getToolDefinitions(),
         ...workflowTools.getToolDefinitions(),
+        // Add dynamic workflow tools
+        ...dynamicWorkflowTools,
       ],
     };
   });
@@ -514,8 +628,126 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
       return await workflowTools.handle(name, toolArgs);
     }
 
+    // Handle dynamic workflow tools
+    if (dynamicWorkflows.has(name)) {
+      return await handleDynamicWorkflow(name, toolArgs || {});
+    }
+
     throw new Error(`Unknown tool: ${name}`);
   });
 
   return server;
+}
+
+/**
+ * Handle execution of a dynamic workflow tool
+ */
+async function handleDynamicWorkflow(name: string, args: Record<string, any>) {
+  const workflow = dynamicWorkflows.get(name);
+  if (!workflow) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            success: false,
+            error: `Workflow '${name}' not found`
+          })
+        }
+      ]
+    };
+  }
+
+  try {
+    const context = await workflowExecutor.execute(workflow, args);
+    
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            success: true,
+            workflow: name,
+            result: context.result,
+            logs: context.logs,
+            variables: Object.fromEntries(context.variables)
+          }, null, 2)
+        }
+      ]
+    };
+  } catch (error) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            success: false,
+            workflow: name,
+            error: (error as Error).message
+          }, null, 2)
+        }
+      ]
+    };
+  }
+}
+
+/**
+ * Register a new dynamic workflow tool
+ */
+export function registerWorkflow(workflow: WorkflowDefinition): { success: boolean; error?: string } {
+  // Validate workflow definition
+  if (!workflow.name || typeof workflow.name !== 'string') {
+    return { success: false, error: 'Workflow name is required and must be a string' };
+  }
+
+  if (!workflow.description || typeof workflow.description !== 'string') {
+    return { success: false, error: 'Workflow description is required and must be a string' };
+  }
+
+  if (!workflow.inputSchema || typeof workflow.inputSchema !== 'object') {
+    return { success: false, error: 'Workflow inputSchema is required and must be an object' };
+  }
+
+  if (!Array.isArray(workflow.steps) || workflow.steps.length === 0) {
+    return { success: false, error: 'Workflow must have at least one step' };
+  }
+
+  // Check for duplicate names
+  if (dynamicWorkflows.has(workflow.name)) {
+    return { success: false, error: `Workflow '${workflow.name}' already exists` };
+  }
+
+  // Store workflow
+  dynamicWorkflows.set(workflow.name, workflow);
+  console.log(`✅ Registered dynamic workflow: ${workflow.name}`);
+
+  return { success: true };
+}
+
+/**
+ * Unregister a dynamic workflow tool
+ */
+export function unregisterWorkflow(name: string): { success: boolean; error?: string } {
+  if (!dynamicWorkflows.has(name)) {
+    return { success: false, error: `Workflow '${name}' not found` };
+  }
+
+  dynamicWorkflows.delete(name);
+  console.log(`🗑️  Unregistered dynamic workflow: ${name}`);
+
+  return { success: true };
+}
+
+/**
+ * List all registered dynamic workflows
+ */
+export function listDynamicWorkflows(): WorkflowDefinition[] {
+  return Array.from(dynamicWorkflows.values());
+}
+
+/**
+ * Get a specific workflow by name
+ */
+export function getWorkflow(name: string): WorkflowDefinition | undefined {
+  return dynamicWorkflows.get(name);
 }

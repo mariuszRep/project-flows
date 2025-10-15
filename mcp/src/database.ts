@@ -508,6 +508,8 @@ class DatabaseService {
     name: string;
     description: string;
     related_schema: any;
+    type: string;
+    metadata: any;
     created_at: Date;
     updated_at: Date;
     created_by: string;
@@ -520,6 +522,8 @@ class DatabaseService {
           name,
           description,
           COALESCE(related_schema, '[]'::jsonb) AS related_schema,
+          type,
+          COALESCE(metadata, '{}'::jsonb) AS metadata,
           created_at,
           updated_at,
           created_by,
@@ -530,6 +534,7 @@ class DatabaseService {
       const result = await this.pool.query(query);
       return result.rows.map(row => {
         let relatedSchema = row.related_schema ?? [];
+        let metadata = row.metadata ?? {};
 
         // Handle cases where the driver returns JSONB as string
         if (typeof relatedSchema === 'string') {
@@ -541,9 +546,19 @@ class DatabaseService {
           }
         }
 
+        if (typeof metadata === 'string') {
+          try {
+            metadata = JSON.parse(metadata);
+          } catch (parseError) {
+            console.error('Failed to parse metadata JSON:', parseError);
+            metadata = {};
+          }
+        }
+
         return {
           ...row,
-          related_schema: Array.isArray(relatedSchema) ? relatedSchema : []
+          related_schema: Array.isArray(relatedSchema) ? relatedSchema : [],
+          metadata: typeof metadata === 'object' ? metadata : {}
         };
       });
     } catch (error) {
@@ -637,6 +652,8 @@ class DatabaseService {
     dependencies?: string[];
     execution_order?: number;
     fixed?: boolean;
+    step_type?: string;
+    step_config?: Record<string, any>;
   }, userId: string = 'system'): Promise<number> {
     try {
       console.log('Database createProperty called with:', {
@@ -646,8 +663,8 @@ class DatabaseService {
       });
 
       const query = `
-        INSERT INTO template_properties (template_id, key, type, description, dependencies, execution_order, fixed, created_by, updated_by) 
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) 
+        INSERT INTO template_properties (template_id, key, type, description, dependencies, execution_order, fixed, step_type, step_config, created_by, updated_by) 
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) 
         RETURNING id
       `;
       const values = [
@@ -658,6 +675,8 @@ class DatabaseService {
         propertyData.dependencies || [],
         propertyData.execution_order || 0,
         propertyData.fixed || false,
+        propertyData.step_type || 'property',
+        JSON.stringify(propertyData.step_config || {}),
         userId,
         userId
       ];
@@ -687,6 +706,8 @@ class DatabaseService {
     dependencies?: string[];
     execution_order?: number;
     fixed?: boolean;
+    step_type?: string;
+    step_config?: Record<string, any>;
   }, userId: string = 'system'): Promise<boolean> {
     try {
       const updateFields = [];
@@ -716,6 +737,14 @@ class DatabaseService {
       if (updates.fixed !== undefined) {
         updateFields.push(`fixed = $${paramIndex++}`);
         values.push(updates.fixed);
+      }
+      if (updates.step_type !== undefined) {
+        updateFields.push(`step_type = $${paramIndex++}`);
+        values.push(updates.step_type);
+      }
+      if (updates.step_config !== undefined) {
+        updateFields.push(`step_config = $${paramIndex++}`);
+        values.push(JSON.stringify(updates.step_config));
       }
 
       if (updateFields.length === 0) {
@@ -826,18 +855,18 @@ class DatabaseService {
     try {
       let query = `
         SELECT id, template_id, key, type, description, dependencies, execution_order, fixed,
-               created_by, updated_by, created_at, updated_at 
+               created_by, updated_by, created_at, updated_at, step_type, step_config
         FROM template_properties
       `;
       let params: any[] = [];
-      
+
       if (templateId) {
         query += ' WHERE template_id = $1';
         params.push(templateId);
       }
-      
+
       query += ' ORDER BY template_id, execution_order, key';
-      
+
       const result = await this.pool.query(query, params);
       return result.rows.map((row: any) => ({
         id: row.id,
@@ -851,7 +880,9 @@ class DatabaseService {
         created_by: row.created_by,
         updated_by: row.updated_by,
         created_at: row.created_at,
-        updated_at: row.updated_at
+        updated_at: row.updated_at,
+        step_type: row.step_type,
+        step_config: row.step_config
       }));
     } catch (error) {
       console.error('Error listing properties:', error);

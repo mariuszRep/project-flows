@@ -1,13 +1,6 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 
 interface ConfirmationDialogProps {
   isOpen: boolean;
@@ -30,14 +23,48 @@ export const ConfirmationDialog: React.FC<ConfirmationDialogProps> = ({
   cancelText = 'Cancel',
   variant = 'default',
 }) => {
-  return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
-        </DialogHeader>
-        <DialogFooter className="flex justify-end space-x-2">
+  const dialogTitleId = React.useId();
+  const dialogDescriptionId = React.useId();
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, onClose]);
+
+  if (!isOpen) {
+    return null;
+  }
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 px-4"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby={dialogTitleId}
+      aria-describedby={dialogDescriptionId}
+    >
+      <div className="w-full max-w-md rounded-lg bg-background p-6 shadow-lg">
+        <div className="mb-4">
+          <h2 id={dialogTitleId} className="text-lg font-semibold">
+            {title}
+          </h2>
+          <p id={dialogDescriptionId} className="mt-2 text-sm text-muted-foreground">
+            {description}
+          </p>
+        </div>
+        <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={onClose}>
             {cancelText}
           </Button>
@@ -47,8 +74,9 @@ export const ConfirmationDialog: React.FC<ConfirmationDialogProps> = ({
           >
             {confirmText}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </div>
+      </div>
+    </div>,
+    document.body
   );
 };

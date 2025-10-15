@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
-import { LogOut, Activity, Layout as LayoutIcon, Settings as SettingsIcon, Wrench, Kanban, Filter } from "lucide-react";
+import { LogOut, Activity, Layout as LayoutIcon, Settings as SettingsIcon, Wrench, Kanban, Filter, GitBranch } from "lucide-react";
 import { HeaderLayout } from "@/components/layout/HeaderLayout";
 
 const Dashboard = () => {
@@ -67,6 +67,19 @@ const Dashboard = () => {
               </CardTitle>
               <CardDescription>
                 Access powerful MCP tools to enhance your project workflows.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+
+          {/* Workflows Card */}
+          <Card className="card-hover" onClick={() => navigate('/workflows')}>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <GitBranch className="w-5 h-5" />
+                Workflows
+              </CardTitle>
+              <CardDescription>
+                Create and manage dynamic MCP workflow tools with JSON definitions.
               </CardDescription>
             </CardHeader>
           </Card>

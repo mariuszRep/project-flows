@@ -7,6 +7,15 @@ export function createExpressApp(): express.Application {
   // Enable CORS for all routes
   app.use(cors());
 
+  // Parse JSON request bodies (but skip for MCP SSE /messages endpoint)
+  app.use((req: any, res: any, next: any) => {
+    // Skip JSON parsing for MCP SSE messages endpoint - it needs raw body stream
+    if (req.url.startsWith('/messages')) {
+      return next();
+    }
+    express.json()(req, res, next);
+  });
+
   // Add request timeout and connection limits (but skip for SSE connections)
   app.use((req: any, res: any, next: any) => {
     // Skip timeout for SSE connections since they're meant to be long-lived

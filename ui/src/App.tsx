@@ -11,6 +11,7 @@ import Tools from "./pages/Tools";
 import Settings from "./pages/Settings";
 import TaskBoard from "./pages/TaskBoard";
 import TaskList from "./pages/TaskList";
+import Workflows from "./pages/Workflows";
 import { SessionProvider } from "./contexts/SessionContext";
 import { MCPProvider } from "./contexts/MCPContext";
 import { ProjectProvider } from "./contexts/ProjectContext";
@@ -32,6 +33,7 @@ const App = () => (
                   <Route path="/" element={<Dashboard />} />
                   <Route path="/template" element={<Template />} />
                   <Route path="/tools" element={<Tools />} />
+                  <Route path="/workflows" element={<Workflows />} />
                   <Route path="/layout" element={<Layout />} />
                   <Route path="/settings" element={<Settings />} />
                   <Route path="/task-board" element={<TaskBoard />} />
