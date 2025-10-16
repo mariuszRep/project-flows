@@ -310,7 +310,7 @@ CREATE TABLE public.template_properties (
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
     step_type text DEFAULT 'property'::text NOT NULL,
     step_config jsonb DEFAULT '{}'::jsonb,
-    CONSTRAINT template_properties_step_type_check CHECK ((step_type = ANY (ARRAY['property'::text, 'call_tool'::text, 'log'::text, 'set_variable'::text, 'conditional'::text, 'return'::text])))
+    CONSTRAINT template_properties_step_type_check CHECK ((step_type = ANY (ARRAY['property'::text, 'call_tool'::text, 'log'::text, 'set_variable'::text, 'conditional'::text, 'return'::text, 'start'::text])))
 );
 
 

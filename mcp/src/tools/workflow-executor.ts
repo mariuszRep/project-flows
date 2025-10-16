@@ -145,7 +145,10 @@ export class WorkflowExecutor {
 
           case 'call_tool':
             step.toolName = config.tool_name;
-            step.parameters = config.parameters;
+            // Parse parameters if they're stored as JSON string
+            step.parameters = typeof config.parameters === 'string'
+              ? JSON.parse(config.parameters)
+              : config.parameters;
             step.resultVariable = config.result_variable;
             break;
 

@@ -24,7 +24,16 @@ interface InputParameter {
   name: string;
   type: string;
   required: boolean;
+  default_value?: string;
   description?: string;
+}
+
+interface ToolParameter {
+  key: string;
+  value: string;
+  required?: boolean;
+  description?: string;
+  type?: string;
 }
 
 export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeEditModalProps) {
@@ -35,6 +44,7 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
   const [config, setConfig] = useState<Record<string, any>>({});
   const [error, setError] = useState<string | null>(null);
   const [inputParameters, setInputParameters] = useState<InputParameter[]>([]);
+  const [toolParameters, setToolParameters] = useState<ToolParameter[]>([]);
   const firstInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -42,29 +52,95 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
       console.log('NodeEditModal opened for node:', node);
       console.log('Node type:', node.type);
       console.log('Node data:', node.data);
+      console.log('Node data.config:', node.data.config);
+      console.log('Node data.config.input_parameters:', node.data.config?.input_parameters);
       setLabel(node.data.label || '');
       setDescription(node.data.description || '');
       setConfig(node.data.config || {});
       setError(null);
 
       // Parse input parameters for start node
-      if (node.type === 'start' && node.data.config?.input_parameters) {
-        try {
-          const params = typeof node.data.config.input_parameters === 'string'
-            ? JSON.parse(node.data.config.input_parameters)
-            : node.data.config.input_parameters;
-          
-          if (Array.isArray(params)) {
-            setInputParameters(params);
-          } else {
+      if (node.type === 'start') {
+        const inputParams = node.data.config?.input_parameters;
+        console.log('Loading input parameters for start node:', inputParams);
+
+        if (inputParams) {
+          try {
+            const params = typeof inputParams === 'string'
+              ? JSON.parse(inputParams)
+              : inputParams;
+
+            if (Array.isArray(params)) {
+              console.log('Setting input parameters:', params);
+              setInputParameters(params);
+            } else {
+              console.log('Input parameters not an array, resetting');
+              setInputParameters([]);
+            }
+          } catch (e) {
+            console.error('Failed to parse input parameters:', e);
             setInputParameters([]);
           }
-        } catch (e) {
-          console.error('Failed to parse input parameters:', e);
+        } else {
+          console.log('No input parameters found, resetting');
           setInputParameters([]);
         }
       } else {
         setInputParameters([]);
+      }
+
+      // Parse tool parameters for call_tool node
+      if (node.type === 'call_tool') {
+        const params = node.data.config?.parameters;
+        const toolName = node.data.config?.tool_name;
+        console.log('Loading tool parameters for call_tool node:', params);
+
+        if (params) {
+          try {
+            const parsedParams = typeof params === 'string' ? JSON.parse(params) : params;
+
+            if (typeof parsedParams === 'object' && parsedParams !== null && !Array.isArray(parsedParams)) {
+              // Try to enrich with schema information if tool is selected
+              const selectedTool = toolName ? tools.find(t => t.name === toolName) : null;
+              let schemaInfo: Record<string, any> = {};
+
+              if (selectedTool && selectedTool.inputSchema && selectedTool.inputSchema.properties) {
+                const schema = selectedTool.inputSchema;
+                const requiredFields = Array.isArray(schema.required) ? schema.required : [];
+
+                Object.keys(schema.properties).forEach(key => {
+                  const prop = schema.properties[key];
+                  schemaInfo[key] = {
+                    required: requiredFields.includes(key),
+                    description: prop.description || '',
+                    type: prop.type || 'string'
+                  };
+                });
+              }
+
+              const paramArray = Object.entries(parsedParams).map(([key, value]) => ({
+                key,
+                value: typeof value === 'string' ? value : JSON.stringify(value),
+                required: schemaInfo[key]?.required || false,
+                description: schemaInfo[key]?.description || '',
+                type: schemaInfo[key]?.type || 'string'
+              }));
+              console.log('Setting tool parameters with schema info:', paramArray);
+              setToolParameters(paramArray);
+            } else {
+              console.log('Tool parameters not an object, resetting');
+              setToolParameters([]);
+            }
+          } catch (e) {
+            console.error('Failed to parse tool parameters:', e);
+            setToolParameters([]);
+          }
+        } else {
+          console.log('No tool parameters found, resetting');
+          setToolParameters([]);
+        }
+      } else {
+        setToolParameters([]);
       }
 
       // Focus first input after modal opens
@@ -83,7 +159,7 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
   const addParameter = () => {
     setInputParameters([
       ...inputParameters,
-      { name: '', type: 'string', required: false, description: '' }
+      { name: '', type: 'string', required: false, default_value: '', description: '' }
     ]);
   };
 
@@ -95,6 +171,57 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
     const updated = [...inputParameters];
     updated[index] = { ...updated[index], [field]: value };
     setInputParameters(updated);
+  };
+
+  const addToolParameter = () => {
+    setToolParameters([
+      ...toolParameters,
+      { key: '', value: '' }
+    ]);
+  };
+
+  const removeToolParameter = (index: number) => {
+    setToolParameters(toolParameters.filter((_, i) => i !== index));
+  };
+
+  const updateToolParameter = (index: number, field: keyof ToolParameter, value: string) => {
+    const updated = [...toolParameters];
+    updated[index] = { ...updated[index], [field]: value };
+    setToolParameters(updated);
+  };
+
+  const handleToolSelection = (toolName: string) => {
+    setConfig({ ...config, tool_name: toolName });
+
+    // Find the selected tool's schema
+    const selectedTool = tools.find(t => t.name === toolName);
+    if (selectedTool && selectedTool.inputSchema) {
+      console.log('Tool selected:', toolName);
+      console.log('Tool input schema:', selectedTool.inputSchema);
+
+      // Extract properties from the schema
+      const schema = selectedTool.inputSchema;
+      if (schema.properties && typeof schema.properties === 'object') {
+        const requiredFields = Array.isArray(schema.required) ? schema.required : [];
+
+        // Create parameter entries for each property in the schema
+        const schemaParams: ToolParameter[] = Object.keys(schema.properties).map(key => {
+          const prop = schema.properties[key];
+          const isRequired = requiredFields.includes(key);
+
+          return {
+            key,
+            value: '', // Empty value, user will fill it in
+            required: isRequired,
+            description: prop.description || '',
+            type: prop.type || 'string'
+          };
+        });
+
+        console.log('Generated parameters from schema:', schemaParams);
+        setToolParameters(schemaParams);
+      }
+    }
   };
 
   const validateParameters = (): boolean => {
@@ -149,14 +276,38 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
     const updatedConfig = { ...config };
     if (node.type === 'start') {
       updatedConfig.input_parameters = inputParameters;
+      console.log('Saving start node with input parameters:', inputParameters);
+      console.log('Updated config:', updatedConfig);
     }
 
-    onSave(node.id, {
+    // Prepare config with tool parameters for call_tool node
+    if (node.type === 'call_tool') {
+      const paramsObject: Record<string, any> = {};
+      toolParameters.forEach(param => {
+        if (param.key.trim()) {
+          // Try to parse value as JSON, otherwise keep as string
+          try {
+            paramsObject[param.key] = JSON.parse(param.value);
+          } catch {
+            paramsObject[param.key] = param.value;
+          }
+        }
+      });
+      updatedConfig.parameters = JSON.stringify(paramsObject);
+      console.log('Saving call_tool node with parameters:', paramsObject);
+      console.log('Updated config:', updatedConfig);
+    }
+
+    const dataToSave = {
       ...node.data,
       label,
       description,
       config: updatedConfig
-    });
+    };
+
+    console.log('Saving node data:', dataToSave);
+
+    onSave(node.id, dataToSave);
 
     toast({
       title: "Success",
@@ -192,7 +343,7 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 overflow-y-auto p-4">
-      <Card className="w-full max-w-2xl mx-auto">
+      <Card className="w-full max-w-4xl mx-auto">
         {/* Header */}
         <div className="sticky top-0 bg-transparent p-6 flex items-center justify-between rounded-t-lg border-b">
           <h2 className="text-2xl font-semibold text-foreground">
@@ -286,73 +437,76 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
                       No parameters defined. Click "Add Parameter" to create one.
                     </div>
                   ) : (
-                    <div className="space-y-3">
+                    <div className="space-y-2">
+                      {/* Header row */}
+                      <div className="grid grid-cols-[1.5fr_1.5fr_120px_80px_40px] gap-2 px-3 pb-1">
+                        <Label className="text-xs text-muted-foreground">Name</Label>
+                        <Label className="text-xs text-muted-foreground">Default Value</Label>
+                        <Label className="text-xs text-muted-foreground">Type</Label>
+                        <Label className="text-xs text-muted-foreground">Required</Label>
+                        <div></div>
+                      </div>
+
                       {inputParameters.map((param, index) => (
-                        <div key={index} className="border rounded-lg p-3 space-y-2 bg-background">
-                          <div className="flex items-start gap-2">
-                            <div className="flex-1 space-y-2">
-                              <div>
-                                <Label className="text-xs text-muted-foreground">Parameter Name</Label>
-                                <Input
-                                  value={param.name}
-                                  onChange={(e) => updateParameter(index, 'name', e.target.value)}
-                                  placeholder="e.g., task_id, user_name"
-                                  className="h-8 text-sm"
-                                />
-                              </div>
-                              
-                              <div className="grid grid-cols-2 gap-2">
-                                <div>
-                                  <Label className="text-xs text-muted-foreground">Type</Label>
-                                  <Select
-                                    value={param.type}
-                                    onValueChange={(value) => updateParameter(index, 'type', value)}
-                                  >
-                                    <SelectTrigger className="h-8 text-sm">
-                                      <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="string">String</SelectItem>
-                                      <SelectItem value="number">Number</SelectItem>
-                                      <SelectItem value="integer">Integer</SelectItem>
-                                      <SelectItem value="boolean">Boolean</SelectItem>
-                                      <SelectItem value="array">Array</SelectItem>
-                                      <SelectItem value="object">Object</SelectItem>
-                                    </SelectContent>
-                                  </Select>
-                                </div>
-                                
-                                <div className="flex items-end">
-                                  <label className="flex items-center gap-2 cursor-pointer">
-                                    <Checkbox
-                                      checked={param.required}
-                                      onCheckedChange={(checked) => updateParameter(index, 'required', checked)}
-                                    />
-                                    <span className="text-xs">Required</span>
-                                  </label>
-                                </div>
-                              </div>
-                              
-                              <div>
-                                <Label className="text-xs text-muted-foreground">Description (optional)</Label>
-                                <Input
-                                  value={param.description || ''}
-                                  onChange={(e) => updateParameter(index, 'description', e.target.value)}
-                                  placeholder="Parameter description..."
-                                  className="h-8 text-sm"
-                                />
-                              </div>
+                        <div key={index} className="border rounded-lg p-3 bg-background space-y-2">
+                          <div className="grid grid-cols-[1.5fr_1.5fr_120px_80px_40px] gap-2 items-center">
+                            <Input
+                              value={param.name}
+                              onChange={(e) => updateParameter(index, 'name', e.target.value)}
+                              placeholder="e.g., task_id"
+                              className="h-9 text-sm"
+                            />
+
+                            <Input
+                              value={param.default_value || ''}
+                              onChange={(e) => updateParameter(index, 'default_value', e.target.value)}
+                              placeholder="Default value..."
+                              className="h-9 text-sm"
+                            />
+
+                            <Select
+                              value={param.type}
+                              onValueChange={(value) => updateParameter(index, 'type', value)}
+                            >
+                              <SelectTrigger className="h-9 text-sm">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="string">String</SelectItem>
+                                <SelectItem value="number">Number</SelectItem>
+                                <SelectItem value="integer">Integer</SelectItem>
+                                <SelectItem value="boolean">Boolean</SelectItem>
+                                <SelectItem value="array">Array</SelectItem>
+                                <SelectItem value="object">Object</SelectItem>
+                              </SelectContent>
+                            </Select>
+
+                            <div className="flex items-center justify-center">
+                              <Checkbox
+                                checked={param.required}
+                                onCheckedChange={(checked) => updateParameter(index, 'required', checked)}
+                              />
                             </div>
-                            
+
                             <Button
                               type="button"
                               variant="ghost"
                               size="icon"
                               onClick={() => removeParameter(index)}
-                              className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                              className="h-9 w-9 text-destructive hover:text-destructive hover:bg-destructive/10"
                             >
                               <Trash2 className="h-4 w-4" />
                             </Button>
+                          </div>
+
+                          {/* Description field on second row */}
+                          <div className="pl-0">
+                            <Input
+                              value={param.description || ''}
+                              onChange={(e) => updateParameter(index, 'description', e.target.value)}
+                              placeholder="Description (optional)..."
+                              className="h-9 text-sm text-muted-foreground"
+                            />
                           </div>
                         </div>
                       ))}
@@ -369,7 +523,7 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
                   <Label className="text-xs">Select Tool</Label>
                   <Select
                     value={config.tool_name || ''}
-                    onValueChange={(value) => setConfig({ ...config, tool_name: value })}
+                    onValueChange={handleToolSelection}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select a tool..." />
@@ -384,18 +538,74 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
                   </Select>
                 </div>
                 <div>
-                  <Label className="text-xs">Parameters (JSON)</Label>
-                  <AutoTextarea
-                    value={config.parameters || ''}
-                    onChange={(e) => setConfig({ ...config, parameters: e.target.value })}
-                    placeholder='{"object_id": 123}'
-                    minRows={4}
-                    maxRows={8}
-                    className="w-full font-mono text-xs"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">
+                  <div className="flex items-center justify-between mb-2">
+                    <Label className="text-xs">Parameters</Label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={addToolParameter}
+                      className="h-7 text-xs"
+                    >
+                      <Plus className="h-3 w-3 mr-1" />
+                      Add Parameter
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground mb-2">
                     Use ${'{{input.paramName}}'} to reference start node parameters
                   </p>
+
+                  {toolParameters.length === 0 ? (
+                    <div className="text-xs text-muted-foreground text-center py-4 border border-dashed rounded-lg">
+                      No parameters defined. Click "Add Parameter" to create one.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {/* Header row */}
+                      <div className="grid grid-cols-[1fr_2fr_40px] gap-2 px-3 pb-1">
+                        <Label className="text-xs text-muted-foreground">Key</Label>
+                        <Label className="text-xs text-muted-foreground">Value</Label>
+                        <div></div>
+                      </div>
+
+                      {toolParameters.map((param, index) => (
+                        <div key={index} className="border rounded-lg p-3 bg-background">
+                          <div className="grid grid-cols-[1fr_2fr_40px] gap-2 items-center">
+                            <div className="flex items-center gap-1">
+                              <Input
+                                value={param.key}
+                                onChange={(e) => updateToolParameter(index, 'key', e.target.value)}
+                                placeholder="e.g., object_id"
+                                className="h-9 text-sm font-mono"
+                                disabled={!!param.required}
+                              />
+                              {param.required && (
+                                <span className="text-red-500 text-xs font-bold" title="Required">*</span>
+                              )}
+                            </div>
+
+                            <Input
+                              value={param.value}
+                              onChange={(e) => updateToolParameter(index, 'value', e.target.value)}
+                              placeholder={param.description || `e.g., 123 or {{input.task_id}}`}
+                              className="h-9 text-sm font-mono"
+                            />
+
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => removeToolParameter(index)}
+                              className="h-9 w-9 text-destructive hover:text-destructive hover:bg-destructive/10"
+                              disabled={!!param.required}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             )}

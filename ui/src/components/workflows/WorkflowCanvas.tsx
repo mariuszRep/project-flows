@@ -170,6 +170,7 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
                     })
                     .sort((a: any, b: any) => (a.execution_order || 0) - (b.execution_order || 0))
                     .map((prop: any) => ({
+                      id: prop.id,
                       name: prop.key,
                       type: prop.step_type,
                       step_type: prop.step_type,
@@ -264,6 +265,10 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
 
     setIsSaving(true);
     try {
+      console.log('=== SAVE WORKFLOW DEBUG ===');
+      console.log('All nodes:', nodes);
+      console.log('Nodes to process (excluding end):', nodes.filter(node => node.type !== 'end'));
+
       // Convert React Flow nodes back to workflow steps (include start node, exclude end node)
       const currentSteps = nodes
         .filter(node => node.type !== 'end')
@@ -275,6 +280,9 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
           position: node.position,
           execution_order: index
         }));
+
+      console.log('currentSteps (after conversion):', currentSteps);
+      console.log('originalSteps (from DB):', originalSteps);
 
       // Find steps to create, update, or delete
       const stepsToCreate = currentSteps.filter(step =>
@@ -290,9 +298,14 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
         !currentSteps.find(step => step.name === orig.name)
       );
 
+      console.log('stepsToCreate:', stepsToCreate);
+      console.log('stepsToUpdate:', stepsToUpdate);
+      console.log('stepsToDelete:', stepsToDelete);
+
       // Create new steps
       for (const step of stepsToCreate) {
-        await callTool('create_property', {
+        console.log('Creating step:', step);
+        const result = await callTool('create_property', {
           template_id: workflowId,
           key: step.name,
           type: 'text',
@@ -301,17 +314,24 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
           step_config: step.step_config,
           execution_order: step.execution_order
         });
+        console.log('create_property result:', result);
       }
 
       // Update existing steps
       for (const step of stepsToUpdate) {
         const original = originalSteps.find(orig => orig.name === step.name);
+        console.log('Updating step:', step);
+        console.log('Original step:', original);
         if (original && (original as any).id) {
-          await callTool('update_property', {
+          console.log('Calling update_property with property_id:', (original as any).id);
+          const result = await callTool('update_property', {
             property_id: (original as any).id,
             step_config: step.step_config,
             execution_order: step.execution_order
           });
+          console.log('update_property result:', result);
+        } else {
+          console.warn('Could not update step - no ID found:', { step, original });
         }
       }
 
@@ -547,8 +567,14 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      // Delete selected nodes/edges
-      if (event.key === 'Delete' || event.key === 'Backspace') {
+      // Check if user is typing in an input/textarea/contenteditable element
+      const target = event.target as HTMLElement;
+      const isInputField = target.tagName === 'INPUT' ||
+                          target.tagName === 'TEXTAREA' ||
+                          target.isContentEditable;
+
+      // Delete selected nodes/edges ONLY with Delete key (not Backspace to avoid accidental deletion)
+      if (event.key === 'Delete' && !isInputField) {
         const selectedNodes = nodes.filter(node => node.selected);
         const selectedEdges = edges.filter(edge => edge.selected);
 
