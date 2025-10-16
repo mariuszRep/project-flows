@@ -60,7 +60,7 @@ function workflowToReactFlow(workflow: WorkflowData): { nodes: Node[]; edges: Ed
   const nodes: Node[] = workflow.steps.map((step, index) => {
     const stepType = step.step_type || step.type || 'log';
     const isStartNode = stepType === 'start';
-    
+
     return {
       id: `step-${index}`,
       type: stepType,
@@ -70,7 +70,7 @@ function workflowToReactFlow(workflow: WorkflowData): { nodes: Node[]; edges: Ed
         stepType: stepType,
         config: step.step_config || step,
       },
-      draggable: !isStartNode,
+      draggable: true,
       deletable: !isStartNode,
     };
   });
