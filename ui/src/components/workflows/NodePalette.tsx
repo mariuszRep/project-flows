@@ -92,7 +92,7 @@ export function NodePalette({ onNodeAdd, onNodeDragStart }: NodePaletteProps) {
       </div>
 
       <div className="space-y-2">
-        {nodeTypes.map((nodeType) => {
+        {nodeTypes.filter((nodeType) => nodeType.type !== 'start').map((nodeType) => {
           const Icon = nodeType.icon;
           return (
             <Card

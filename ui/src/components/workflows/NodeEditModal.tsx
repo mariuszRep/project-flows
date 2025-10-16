@@ -20,6 +20,13 @@ interface NodeEditModalProps {
   onDelete?: (nodeId: string) => void;
 }
 
+interface InputParameter {
+  name: string;
+  type: string;
+  required: boolean;
+  description?: string;
+}
+
 export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeEditModalProps) {
   const { toast } = useToast();
   const { tools } = useMCP();
@@ -27,6 +34,7 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
   const [description, setDescription] = useState('');
   const [config, setConfig] = useState<Record<string, any>>({});
   const [error, setError] = useState<string | null>(null);
+  const [inputParameters, setInputParameters] = useState<InputParameter[]>([]);
   const firstInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -38,6 +46,26 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
       setDescription(node.data.description || '');
       setConfig(node.data.config || {});
       setError(null);
+
+      // Parse input parameters for start node
+      if (node.type === 'start' && node.data.config?.input_parameters) {
+        try {
+          const params = typeof node.data.config.input_parameters === 'string'
+            ? JSON.parse(node.data.config.input_parameters)
+            : node.data.config.input_parameters;
+          
+          if (Array.isArray(params)) {
+            setInputParameters(params);
+          } else {
+            setInputParameters([]);
+          }
+        } catch (e) {
+          console.error('Failed to parse input parameters:', e);
+          setInputParameters([]);
+        }
+      } else {
+        setInputParameters([]);
+      }
 
       // Focus first input after modal opens
       setTimeout(() => {
@@ -52,6 +80,52 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
     return null;
   }
 
+  const addParameter = () => {
+    setInputParameters([
+      ...inputParameters,
+      { name: '', type: 'string', required: false, description: '' }
+    ]);
+  };
+
+  const removeParameter = (index: number) => {
+    setInputParameters(inputParameters.filter((_, i) => i !== index));
+  };
+
+  const updateParameter = (index: number, field: keyof InputParameter, value: any) => {
+    const updated = [...inputParameters];
+    updated[index] = { ...updated[index], [field]: value };
+    setInputParameters(updated);
+  };
+
+  const validateParameters = (): boolean => {
+    const names = inputParameters.map(p => p.name.trim()).filter(n => n);
+    const uniqueNames = new Set(names);
+    
+    if (names.length !== uniqueNames.size) {
+      setError('Parameter names must be unique');
+      toast({
+        title: "Validation Error",
+        description: "Parameter names must be unique",
+        variant: "destructive",
+      });
+      return false;
+    }
+
+    for (const param of inputParameters) {
+      if (!param.name.trim()) {
+        setError('All parameters must have a name');
+        toast({
+          title: "Validation Error",
+          description: "All parameters must have a name",
+          variant: "destructive",
+        });
+        return false;
+      }
+    }
+
+    return true;
+  };
+
   const handleSave = () => {
     // Validate required fields
     if (!label.trim()) {
@@ -64,11 +138,24 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
       return;
     }
 
+    // Validate parameters for start node
+    if (node.type === 'start' && inputParameters.length > 0) {
+      if (!validateParameters()) {
+        return;
+      }
+    }
+
+    // Prepare config with input parameters for start node
+    const updatedConfig = { ...config };
+    if (node.type === 'start') {
+      updatedConfig.input_parameters = inputParameters;
+    }
+
     onSave(node.id, {
       ...node.data,
       label,
       description,
-      config
+      config: updatedConfig
     });
 
     toast({
@@ -180,15 +267,97 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
                   />
                 </div>
                 <div>
-                  <Label className="text-xs">Input Parameters (JSON)</Label>
-                  <AutoTextarea
-                    value={typeof config.input_parameters === 'string' ? config.input_parameters : JSON.stringify(config.input_parameters || [], null, 2)}
-                    onChange={(e) => setConfig({ ...config, input_parameters: e.target.value })}
-                    placeholder='[{"name": "task_id", "type": "number", "required": true}]'
-                    minRows={3}
-                    maxRows={6}
-                    className="font-mono text-xs"
-                  />
+                  <div className="flex items-center justify-between mb-2">
+                    <Label className="text-xs">Input Parameters</Label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={addParameter}
+                      className="h-7 text-xs"
+                    >
+                      <Plus className="h-3 w-3 mr-1" />
+                      Add Parameter
+                    </Button>
+                  </div>
+                  
+                  {inputParameters.length === 0 ? (
+                    <div className="text-xs text-muted-foreground text-center py-4 border border-dashed rounded-lg">
+                      No parameters defined. Click "Add Parameter" to create one.
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {inputParameters.map((param, index) => (
+                        <div key={index} className="border rounded-lg p-3 space-y-2 bg-background">
+                          <div className="flex items-start gap-2">
+                            <div className="flex-1 space-y-2">
+                              <div>
+                                <Label className="text-xs text-muted-foreground">Parameter Name</Label>
+                                <Input
+                                  value={param.name}
+                                  onChange={(e) => updateParameter(index, 'name', e.target.value)}
+                                  placeholder="e.g., task_id, user_name"
+                                  className="h-8 text-sm"
+                                />
+                              </div>
+                              
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <Label className="text-xs text-muted-foreground">Type</Label>
+                                  <Select
+                                    value={param.type}
+                                    onValueChange={(value) => updateParameter(index, 'type', value)}
+                                  >
+                                    <SelectTrigger className="h-8 text-sm">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="string">String</SelectItem>
+                                      <SelectItem value="number">Number</SelectItem>
+                                      <SelectItem value="integer">Integer</SelectItem>
+                                      <SelectItem value="boolean">Boolean</SelectItem>
+                                      <SelectItem value="array">Array</SelectItem>
+                                      <SelectItem value="object">Object</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                
+                                <div className="flex items-end">
+                                  <label className="flex items-center gap-2 cursor-pointer">
+                                    <Checkbox
+                                      checked={param.required}
+                                      onCheckedChange={(checked) => updateParameter(index, 'required', checked)}
+                                    />
+                                    <span className="text-xs">Required</span>
+                                  </label>
+                                </div>
+                              </div>
+                              
+                              <div>
+                                <Label className="text-xs text-muted-foreground">Description (optional)</Label>
+                                <Input
+                                  value={param.description || ''}
+                                  onChange={(e) => updateParameter(index, 'description', e.target.value)}
+                                  placeholder="Parameter description..."
+                                  className="h-8 text-sm"
+                                />
+                              </div>
+                            </div>
+                            
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => removeParameter(index)}
+                              className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -332,7 +501,7 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
         {/* Footer Actions */}
         <div className="p-6 border-t flex items-center justify-between gap-2">
           <div>
-            {onDelete && (
+            {onDelete && node.deletable !== false && (
               <Button variant="destructive" onClick={handleDelete}>
                 <Trash2 className="h-4 w-4 mr-2" />
                 Delete Node
