@@ -190,6 +190,7 @@ export class PropertyTools {
         id: template.id,
         name: template.name,
         description: template.description,
+        type: template.type,
         related_schema: template.related_schema ?? [],
         created_at: template.created_at,
         updated_at: template.updated_at,

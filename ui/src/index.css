@@ -174,9 +174,21 @@
   input:focus,
   textarea:focus,
   button:focus,
-  select:focus {
+  select:focus,
+  a:focus,
+  div:focus,
+  [role="button"]:focus,
+  [tabindex]:focus {
     @apply outline-none ring-0;
     box-shadow: none !important;
+    outline: none !important;
+  }
+
+  /* Preserve border width for inputs and buttons, but remove for others */
+  input:focus,
+  textarea:focus,
+  button:focus,
+  select:focus {
     border-width: 1px !important;
   }
 
@@ -194,6 +206,37 @@
   .ring-2,
   .ring-4,
   .ring-8 {
+    box-shadow: none !important;
+  }
+
+  /* React Flow Node Selection Styling - Remove default square outline */
+  .react-flow__node.selected,
+  .react-flow__node.selected:focus,
+  .react-flow__node.selected:focus-visible {
+    outline: none !important;
+    box-shadow: none !important;
+  }
+
+  /* Remove React Flow's selection box/outline */
+  .react-flow__node.selected::before,
+  .react-flow__node.selected::after {
+    display: none !important;
+    content: none !important;
+  }
+
+  /* Ensure card maintains proper border radius when selected */
+  .react-flow__node.selected .shared-ui,
+  .react-flow__node.selected > * {
+    border-radius: var(--radius-m) !important;
+  }
+
+  /* Remove any selection box that React Flow might add */
+  .react-flow__node .react-flow__handle {
+    border: none !important;
+  }
+
+  /* Override React Flow's default selection styling */
+  .react-flow .react-flow__node.selected {
     box-shadow: none !important;
   }
 }

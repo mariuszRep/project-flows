@@ -83,19 +83,41 @@ export class WorkflowExecutor {
         throw new Error(`Template ${templateId} is not a workflow (type: ${templateData.type})`);
       }
 
-      // Get workflow metadata
-      const metadata = templateData.metadata || {};
-
       // Get workflow steps from template_properties
       const properties = await this.dbService.listProperties(templateId);
       console.log(`[Workflow Loader] Loaded ${properties.length} properties for template ${templateId}`);
-      console.log(`[Workflow Loader] Sample property:`, properties[0]);
 
-      // Filter only workflow steps (step_type != 'property')
+      // Find start node (step_type='start')
+      const startNode = properties.find((prop: any) => prop.step_type === 'start');
+
+      let workflowName: string;
+      let workflowDescription: string;
+      let inputSchema: any;
+
+      if (startNode) {
+        // NEW APPROACH: Extract tool definition from start node
+        console.log(`[Workflow Loader] Found start node for workflow ${templateId}`);
+        const startConfig = startNode.step_config || {};
+
+        workflowName = startConfig.tool_name || template.name.toLowerCase().replace(/\s+/g, '_');
+        workflowDescription = startConfig.tool_description || startConfig.display_description || template.description;
+        inputSchema = this.buildInputSchemaFromParameters(startConfig.input_parameters || []);
+
+        console.log(`[Workflow Loader] Tool name from start node: ${workflowName}`);
+      } else {
+        // LEGACY FALLBACK: Use metadata (for backward compatibility)
+        console.warn(`[Workflow Loader] No start node found for workflow ${templateId}, using legacy metadata`);
+        const metadata = templateData.metadata || {};
+        workflowName = metadata.mcp_tool_name || template.name;
+        workflowDescription = template.description;
+        inputSchema = metadata.input_schema || {};
+      }
+
+      // Filter only executable workflow steps (exclude 'property' and 'start')
       const stepProperties = properties.filter((prop: any) => {
-        return prop.step_type && prop.step_type !== 'property';
+        return prop.step_type && prop.step_type !== 'property' && prop.step_type !== 'start';
       });
-      console.log(`[Workflow Loader] Filtered to ${stepProperties.length} workflow steps`);
+      console.log(`[Workflow Loader] Filtered to ${stepProperties.length} executable workflow steps`);
 
       // Sort by execution_order
       stepProperties.sort((a: any, b: any) => {
@@ -123,7 +145,10 @@ export class WorkflowExecutor {
 
           case 'call_tool':
             step.toolName = config.tool_name;
-            step.parameters = config.parameters;
+            // Parse parameters if they're stored as JSON string
+            step.parameters = typeof config.parameters === 'string'
+              ? JSON.parse(config.parameters)
+              : config.parameters;
             step.resultVariable = config.result_variable;
             break;
 
@@ -141,13 +166,10 @@ export class WorkflowExecutor {
         return step;
       });
 
-      // Use mcp_tool_name from metadata as the workflow name (if available)
-      const workflowName = metadata.mcp_tool_name || template.name;
-
       const workflow: WorkflowDefinition = {
         name: workflowName,
-        description: template.description,
-        inputSchema: metadata.input_schema || {},
+        description: workflowDescription,
+        inputSchema,
         steps,
       };
 
@@ -159,6 +181,35 @@ export class WorkflowExecutor {
   }
 
   /**
+   * Build JSON Schema input schema from start node parameters array
+   */
+  private buildInputSchemaFromParameters(parameters: any[]): any {
+    const properties: any = {};
+    const required: string[] = [];
+
+    for (const param of parameters) {
+      if (!param.name || !param.type) {
+        continue; // Skip invalid parameters
+      }
+
+      properties[param.name] = {
+        type: param.type,
+        description: param.description || ''
+      };
+
+      if (param.required === true) {
+        required.push(param.name);
+      }
+    }
+
+    return {
+      type: 'object',
+      properties,
+      required
+    };
+  }
+
+  /**
    * Execute a workflow with given inputs
    */
   async execute(workflow: WorkflowDefinition, inputs: Record<string, any>): Promise<ExecutionContext> {
@@ -166,6 +217,7 @@ export class WorkflowExecutor {
       variables: new Map(),
       inputs,
       logs: [],
+      stepResults: [],
       currentStep: 0,
     };
 
