@@ -21,7 +21,7 @@ export class ObjectTools {
     return [
       {
         name: "create_object",
-        description: "Create any object type (task, project, epic, rule) by specifying template_id. Accepts template_id and all dynamic properties for that template type. This is a generic base tool that works with all object templates.",
+        description: "Create any object type (task, project, epic, rule) by specifying template_id and properties object. Properties are validated against the template schema and descriptions act as prompts. This is a generic base tool that works with all object templates.",
         inputSchema: {
           type: "object",
           properties: {
@@ -29,17 +29,10 @@ export class ObjectTools {
               type: "number",
               description: "Required template ID (1=Task, 2=Project, 3=Epic, 4=Rule). Determines the object type to create."
             },
-            Title: {
-              type: "string",
-              description: "Object title (usually required by template schema)"
-            },
-            Description: {
-              type: "string",
-              description: "Object description (usually required by template schema)"
-            },
-            Analysis: {
-              type: "string",
-              description: "Optional analysis field (available for some templates)"
+            properties: {
+              type: "object",
+              description: "Object containing property key-value pairs based on template schema. Property keys and descriptions are loaded dynamically from the template.",
+              additionalProperties: true
             },
             stage: {
               type: "string",
@@ -59,7 +52,7 @@ export class ObjectTools {
               }
             }
           },
-          required: ["template_id"],
+          required: ["template_id", "properties"],
         },
       } as Tool,
       {
@@ -191,61 +184,84 @@ export class ObjectTools {
       };
     }
 
-    // Map template_id to appropriate configuration
-    let config: CreateConfig;
-
-    switch (templateId) {
-      case 1:
-        config = {
-          templateId: 1,
-          typeName: "Task",
-          responseIdField: "task_id",
-          loadSchema: this.loadDynamicSchemaProperties,
-        };
-        break;
-
-      case 2:
-        config = {
-          templateId: 2,
-          typeName: "Project",
-          responseIdField: "project_id",
-          loadSchema: this.loadProjectSchemaProperties,
-        };
-        break;
-
-      case 3:
-        config = {
-          templateId: 3,
-          typeName: "Epic",
-          responseIdField: "epic_id",
-          loadSchema: this.loadEpicSchemaProperties,
-        };
-        break;
-
-      case 4:
-        config = {
-          templateId: 4,
-          typeName: "Rule",
-          responseIdField: "rule_id",
-          loadSchema: this.loadRuleSchemaProperties,
-        };
-        break;
-
-      default:
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Error: Unsupported template_id ${templateId}. Supported values: 1 (Task), 2 (Project), 3 (Epic), 4 (Rule).`,
-            } as TextContent,
-          ],
-        };
+    // Load template properties to build dynamic schema
+    let properties;
+    try {
+      properties = await this.sharedDbService.listProperties(templateId);
+    } catch (error) {
+      console.error('Error loading template properties:', error);
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error: Failed to load properties for template ${templateId}.`,
+          } as TextContent,
+        ],
+      };
     }
+
+    // Determine type name and response field based on template_id
+    const typeNames: Record<number, string> = {
+      1: "Task",
+      2: "Project",
+      3: "Epic",
+      4: "Rule"
+    };
+    const responseFields: Record<number, string> = {
+      1: "task_id",
+      2: "project_id",
+      3: "epic_id",
+      4: "rule_id"
+    };
+
+    const typeName = typeNames[templateId] || "Object";
+    const responseIdField = responseFields[templateId] || "object_id";
+
+    // Build dynamic config with schema loader
+    // NOTE: Schema is loaded for validation/reference only
+    // The workflow explicitly defines which properties to use via the properties object
+    // This allows workflows to use a subset of available properties
+    const config: CreateConfig = {
+      templateId,
+      typeName,
+      responseIdField,
+      loadSchema: async () => {
+        // Convert template properties to SchemaProperties format
+        // This schema is used for reference, not enforcement
+        const schemaProps: SchemaProperties = {};
+        for (const prop of properties) {
+          // Only include properties with step_type='property' (not workflow steps)
+          if (prop.step_type === 'property') {
+            schemaProps[prop.key] = {
+              type: prop.type,
+              description: prop.description,
+              dependencies: prop.dependencies,
+              execution_order: prop.execution_order,
+              created_by: prop.created_by,
+              updated_by: prop.updated_by,
+              created_at: prop.created_at,
+              updated_at: prop.updated_at,
+              id: prop.id,
+              template_id: prop.template_id,
+              fixed: prop.fixed
+            };
+          }
+        }
+        return schemaProps;
+      }
+    };
+
+    // Flatten properties object into toolArgs for handleCreate compatibility
+    // This maintains backward compatibility with existing handleCreate implementation
+    const flattenedArgs = {
+      ...toolArgs,
+      ...(toolArgs.properties || {})
+    };
 
     // Call the generic handleCreate function
     return handleCreate(
       config,
-      toolArgs,
+      flattenedArgs,
       this.sharedDbService,
       this.clientId,
       this.createExecutionChain,

@@ -1,13 +1,13 @@
 /**
  * Workflow Executor - Interprets and executes workflow step definitions
- * Supports: log, set_variable, conditional, call_tool, and return step types
+ * Supports: log, set_variable, conditional, call_tool, return, and create_object step types
  */
 
 import DatabaseService from '../database.js';
 
 export interface WorkflowStep {
   name: string;
-  type: 'log' | 'set_variable' | 'conditional' | 'call_tool' | 'return';
+  type: 'log' | 'set_variable' | 'conditional' | 'call_tool' | 'return' | 'create_object';
   message?: string;
   variableName?: string;
   value?: any;
@@ -17,6 +17,8 @@ export interface WorkflowStep {
   toolName?: string;
   parameters?: Record<string, any>;
   resultVariable?: string;
+  templateId?: number;
+  properties?: Record<string, any>;
   status?: 'pending' | 'completed' | 'failed';
 }
 
@@ -161,6 +163,12 @@ export class WorkflowExecutor {
           case 'return':
             step.value = config.value;
             break;
+
+          case 'create_object':
+            step.templateId = config.template_id;
+            step.properties = config.properties;
+            step.resultVariable = config.result_variable;
+            break;
         }
 
         return step;
@@ -271,6 +279,10 @@ export class WorkflowExecutor {
         this.executeReturn(step, context);
         break;
 
+      case 'create_object':
+        await this.executeCreateObject(step, context);
+        break;
+
       default:
         throw new Error(`Unknown step type: ${(step as any).type}`);
     }
@@ -375,6 +387,51 @@ export class WorkflowExecutor {
     } catch (error) {
       console.error(`[Workflow ${step.name}] Tool execution failed:`, error);
       throw new Error(`Tool '${step.toolName}' execution failed: ${(error as Error).message}`);
+    }
+  }
+
+  /**
+   * Execute create_object step - creates an object using the create_object tool
+   */
+  private async executeCreateObject(step: WorkflowStep, context: ExecutionContext): Promise<void> {
+    if (!this.toolCaller) {
+      throw new Error('ToolCaller is required to execute create_object steps. Provide toolCaller in constructor.');
+    }
+
+    if (!step.templateId) {
+      throw new Error('create_object step requires a templateId');
+    }
+
+    // Build properties object by interpolating from context
+    const properties: Record<string, any> = {};
+    if (step.properties) {
+      for (const [key, value] of Object.entries(step.properties)) {
+        properties[key] = this.interpolateValue(value, context);
+      }
+    }
+
+    const parameters = {
+      template_id: step.templateId,
+      properties
+    };
+
+    console.log(`[Workflow ${step.name}] Calling create_object with template_id: ${step.templateId}`);
+    console.log(`[Workflow ${step.name}] Properties:`, JSON.stringify(properties, null, 2));
+
+    try {
+      // Call the create_object tool via the tool caller interface
+      const result = await this.toolCaller.callTool('create_object', parameters);
+
+      console.log(`[Workflow ${step.name}] Object created:`, JSON.stringify(result, null, 2));
+
+      // Store result in context variable if specified
+      if (step.resultVariable) {
+        context.variables.set(step.resultVariable, result);
+        console.log(`[Workflow ${step.name}] Stored result in variable: ${step.resultVariable}`);
+      }
+    } catch (error) {
+      console.error(`[Workflow ${step.name}] create_object execution failed:`, error);
+      throw new Error(`create_object execution failed: ${(error as Error).message}`);
     }
   }
 
