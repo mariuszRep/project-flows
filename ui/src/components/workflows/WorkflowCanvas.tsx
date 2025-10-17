@@ -16,6 +16,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { CallToolNode } from './nodes/CallToolNode';
+import { CreateObjectNode } from './nodes/CreateObjectNode';
 import { LogNode } from './nodes/LogNode';
 import { ConditionalNode } from './nodes/ConditionalNode';
 import { SetVariableNode } from './nodes/SetVariableNode';
@@ -23,9 +24,11 @@ import { ReturnNode } from './nodes/ReturnNode';
 import { StartNode } from './nodes/StartNode';
 import { EndNode } from './nodes/EndNode';
 import { NodeEditModal } from './NodeEditModal';
-import { GitBranch, Save, Loader2, Rocket, XCircle } from 'lucide-react';
+import { WorkflowEditModal } from './WorkflowEditModal';
+import { GitBranch, Save, Loader2, Rocket, XCircle, Settings } from 'lucide-react';
 import { useMCP } from '@/contexts/MCPContext';
 import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 
 interface WorkflowCanvasProps {
@@ -50,6 +53,7 @@ const nodeTypes: NodeTypes = {
   start: StartNode,
   end: EndNode,
   call_tool: CallToolNode,
+  create_object: CreateObjectNode,
   log: LogNode,
   conditional: ConditionalNode,
   set_variable: SetVariableNode,
@@ -109,6 +113,7 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
   const [originalSteps, setOriginalSteps] = useState<WorkflowStep[]>([]);
   const [isPublished, setIsPublished] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [isWorkflowEditOpen, setIsWorkflowEditOpen] = useState(false);
 
   // Fetch workflow data when workflowId changes
   useEffect(() => {
@@ -160,13 +165,14 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
                 properties
               });
               
-              // Filter and sort workflow steps
+              // Filter and sort workflow steps (exclude 'property' step_type as those are workflow parameters)
               const steps = Array.isArray(properties)
                 ? properties
                     .filter((prop: any) => {
                       const hasStepType = !!prop.step_type;
-                      console.log(`Property ${prop.key}: has step_type=${hasStepType}, value=${prop.step_type}`);
-                      return hasStepType;
+                      const isNotParameter = prop.step_type !== 'property';
+                      console.log(`Property ${prop.key}: has step_type=${hasStepType}, value=${prop.step_type}, isNotParameter=${isNotParameter}`);
+                      return hasStepType && isNotParameter;
                     })
                     .sort((a: any, b: any) => (a.execution_order || 0) - (b.execution_order || 0))
                     .map((prop: any) => ({
@@ -627,65 +633,80 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
 
   return (
     <div className="h-full flex flex-col" ref={reactFlowWrapper}>
-      <div className="border-b bg-background p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-semibold flex items-center gap-2">
-              <GitBranch className="w-5 h-5" />
-              {workflow.name}
-              {isDirty && <span className="text-xs text-muted-foreground">(unsaved changes)</span>}
-            </h2>
-            <p className="text-sm text-muted-foreground mt-1">{workflow.description}</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="text-sm text-muted-foreground">
-              {nodes.filter(n => n.type !== 'start' && n.type !== 'end').length} node{nodes.filter(n => n.type !== 'start' && n.type !== 'end').length !== 1 ? 's' : ''}
+      <div className="bg-background p-4">
+        <Card className="border border-border shadow-sm">
+          <div className="p-3 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3 flex-1 min-w-0">
+              <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center flex-shrink-0">
+                <GitBranch className="w-5 h-5 text-white" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h2 className="text-sm font-medium flex items-center gap-2">
+                  {workflow.name}
+                  {isDirty && <span className="text-xs text-muted-foreground">(unsaved changes)</span>}
+                </h2>
+                {workflow.description && (
+                  <p className="text-xs text-muted-foreground mt-0.5 truncate">{workflow.description}</p>
+                )}
+              </div>
             </div>
-            <Button
-              onClick={handleSaveWorkflow}
-              disabled={!isDirty || isSaving || !isConnected}
-              size="sm"
-              variant="outline"
-              className="gap-2"
-            >
-              {isSaving ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <Save className="w-4 h-4" />
-                  Save
-                </>
-              )}
-            </Button>
-            <Button
-              onClick={handleTogglePublish}
-              disabled={isPublishing || !isConnected}
-              size="sm"
-              variant={isPublished ? "secondary" : "default"}
-              className="gap-2"
-            >
-              {isPublishing ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  {isPublished ? 'Unpublishing...' : 'Publishing...'}
-                </>
-              ) : isPublished ? (
-                <>
-                  <XCircle className="w-4 h-4" />
-                  Unpublish
-                </>
-              ) : (
-                <>
-                  <Rocket className="w-4 h-4" />
-                  Publish
-                </>
-              )}
-            </Button>
+            <div className="flex items-center gap-3">
+              <Button
+                onClick={() => setIsWorkflowEditOpen(true)}
+                disabled={!isConnected}
+                size="sm"
+                variant="outline"
+                className="gap-2"
+              >
+                <Settings className="w-4 h-4" />
+                Settings
+              </Button>
+              <Button
+                onClick={handleSaveWorkflow}
+                disabled={!isDirty || isSaving || !isConnected}
+                size="sm"
+                variant="outline"
+                className="gap-2"
+              >
+                {isSaving ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    Save
+                  </>
+                )}
+              </Button>
+              <Button
+                onClick={handleTogglePublish}
+                disabled={isPublishing || !isConnected}
+                size="sm"
+                variant={isPublished ? "secondary" : "default"}
+                className="gap-2"
+              >
+                {isPublishing ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    {isPublished ? 'Unpublishing...' : 'Publishing...'}
+                  </>
+                ) : isPublished ? (
+                  <>
+                    <XCircle className="w-4 h-4" />
+                    Unpublish
+                  </>
+                ) : (
+                  <>
+                    <Rocket className="w-4 h-4" />
+                    Publish
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
-        </div>
+        </Card>
       </div>
 
       <div className="flex-1 bg-background">
@@ -736,6 +757,36 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
           onClose={handlePanelClose}
           onSave={handlePropertySave}
           onDelete={handlePropertyDelete}
+        />
+
+        <WorkflowEditModal
+          isOpen={isWorkflowEditOpen}
+          onClose={() => setIsWorkflowEditOpen(false)}
+          workflowId={workflowId}
+          workflowName={workflow?.name || ''}
+          workflowDescription={workflow?.description || ''}
+          nodes={nodes}
+          onSave={() => {
+            // Refresh workflow data after save
+            const fetchWorkflow = async () => {
+              if (!workflowId || !isConnected || !callTool || tools.length === 0) return;
+
+              try {
+                const result = await callTool('get_template', { template_id: workflowId });
+                if (result && result.content && result.content[0]) {
+                  const templateData = JSON.parse(result.content[0].text);
+                  setWorkflow({
+                    ...workflow!,
+                    name: templateData.name,
+                    description: templateData.description || '',
+                  });
+                }
+              } catch (err) {
+                console.error('Error refreshing workflow:', err);
+              }
+            };
+            fetchWorkflow();
+          }}
         />
       </div>
     </div>

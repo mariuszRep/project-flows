@@ -1,5 +1,5 @@
 import { Card } from '@/components/ui/card';
-import { Wrench, FileText, GitBranch, Variable, CornerDownRight, Play, StopCircle } from 'lucide-react';
+import { Wrench, FileText, GitBranch, Variable, CornerDownRight, Play, StopCircle, Database } from 'lucide-react';
 
 export interface NodeType {
   type: string;
@@ -23,6 +23,13 @@ export const nodeTypes: NodeType[] = [
     icon: Wrench,
     color: 'bg-blue-500',
     description: 'Execute an MCP tool'
+  },
+  {
+    type: 'create_object',
+    label: 'Create Object',
+    icon: Database,
+    color: 'bg-teal-500',
+    description: 'Create task, project, epic, or rule'
   },
   {
     type: 'log',
@@ -92,7 +99,7 @@ export function NodePalette({ onNodeAdd, onNodeDragStart }: NodePaletteProps) {
       </div>
 
       <div className="space-y-2">
-        {nodeTypes.filter((nodeType) => nodeType.type !== 'start').map((nodeType) => {
+        {nodeTypes.filter((nodeType) => nodeType.type !== 'start' && nodeType.type !== 'end').map((nodeType) => {
           const Icon = nodeType.icon;
           return (
             <Card
