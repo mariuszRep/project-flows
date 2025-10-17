@@ -1,5 +1,5 @@
 import { Card } from '@/components/ui/card';
-import { Wrench, FileText, GitBranch, Variable, CornerDownRight, Play, StopCircle, Database } from 'lucide-react';
+import { Wrench, FileText, GitBranch, Variable, CornerDownRight, Play, StopCircle, Database, Download, Upload, Route } from 'lucide-react';
 
 export interface NodeType {
   type: string;
@@ -58,6 +58,27 @@ export const nodeTypes: NodeType[] = [
     icon: CornerDownRight,
     color: 'bg-pink-500',
     description: 'Return a value'
+  },
+  {
+    type: 'load_state',
+    label: 'Load State',
+    icon: Download,
+    color: 'bg-emerald-500',
+    description: 'Load workflow state from database'
+  },
+  {
+    type: 'save_state',
+    label: 'Save State',
+    icon: Upload,
+    color: 'bg-amber-500',
+    description: 'Save workflow state to database'
+  },
+  {
+    type: 'switch',
+    label: 'Switch',
+    icon: Route,
+    color: 'bg-indigo-500',
+    description: 'Multi-branch routing'
   },
   {
     type: 'end',

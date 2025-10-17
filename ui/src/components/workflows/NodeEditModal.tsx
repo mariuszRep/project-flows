@@ -525,7 +525,10 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
       log: 'Log Node',
       conditional: 'Conditional Node',
       set_variable: 'Set Variable Node',
-      return: 'Return Node'
+      return: 'Return Node',
+      load_state: 'Load State Node',
+      save_state: 'Save State Node',
+      switch: 'Switch Node'
     };
     return labels[type] || type;
   };
@@ -1039,6 +1042,117 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
                   maxRows={4}
                   className="w-full"
                 />
+              </div>
+            )}
+
+            {node.type === 'load_state' && (
+              <div className="border rounded-xl border-border bg-muted/5 p-4 space-y-3">
+                <h3 className="text-sm font-semibold mb-2">Load State Configuration</h3>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-2 block">
+                    State Key
+                  </label>
+                  <Input
+                    value={config.state_key || ''}
+                    onChange={(e) => setConfig({ ...config, state_key: e.target.value })}
+                    placeholder="e.g., workflow_{{input.workflow_id}}"
+                    className="w-full font-mono text-sm"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Use {'{{input.field}}'} to interpolate workflow parameters
+                  </p>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-2 block">
+                    Default Value (JSON)
+                  </label>
+                  <AutoTextarea
+                    value={config.default_value || ''}
+                    onChange={(e) => setConfig({ ...config, default_value: e.target.value })}
+                    placeholder='e.g., {"phase": "start", "data": {}}'
+                    minRows={2}
+                    maxRows={4}
+                    className="w-full font-mono text-sm"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Used when state doesn't exist
+                  </p>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-2 block">
+                    Result Variable
+                  </label>
+                  <Input
+                    value={config.result_variable || ''}
+                    onChange={(e) => setConfig({ ...config, result_variable: e.target.value })}
+                    placeholder="e.g., workflow_state"
+                    className="w-full font-mono text-sm"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Variable to store loaded state
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {node.type === 'save_state' && (
+              <div className="border rounded-xl border-border bg-muted/5 p-4 space-y-3">
+                <h3 className="text-sm font-semibold mb-2">Save State Configuration</h3>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-2 block">
+                    State Key
+                  </label>
+                  <Input
+                    value={config.state_key || ''}
+                    onChange={(e) => setConfig({ ...config, state_key: e.target.value })}
+                    placeholder="e.g., workflow_{{input.workflow_id}}"
+                    className="w-full font-mono text-sm"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Use {'{{input.field}}'} to interpolate workflow parameters
+                  </p>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-2 block">
+                    Value to Save
+                  </label>
+                  <AutoTextarea
+                    value={config.value || ''}
+                    onChange={(e) => setConfig({ ...config, value: e.target.value })}
+                    placeholder="e.g., {{workflow_state}} or literal JSON"
+                    minRows={2}
+                    maxRows={4}
+                    className="w-full font-mono text-sm"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Variable reference or JSON value to persist
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {node.type === 'switch' && (
+              <div className="border rounded-xl border-border bg-muted/5 p-4 space-y-3">
+                <h3 className="text-sm font-semibold mb-2">Switch Configuration</h3>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-2 block">
+                    Switch Value
+                  </label>
+                  <Input
+                    value={config.switch_value || ''}
+                    onChange={(e) => setConfig({ ...config, switch_value: e.target.value })}
+                    placeholder="e.g., {{workflow_state.phase}}"
+                    className="w-full font-mono text-sm"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Value to match against cases (use {'{{variable}}'} syntax)
+                  </p>
+                </div>
+                <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-md p-3">
+                  <p className="text-xs text-yellow-800 dark:text-yellow-300">
+                    <strong>Note:</strong> Cases and default branch are defined visually by connecting nodes from this switch node's output handles.
+                  </p>
+                </div>
               </div>
             )}
 

@@ -7,7 +7,7 @@ import DatabaseService from '../database.js';
 
 export interface WorkflowStep {
   name: string;
-  type: 'log' | 'set_variable' | 'conditional' | 'call_tool' | 'return' | 'create_object';
+  type: 'log' | 'set_variable' | 'conditional' | 'call_tool' | 'return' | 'create_object' | 'load_state' | 'save_state' | 'switch';
   message?: string;
   variableName?: string;
   value?: any;
@@ -20,6 +20,13 @@ export interface WorkflowStep {
   templateId?: number;
   properties?: Record<string, any>;
   status?: 'pending' | 'completed' | 'failed';
+  // load_state / save_state fields
+  stateKey?: string;
+  defaultValue?: any;
+  // switch fields
+  switchValue?: string;
+  cases?: Record<string, WorkflowStep[]>;
+  defaultCase?: WorkflowStep[];
 }
 
 export interface WorkflowDefinition {
@@ -156,6 +163,23 @@ export class WorkflowExecutor {
             step.templateId = config.template_id;
             step.properties = config.properties;
             step.resultVariable = config.result_variable;
+            break;
+
+          case 'load_state':
+            step.stateKey = config.state_key;
+            step.defaultValue = config.default_value;
+            step.resultVariable = config.result_variable;
+            break;
+
+          case 'save_state':
+            step.stateKey = config.state_key;
+            step.value = config.value;
+            break;
+
+          case 'switch':
+            step.switchValue = config.switch_value;
+            step.cases = config.cases;
+            step.defaultCase = config.default;
             break;
         }
 
@@ -358,6 +382,18 @@ export class WorkflowExecutor {
 
       case 'create_object':
         await this.executeCreateObject(step, context);
+        break;
+
+      case 'load_state':
+        await this.executeLoadState(step, context);
+        break;
+
+      case 'save_state':
+        await this.executeSaveState(step, context);
+        break;
+
+      case 'switch':
+        await this.executeSwitch(step, context);
         break;
 
       default:
@@ -735,6 +771,113 @@ export class WorkflowExecutor {
       if (expectedType === 'object' && (actualType !== 'object' || Array.isArray(value))) {
         throw new Error(`Input field '${field}' must be an object`);
       }
+    }
+  }
+
+  /**
+   * Execute load_state step - loads workflow state from global_state table
+   */
+  private async executeLoadState(step: WorkflowStep, context: ExecutionContext): Promise<void> {
+    if (!this.dbService) {
+      throw new Error('DatabaseService is required to load state');
+    }
+
+    if (!step.stateKey) {
+      throw new Error('load_state step requires a stateKey');
+    }
+
+    const stateKey = this.interpolateString(step.stateKey, context);
+
+    console.log(`[Workflow ${step.name}] Loading state with key: ${stateKey}`);
+
+    try {
+      // Load from global_state table
+      const value = await this.dbService.getGlobalState(stateKey);
+
+      if (value !== null) {
+        console.log(`[Workflow ${step.name}] Loaded state:`, JSON.stringify(value, null, 2));
+        // Store in context variable
+        if (step.resultVariable) {
+          context.variables.set(step.resultVariable, value);
+        }
+      } else {
+        // Use default value if state doesn't exist
+        const defaultVal = step.defaultValue || null;
+        console.log(`[Workflow ${step.name}] No state found, using default:`, JSON.stringify(defaultVal, null, 2));
+        if (step.resultVariable) {
+          context.variables.set(step.resultVariable, defaultVal);
+        }
+      }
+    } catch (error) {
+      console.error(`[Workflow ${step.name}] Failed to load state:`, error);
+      // Use default value on error
+      if (step.resultVariable) {
+        context.variables.set(step.resultVariable, step.defaultValue || null);
+      }
+    }
+  }
+
+  /**
+   * Execute save_state step - saves workflow state to global_state table
+   */
+  private async executeSaveState(step: WorkflowStep, context: ExecutionContext): Promise<void> {
+    if (!this.dbService) {
+      throw new Error('DatabaseService is required to save state');
+    }
+
+    if (!step.stateKey) {
+      throw new Error('save_state step requires a stateKey');
+    }
+
+    if (step.value === undefined) {
+      throw new Error('save_state step requires a value');
+    }
+
+    const stateKey = this.interpolateString(step.stateKey, context);
+    const value = this.interpolateValue(step.value, context);
+
+    console.log(`[Workflow ${step.name}] Saving state with key: ${stateKey}`);
+    console.log(`[Workflow ${step.name}] Value:`, JSON.stringify(value, null, 2));
+
+    try {
+      // Save to global_state table
+      await this.dbService.setGlobalState(stateKey, value, 'workflow');
+      console.log(`[Workflow ${step.name}] State saved successfully`);
+    } catch (error) {
+      console.error(`[Workflow ${step.name}] Failed to save state:`, error);
+      throw new Error(`Failed to save workflow state: ${(error as Error).message}`);
+    }
+  }
+
+  /**
+   * Execute switch step - multi-branch routing based on value
+   */
+  private async executeSwitch(step: WorkflowStep, context: ExecutionContext): Promise<void> {
+    if (!step.switchValue) {
+      throw new Error('switch step requires a switchValue');
+    }
+
+    const switchValue = this.interpolateString(step.switchValue, context);
+    console.log(`[Workflow ${step.name}] Switch value: ${switchValue}`);
+
+    // Find matching case
+    const cases = step.cases || {};
+    const matchingCase = cases[switchValue];
+
+    if (matchingCase && matchingCase.length > 0) {
+      console.log(`[Workflow ${step.name}] Executing case: ${switchValue}`);
+      for (const caseStep of matchingCase) {
+        await this.executeStep(caseStep, context);
+        if (context.result !== undefined) break;
+      }
+    } else if (step.defaultCase && step.defaultCase.length > 0) {
+      console.log(`[Workflow ${step.name}] No matching case, executing default`);
+      for (const defaultStep of step.defaultCase) {
+        await this.executeStep(defaultStep, context);
+        if (context.result !== undefined) break;
+      }
+    } else {
+      console.log(`[Workflow ${step.name}] No matching case and no default - skipping`);
     }
   }
 }

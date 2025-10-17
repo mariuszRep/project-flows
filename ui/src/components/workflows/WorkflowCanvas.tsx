@@ -23,6 +23,9 @@ import { SetVariableNode } from './nodes/SetVariableNode';
 import { ReturnNode } from './nodes/ReturnNode';
 import { StartNode } from './nodes/StartNode';
 import { EndNode } from './nodes/EndNode';
+import { LoadStateNode } from './nodes/LoadStateNode';
+import { SaveStateNode } from './nodes/SaveStateNode';
+import { SwitchNode } from './nodes/SwitchNode';
 import { NodeEditModal } from './NodeEditModal';
 import { WorkflowEditModal } from './WorkflowEditModal';
 import { GitBranch, Save, Loader2, Rocket, XCircle, Settings } from 'lucide-react';
@@ -58,6 +61,9 @@ const nodeTypes: NodeTypes = {
   conditional: ConditionalNode,
   set_variable: SetVariableNode,
   return: ReturnNode,
+  load_state: LoadStateNode,
+  save_state: SaveStateNode,
+  switch: SwitchNode,
 };
 
 function workflowToReactFlow(workflow: WorkflowData): { nodes: Node[]; edges: Edge[] } {
