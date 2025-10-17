@@ -1,5 +1,5 @@
 import { Card } from '@/components/ui/card';
-import { Wrench, FileText, GitBranch, Variable, CornerDownRight, Play, StopCircle } from 'lucide-react';
+import { Wrench, FileText, GitBranch, Variable, CornerDownRight, Play, StopCircle, Database, Download, Upload, Route } from 'lucide-react';
 
 export interface NodeType {
   type: string;
@@ -23,6 +23,13 @@ export const nodeTypes: NodeType[] = [
     icon: Wrench,
     color: 'bg-blue-500',
     description: 'Execute an MCP tool'
+  },
+  {
+    type: 'create_object',
+    label: 'Create Object',
+    icon: Database,
+    color: 'bg-teal-500',
+    description: 'Create task, project, epic, or rule'
   },
   {
     type: 'log',
@@ -51,6 +58,27 @@ export const nodeTypes: NodeType[] = [
     icon: CornerDownRight,
     color: 'bg-pink-500',
     description: 'Return a value'
+  },
+  {
+    type: 'load_state',
+    label: 'Load State',
+    icon: Download,
+    color: 'bg-emerald-500',
+    description: 'Load workflow state from database'
+  },
+  {
+    type: 'save_state',
+    label: 'Save State',
+    icon: Upload,
+    color: 'bg-amber-500',
+    description: 'Save workflow state to database'
+  },
+  {
+    type: 'switch',
+    label: 'Switch',
+    icon: Route,
+    color: 'bg-indigo-500',
+    description: 'Multi-branch routing'
   },
   {
     type: 'end',
@@ -92,7 +120,7 @@ export function NodePalette({ onNodeAdd, onNodeDragStart }: NodePaletteProps) {
       </div>
 
       <div className="space-y-2">
-        {nodeTypes.filter((nodeType) => nodeType.type !== 'start').map((nodeType) => {
+        {nodeTypes.filter((nodeType) => nodeType.type !== 'start' && nodeType.type !== 'end').map((nodeType) => {
           const Icon = nodeType.icon;
           return (
             <Card

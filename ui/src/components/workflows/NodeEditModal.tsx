@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { AutoTextarea } from '@/components/ui/auto-textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { X, Save, Trash2, Plus } from 'lucide-react';
+import { X, Save, Trash2, Plus, Loader2 } from 'lucide-react';
 import { Node } from 'reactflow';
 import { useToast } from '@/hooks/use-toast';
 import { useMCP } from '@/contexts/MCPContext';
@@ -38,7 +38,7 @@ interface ToolParameter {
 
 export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeEditModalProps) {
   const { toast } = useToast();
-  const { tools } = useMCP();
+  const { tools, callTool, isConnected } = useMCP();
   const [label, setLabel] = useState('');
   const [description, setDescription] = useState('');
   const [config, setConfig] = useState<Record<string, any>>({});
@@ -46,6 +46,14 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
   const [inputParameters, setInputParameters] = useState<InputParameter[]>([]);
   const [toolParameters, setToolParameters] = useState<ToolParameter[]>([]);
   const firstInputRef = useRef<HTMLInputElement>(null);
+
+  // State for create_object configuration
+  const [availableTemplates, setAvailableTemplates] = useState<any[]>([]);
+  const [availableProperties, setAvailableProperties] = useState<any[]>([]);
+  const [selectedProperties, setSelectedProperties] = useState<Record<string, boolean | string>>({});
+  const [isLoadingTemplates, setIsLoadingTemplates] = useState(false);
+  const [isLoadingProperties, setIsLoadingProperties] = useState(false);
+  const [workflowParameters, setWorkflowParameters] = useState<string[]>([]);
 
   useEffect(() => {
     if (node && isOpen) {
@@ -143,6 +151,18 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
         setToolParameters([]);
       }
 
+      // Parse create_object configuration
+      if (node.type === 'create_object') {
+        const properties = node.data.config?.properties;
+        if (properties && typeof properties === 'object') {
+          setSelectedProperties(properties);
+        } else {
+          setSelectedProperties({});
+        }
+      } else {
+        setSelectedProperties({});
+      }
+
       // Focus first input after modal opens
       setTimeout(() => {
         if (firstInputRef.current) {
@@ -151,6 +171,118 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
       }, 100);
     }
   }, [node, isOpen]);
+
+  // Load workflow parameters from parent workflow
+  useEffect(() => {
+    const loadWorkflowParameters = async () => {
+      if (!isOpen || !node || !isConnected || !callTool) {
+        return;
+      }
+
+      try {
+        // Get the workflow template ID from URL or context
+        // For now, we'll parse it from the URL path
+        const pathParts = window.location.pathname.split('/');
+        const workflowIdIndex = pathParts.indexOf('workflows') + 1;
+        const workflowId = workflowIdIndex > 0 ? parseInt(pathParts[workflowIdIndex]) : null;
+
+        if (!workflowId) {
+          setWorkflowParameters([]);
+          return;
+        }
+
+        const result = await callTool('get_template', { template_id: workflowId });
+        if (result && result.content && result.content[0]) {
+          const templateData = JSON.parse(result.content[0].text);
+          const metadata = templateData.metadata || {};
+          const params = metadata.workflow_parameters || [];
+
+          // Extract parameter names
+          const paramNames = params.map((p: any) => p.name);
+          setWorkflowParameters(paramNames);
+        } else {
+          setWorkflowParameters([]);
+        }
+      } catch (error) {
+        console.error('Error loading workflow parameters:', error);
+        setWorkflowParameters([]);
+      }
+    };
+
+    loadWorkflowParameters();
+  }, [isOpen, node, isConnected, callTool]);
+
+  // Load templates for create_object node
+  useEffect(() => {
+    const loadTemplates = async () => {
+      if (!isOpen || !node || node.type !== 'create_object' || !isConnected || !callTool) {
+        return;
+      }
+
+      setIsLoadingTemplates(true);
+      try {
+        const result = await callTool('list_templates', {});
+        if (result && result.content && result.content[0]) {
+          const templatesText = result.content[0].text;
+
+          if (!templatesText.includes('No templates')) {
+            const templates = JSON.parse(templatesText);
+            // Filter only object templates (exclude workflow templates)
+            const objectTemplates = Array.isArray(templates)
+              ? templates.filter((t: any) => t.type === 'object' || !t.type)
+              : [];
+            setAvailableTemplates(objectTemplates);
+          } else {
+            setAvailableTemplates([]);
+          }
+        }
+      } catch (error) {
+        console.error('Error loading templates:', error);
+        setAvailableTemplates([]);
+      } finally {
+        setIsLoadingTemplates(false);
+      }
+    };
+
+    loadTemplates();
+  }, [isOpen, node, isConnected, callTool]);
+
+  // Load properties when template is selected
+  useEffect(() => {
+    const loadProperties = async () => {
+      const templateId = config.template_id;
+      if (!isOpen || !node || node.type !== 'create_object' || !templateId || !isConnected || !callTool) {
+        setAvailableProperties([]);
+        return;
+      }
+
+      setIsLoadingProperties(true);
+      try {
+        const result = await callTool('list_properties', { template_id: templateId });
+        if (result && result.content && result.content[0]) {
+          const propsText = result.content[0].text;
+
+          if (!propsText.includes('No properties found')) {
+            const properties = JSON.parse(propsText);
+            // Filter properties with step_type='property' (exclude workflow steps)
+            const objectProps = Array.isArray(properties)
+              ? properties.filter((p: any) => p.step_type === 'property')
+              : [];
+            setAvailableProperties(objectProps);
+          } else {
+            setAvailableProperties([]);
+          }
+        }
+      } catch (error) {
+        console.error('Error loading properties:', error);
+        setAvailableProperties([]);
+      } finally {
+        setIsLoadingProperties(false);
+      }
+    };
+
+    loadProperties();
+  }, [isOpen, node, config.template_id, isConnected, callTool]);
 
   if (!isOpen || !node) {
     return null;
@@ -227,7 +359,7 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
   const validateParameters = (): boolean => {
     const names = inputParameters.map(p => p.name.trim()).filter(n => n);
     const uniqueNames = new Set(names);
-    
+
     if (names.length !== uniqueNames.size) {
       setError('Parameter names must be unique');
       toast({
@@ -251,6 +383,34 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
     }
 
     return true;
+  };
+
+  const handleTemplateSelection = (templateId: string) => {
+    const numericId = parseInt(templateId);
+    setConfig({ ...config, template_id: numericId });
+    // Reset selected properties when template changes
+    setSelectedProperties({});
+  };
+
+  const addProperty = (propertyKey: string) => {
+    if (!propertyKey || propertyKey in selectedProperties) return;
+    setSelectedProperties({
+      ...selectedProperties,
+      [propertyKey]: true // true means "use direct input", will be replaced with parameter reference
+    });
+  };
+
+  const removeProperty = (propertyKey: string) => {
+    const newProps = { ...selectedProperties };
+    delete newProps[propertyKey];
+    setSelectedProperties(newProps);
+  };
+
+  const updatePropertyMapping = (propertyKey: string, value: string | boolean) => {
+    setSelectedProperties({
+      ...selectedProperties,
+      [propertyKey]: value
+    });
   };
 
   const handleSave = () => {
@@ -298,6 +458,34 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
       console.log('Updated config:', updatedConfig);
     }
 
+    // Validate and prepare config for create_object node
+    if (node.type === 'create_object') {
+      // Validate template selection
+      if (!updatedConfig.template_id) {
+        setError('Template selection is required');
+        toast({
+          title: "Validation Error",
+          description: "Please select a template",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Validate at least one property is selected
+      if (Object.keys(selectedProperties).length === 0) {
+        setError('At least one property must be selected');
+        toast({
+          title: "Validation Error",
+          description: "Please select at least one property to configure",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      updatedConfig.properties = selectedProperties;
+      console.log('Saving create_object node with config:', updatedConfig);
+    }
+
     const dataToSave = {
       ...node.data,
       label,
@@ -333,10 +521,14 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
       start: 'Start Node',
       end: 'End Node',
       call_tool: 'Call Tool Node',
+      create_object: 'Create Object Node',
       log: 'Log Node',
       conditional: 'Conditional Node',
       set_variable: 'Set Variable Node',
-      return: 'Return Node'
+      return: 'Return Node',
+      load_state: 'Load State Node',
+      save_state: 'Save State Node',
+      switch: 'Switch Node'
     };
     return labels[type] || type;
   };
@@ -610,6 +802,168 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
               </div>
             )}
 
+            {node.type === 'create_object' && (
+              <div className="border rounded-xl border-border bg-muted/5 p-4 space-y-4">
+                <h3 className="text-sm font-semibold mb-2">Create Object Configuration</h3>
+
+                {/* Template Selection */}
+                <div>
+                  <Label className="text-xs">Select Template</Label>
+                  {isLoadingTemplates ? (
+                    <div className="flex items-center gap-2 p-2 text-sm text-muted-foreground">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Loading templates...
+                    </div>
+                  ) : (
+                    <Select
+                      value={config.template_id?.toString() || ''}
+                      onValueChange={handleTemplateSelection}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a template..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableTemplates.map((template) => (
+                          <SelectItem key={template.id} value={template.id.toString()}>
+                            {template.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Choose the type of object to create (Task, Project, Epic, Rule)
+                  </p>
+                </div>
+
+                {/* Properties Configuration */}
+                {config.template_id && (
+                  <div>
+                    <Label className="text-xs mb-2 block">Configure Properties</Label>
+                    {isLoadingProperties ? (
+                      <div className="flex items-center gap-2 p-2 text-sm text-muted-foreground">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Loading properties...
+                      </div>
+                    ) : availableProperties.length === 0 ? (
+                      <div className="text-xs text-muted-foreground text-center py-4 border border-dashed rounded-lg">
+                        No properties available for this template
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {/* Selected Properties List */}
+                        {Object.keys(selectedProperties).length > 0 && (
+                          <div className="space-y-2">
+                            {Object.keys(selectedProperties).map((propKey) => {
+                              const currentValue = selectedProperties[propKey];
+                              const isDirectInput = currentValue === true;
+                              const hasWorkflowParams = workflowParameters.length > 0;
+
+                              return (
+                                <div key={propKey} className="border rounded-lg p-3 bg-background space-y-2">
+                                  <div className="flex items-center justify-between">
+                                    <Label className="text-sm font-medium">{propKey}</Label>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() => removeProperty(propKey)}
+                                      className="h-6 w-6 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                    >
+                                      <X className="h-4 w-4" />
+                                    </Button>
+                                  </div>
+
+                                  {/* Parameter Mapping Dropdown */}
+                                  {hasWorkflowParams && (
+                                    <div>
+                                      <Label className="text-xs text-muted-foreground mb-1 block">
+                                        Map to workflow parameter (optional)
+                                      </Label>
+                                      <Select
+                                        value={typeof currentValue === 'string' ? currentValue : ''}
+                                        onValueChange={(value) => {
+                                          if (value === '__direct__') {
+                                            updatePropertyMapping(propKey, true);
+                                          } else {
+                                            updatePropertyMapping(propKey, `{{input.${value}}}`);
+                                          }
+                                        }}
+                                      >
+                                        <SelectTrigger className="h-8 text-sm">
+                                          <SelectValue placeholder="Direct input (agent fills)" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="__direct__">
+                                            <span className="text-muted-foreground">Direct input (agent fills)</span>
+                                          </SelectItem>
+                                          {workflowParameters.map((param) => (
+                                            <SelectItem key={param} value={param}>
+                                              <span className="font-mono text-xs">{`{{input.${param}}}`}</span>
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                      {typeof currentValue === 'string' && (
+                                        <p className="text-xs text-muted-foreground mt-1">
+                                          Will use: <span className="font-mono">{currentValue}</span>
+                                        </p>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {!hasWorkflowParams && (
+                                    <p className="text-xs text-muted-foreground italic">
+                                      No workflow parameters defined. The agent will fill this value directly.
+                                    </p>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {/* Add Property Dropdown */}
+                        <Select onValueChange={addProperty}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Add a property..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {availableProperties
+                              .filter(prop => !(prop.key in selectedProperties))
+                              .map((prop) => (
+                                <SelectItem key={prop.key} value={prop.key}>
+                                  {prop.key}
+                                </SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">
+                          Use {'{{input.field}}'} for start node parameters or {'{{variable.name}}'} for workflow variables.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Result Variable */}
+                {config.template_id && (
+                  <div>
+                    <Label className="text-xs">Result Variable (Optional)</Label>
+                    <Input
+                      value={config.result_variable || ''}
+                      onChange={(e) => setConfig({ ...config, result_variable: e.target.value })}
+                      placeholder="e.g., created_task, new_project"
+                      className="font-mono text-sm"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Store the created object ID in a variable for use in subsequent nodes
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
             {node.type === 'conditional' && (
               <div className="border rounded-xl border-border bg-muted/5 p-4">
                 <h3 className="text-sm font-semibold mb-2">Conditional Configuration</h3>
@@ -688,6 +1042,117 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
                   maxRows={4}
                   className="w-full"
                 />
+              </div>
+            )}
+
+            {node.type === 'load_state' && (
+              <div className="border rounded-xl border-border bg-muted/5 p-4 space-y-3">
+                <h3 className="text-sm font-semibold mb-2">Load State Configuration</h3>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-2 block">
+                    State Key
+                  </label>
+                  <Input
+                    value={config.state_key || ''}
+                    onChange={(e) => setConfig({ ...config, state_key: e.target.value })}
+                    placeholder="e.g., workflow_{{input.workflow_id}}"
+                    className="w-full font-mono text-sm"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Use {'{{input.field}}'} to interpolate workflow parameters
+                  </p>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-2 block">
+                    Default Value (JSON)
+                  </label>
+                  <AutoTextarea
+                    value={config.default_value || ''}
+                    onChange={(e) => setConfig({ ...config, default_value: e.target.value })}
+                    placeholder='e.g., {"phase": "start", "data": {}}'
+                    minRows={2}
+                    maxRows={4}
+                    className="w-full font-mono text-sm"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Used when state doesn't exist
+                  </p>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-2 block">
+                    Result Variable
+                  </label>
+                  <Input
+                    value={config.result_variable || ''}
+                    onChange={(e) => setConfig({ ...config, result_variable: e.target.value })}
+                    placeholder="e.g., workflow_state"
+                    className="w-full font-mono text-sm"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Variable to store loaded state
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {node.type === 'save_state' && (
+              <div className="border rounded-xl border-border bg-muted/5 p-4 space-y-3">
+                <h3 className="text-sm font-semibold mb-2">Save State Configuration</h3>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-2 block">
+                    State Key
+                  </label>
+                  <Input
+                    value={config.state_key || ''}
+                    onChange={(e) => setConfig({ ...config, state_key: e.target.value })}
+                    placeholder="e.g., workflow_{{input.workflow_id}}"
+                    className="w-full font-mono text-sm"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Use {'{{input.field}}'} to interpolate workflow parameters
+                  </p>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-2 block">
+                    Value to Save
+                  </label>
+                  <AutoTextarea
+                    value={config.value || ''}
+                    onChange={(e) => setConfig({ ...config, value: e.target.value })}
+                    placeholder="e.g., {{workflow_state}} or literal JSON"
+                    minRows={2}
+                    maxRows={4}
+                    className="w-full font-mono text-sm"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Variable reference or JSON value to persist
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {node.type === 'switch' && (
+              <div className="border rounded-xl border-border bg-muted/5 p-4 space-y-3">
+                <h3 className="text-sm font-semibold mb-2">Switch Configuration</h3>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-2 block">
+                    Switch Value
+                  </label>
+                  <Input
+                    value={config.switch_value || ''}
+                    onChange={(e) => setConfig({ ...config, switch_value: e.target.value })}
+                    placeholder="e.g., {{workflow_state.phase}}"
+                    className="w-full font-mono text-sm"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Value to match against cases (use {'{{variable}}'} syntax)
+                  </p>
+                </div>
+                <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-md p-3">
+                  <p className="text-xs text-yellow-800 dark:text-yellow-300">
+                    <strong>Note:</strong> Cases and default branch are defined visually by connecting nodes from this switch node's output handles.
+                  </p>
+                </div>
               </div>
             )}
 

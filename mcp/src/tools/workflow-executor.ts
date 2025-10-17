@@ -1,13 +1,13 @@
 /**
  * Workflow Executor - Interprets and executes workflow step definitions
- * Supports: log, set_variable, conditional, call_tool, and return step types
+ * Supports: log, set_variable, conditional, call_tool, return, and create_object step types
  */
 
 import DatabaseService from '../database.js';
 
 export interface WorkflowStep {
   name: string;
-  type: 'log' | 'set_variable' | 'conditional' | 'call_tool' | 'return';
+  type: 'log' | 'set_variable' | 'conditional' | 'call_tool' | 'return' | 'create_object' | 'load_state' | 'save_state' | 'switch';
   message?: string;
   variableName?: string;
   value?: any;
@@ -17,7 +17,16 @@ export interface WorkflowStep {
   toolName?: string;
   parameters?: Record<string, any>;
   resultVariable?: string;
+  templateId?: number;
+  properties?: Record<string, any>;
   status?: 'pending' | 'completed' | 'failed';
+  // load_state / save_state fields
+  stateKey?: string;
+  defaultValue?: any;
+  // switch fields
+  switchValue?: string;
+  cases?: Record<string, WorkflowStep[]>;
+  defaultCase?: WorkflowStep[];
 }
 
 export interface WorkflowDefinition {
@@ -87,31 +96,19 @@ export class WorkflowExecutor {
       const properties = await this.dbService.listProperties(templateId);
       console.log(`[Workflow Loader] Loaded ${properties.length} properties for template ${templateId}`);
 
-      // Find start node (step_type='start')
-      const startNode = properties.find((prop: any) => prop.step_type === 'start');
+      // Get workflow configuration from template metadata
+      const metadata = templateData.metadata || {};
+      const workflowName = metadata.mcp_tool_name || template.name.toLowerCase().replace(/\s+/g, '_');
+      const workflowDescription = metadata.tool_description || template.description;
 
-      let workflowName: string;
-      let workflowDescription: string;
-      let inputSchema: any;
+      // NEW APPROACH: Load workflow parameters from properties table (step_type='property')
+      const parameterProperties = properties.filter((prop: any) => prop.step_type === 'property');
+      console.log(`[Workflow Loader] Found ${parameterProperties.length} parameter properties for workflow ${templateId}`);
 
-      if (startNode) {
-        // NEW APPROACH: Extract tool definition from start node
-        console.log(`[Workflow Loader] Found start node for workflow ${templateId}`);
-        const startConfig = startNode.step_config || {};
-
-        workflowName = startConfig.tool_name || template.name.toLowerCase().replace(/\s+/g, '_');
-        workflowDescription = startConfig.tool_description || startConfig.display_description || template.description;
-        inputSchema = this.buildInputSchemaFromParameters(startConfig.input_parameters || []);
-
-        console.log(`[Workflow Loader] Tool name from start node: ${workflowName}`);
-      } else {
-        // LEGACY FALLBACK: Use metadata (for backward compatibility)
-        console.warn(`[Workflow Loader] No start node found for workflow ${templateId}, using legacy metadata`);
-        const metadata = templateData.metadata || {};
-        workflowName = metadata.mcp_tool_name || template.name;
-        workflowDescription = template.description;
-        inputSchema = metadata.input_schema || {};
-      }
+      // Build input schema from parameter properties
+      const inputSchema = this.buildInputSchemaFromPropertiesTable(parameterProperties);
+      console.log(`[Workflow Loader] Built input schema with ${Object.keys(inputSchema.properties || {}).length} parameters`);
+      console.log(`[Workflow Loader] Tool name: ${workflowName}`);
 
       // Filter only executable workflow steps (exclude 'property' and 'start')
       const stepProperties = properties.filter((prop: any) => {
@@ -161,15 +158,42 @@ export class WorkflowExecutor {
           case 'return':
             step.value = config.value;
             break;
+
+          case 'create_object':
+            step.templateId = config.template_id;
+            step.properties = config.properties;
+            step.resultVariable = config.result_variable;
+            break;
+
+          case 'load_state':
+            step.stateKey = config.state_key;
+            step.defaultValue = config.default_value;
+            step.resultVariable = config.result_variable;
+            break;
+
+          case 'save_state':
+            step.stateKey = config.state_key;
+            step.value = config.value;
+            break;
+
+          case 'switch':
+            step.switchValue = config.switch_value;
+            step.cases = config.cases;
+            step.defaultCase = config.default;
+            break;
         }
 
         return step;
       });
 
+      // ENHANCEMENT: Dynamically add create_object properties to input schema
+      // This exposes property descriptions to the agent when calling the workflow
+      const enhancedInputSchema = await this.enhanceSchemaWithCreateObjectProperties(inputSchema, steps);
+
       const workflow: WorkflowDefinition = {
         name: workflowName,
         description: workflowDescription,
-        inputSchema,
+        inputSchema: enhancedInputSchema,
         steps,
       };
 
@@ -181,24 +205,109 @@ export class WorkflowExecutor {
   }
 
   /**
-   * Build JSON Schema input schema from start node parameters array
+   * Enhance input schema by adding properties from create_object steps
+   * This makes create_object properties visible to the agent when calling the workflow
    */
-  private buildInputSchemaFromParameters(parameters: any[]): any {
+  private async enhanceSchemaWithCreateObjectProperties(
+    baseSchema: any,
+    steps: WorkflowStep[]
+  ): Promise<any> {
+    if (!this.dbService) {
+      // If no database service, return base schema unchanged
+      return baseSchema;
+    }
+
+    const enhancedSchema = {
+      ...baseSchema,
+      properties: { ...baseSchema.properties },
+      required: [...(baseSchema.required || [])]
+    };
+
+    // Find all create_object steps
+    const createObjectSteps = steps.filter(step => step.type === 'create_object');
+
+    for (const step of createObjectSteps) {
+      if (!step.templateId || !step.properties) {
+        continue;
+      }
+
+      try {
+        // Load all properties for the template
+        const allProperties = await this.dbService.listProperties(step.templateId);
+
+        // Filter to only properties with step_type='property'
+        const templateProperties = allProperties.filter((p: any) => p.step_type === 'property');
+
+        // Filter to only the selected properties that are NOT mapped to workflow parameters
+        // (Only add properties that need agent input - mapped ones are handled by workflow inputs)
+        const selectedProps = templateProperties.filter((p: any) => {
+          const mapping = step.properties![p.key];
+          // Include if: exists AND (is true OR doesn't contain {{input.)
+          return mapping !== undefined &&
+                 (mapping === true || (typeof mapping === 'string' && !mapping.includes('{{input.')));
+        });
+
+        // Add each selected property to the workflow's input schema
+        for (const prop of selectedProps) {
+          // Only add if not already present and not mapped to workflow parameter
+          if (!enhancedSchema.properties[prop.key]) {
+            enhancedSchema.properties[prop.key] = {
+              type: prop.type === 'text' ? 'string' : prop.type,
+              description: prop.description || `Value for ${prop.key}`
+            };
+
+            // Mark Title and Description as required for task/project creation
+            if ((prop.key === 'Title' || prop.key === 'Description') &&
+                !enhancedSchema.required.includes(prop.key)) {
+              enhancedSchema.required.push(prop.key);
+            }
+          }
+        }
+      } catch (error) {
+        console.error(`Error loading properties for template ${step.templateId}:`, error);
+        // Continue with other steps even if one fails
+      }
+    }
+
+    return enhancedSchema;
+  }
+
+  /**
+   * Build JSON Schema input schema from properties table (NEW APPROACH)
+   * Reads parameters stored as rows in properties table with step_type='property'
+   */
+  private buildInputSchemaFromPropertiesTable(parameterProperties: any[]): any {
     const properties: any = {};
     const required: string[] = [];
 
-    for (const param of parameters) {
-      if (!param.name || !param.type) {
+    for (const param of parameterProperties) {
+      if (!param.key || !param.type) {
+        console.warn(`[Workflow Loader] Skipping invalid parameter property:`, param);
         continue; // Skip invalid parameters
       }
 
-      properties[param.name] = {
-        type: param.type,
+      // Map database types to JSON Schema types
+      let schemaType = param.type;
+      if (param.type === 'text') {
+        schemaType = 'string';
+      } else if (param.type === 'list') {
+        schemaType = 'array';
+      }
+
+      properties[param.key] = {
+        type: schemaType,
         description: param.description || ''
       };
 
-      if (param.required === true) {
-        required.push(param.name);
+      // Check if required from step_config
+      const stepConfig = param.step_config || {};
+      if (stepConfig.required === true) {
+        required.push(param.key);
+      }
+
+      // Add default value if provided
+      if (stepConfig.default !== undefined && stepConfig.default !== '') {
+        properties[param.key].default = stepConfig.default;
       }
     }
 
@@ -269,6 +378,22 @@ export class WorkflowExecutor {
 
       case 'return':
         this.executeReturn(step, context);
+        break;
+
+      case 'create_object':
+        await this.executeCreateObject(step, context);
+        break;
+
+      case 'load_state':
+        await this.executeLoadState(step, context);
+        break;
+
+      case 'save_state':
+        await this.executeSaveState(step, context);
+        break;
+
+      case 'switch':
+        await this.executeSwitch(step, context);
         break;
 
       default:
@@ -376,6 +501,93 @@ export class WorkflowExecutor {
       console.error(`[Workflow ${step.name}] Tool execution failed:`, error);
       throw new Error(`Tool '${step.toolName}' execution failed: ${(error as Error).message}`);
     }
+  }
+
+  /**
+   * Execute create_object step - RETURNS schema to agent for execution
+   * The workflow cannot execute create_object directly because it needs the agent to populate values
+   * Instead, we return the schema and let the agent call create_object with the generated values
+   */
+  private async executeCreateObject(step: WorkflowStep, context: ExecutionContext): Promise<void> {
+    if (!step.templateId) {
+      throw new Error('create_object step requires a templateId');
+    }
+
+    if (!this.dbService) {
+      throw new Error('DatabaseService is required to load property schemas for create_object steps.');
+    }
+
+    console.log(`[Workflow ${step.name}] Loading property schema for template_id: ${step.templateId}`);
+
+    // Load all properties for the template
+    const allProperties = await this.dbService.listProperties(step.templateId);
+
+    // Filter to only properties with step_type='property' (not workflow steps)
+    const templateProperties = allProperties.filter((p: any) => p.step_type === 'property');
+
+    // Filter to only the selected properties (where step.properties[key] exists - can be true or a string reference)
+    const selectedPropKeys = step.properties ? Object.keys(step.properties) : [];
+    const selectedProps = templateProperties.filter((p: any) => selectedPropKeys.includes(p.key));
+
+    if (selectedProps.length === 0) {
+      throw new Error('create_object step requires at least one selected property');
+    }
+
+    console.log(`[Workflow ${step.name}] Selected properties:`, selectedProps.map((p: any) => p.key).join(', '));
+
+    // Build a dynamic schema with only selected properties and their descriptions
+    // Properties can be mapped to workflow parameters using {{input.paramName}} syntax
+    const propertySchemas: Record<string, any> = {};
+    const propertyMappings: Record<string, string> = {};
+
+    for (const prop of selectedProps) {
+      const mappingValue = step.properties![prop.key];
+
+      // Check if this property is mapped to a workflow parameter
+      if (typeof mappingValue === 'string' && mappingValue.includes('{{input.')) {
+        // Store the mapping for later interpolation
+        propertyMappings[prop.key] = mappingValue;
+        // Don't add to schema - will be filled from workflow inputs
+        console.log(`[Workflow ${step.name}] Property ${prop.key} mapped to: ${mappingValue}`);
+      } else {
+        // Add to schema for agent to fill
+        propertySchemas[prop.key] = {
+          type: prop.type === 'text' ? 'string' : prop.type,
+          description: prop.description || `Value for ${prop.key}`
+        };
+      }
+    }
+
+    // Get template name for display
+    const templates = await this.dbService.getTemplates();
+    const template = templates.find(t => t.id === step.templateId);
+    const templateName = template ? template.name : `template ${step.templateId}`;
+
+    // Interpolate property mappings with context values
+    const interpolatedMappings: Record<string, any> = {};
+    for (const [key, mappingExpr] of Object.entries(propertyMappings)) {
+      interpolatedMappings[key] = this.interpolateValue(mappingExpr, context);
+      console.log(`[Workflow ${step.name}] Interpolated ${key}: ${mappingExpr} => ${interpolatedMappings[key]}`);
+    }
+
+    // RETURN schema to agent instead of trying to execute
+    // The agent will see this return value and call create_object itself
+    const returnValue = {
+      action: 'create_object',
+      template_id: step.templateId,
+      template_name: templateName,
+      property_schemas: propertySchemas,
+      property_values: interpolatedMappings, // Pre-filled values from workflow parameters
+      instruction: Object.keys(propertySchemas).length > 0
+        ? `Please call the create_object tool with template_id=${step.templateId} and populate the following properties based on their descriptions: ${Object.keys(propertySchemas).join(', ')}. These values are already provided from workflow inputs: ${Object.keys(interpolatedMappings).join(', ')}`
+        : `Please call the create_object tool with template_id=${step.templateId}. All property values are provided from workflow inputs: ${Object.keys(interpolatedMappings).join(', ')}`,
+      next_step: step.resultVariable ? `Store the result in variable: ${step.resultVariable}` : undefined
+    };
+
+    console.log(`[Workflow ${step.name}] Returning schema to agent:`, JSON.stringify(returnValue, null, 2));
+
+    // Set this as the workflow result to stop execution and return to agent
+    context.result = returnValue;
   }
 
   /**
@@ -559,6 +771,113 @@ export class WorkflowExecutor {
       if (expectedType === 'object' && (actualType !== 'object' || Array.isArray(value))) {
         throw new Error(`Input field '${field}' must be an object`);
       }
+    }
+  }
+
+  /**
+   * Execute load_state step - loads workflow state from global_state table
+   */
+  private async executeLoadState(step: WorkflowStep, context: ExecutionContext): Promise<void> {
+    if (!this.dbService) {
+      throw new Error('DatabaseService is required to load state');
+    }
+
+    if (!step.stateKey) {
+      throw new Error('load_state step requires a stateKey');
+    }
+
+    const stateKey = this.interpolateString(step.stateKey, context);
+
+    console.log(`[Workflow ${step.name}] Loading state with key: ${stateKey}`);
+
+    try {
+      // Load from global_state table
+      const value = await this.dbService.getGlobalState(stateKey);
+
+      if (value !== null) {
+        console.log(`[Workflow ${step.name}] Loaded state:`, JSON.stringify(value, null, 2));
+        // Store in context variable
+        if (step.resultVariable) {
+          context.variables.set(step.resultVariable, value);
+        }
+      } else {
+        // Use default value if state doesn't exist
+        const defaultVal = step.defaultValue || null;
+        console.log(`[Workflow ${step.name}] No state found, using default:`, JSON.stringify(defaultVal, null, 2));
+        if (step.resultVariable) {
+          context.variables.set(step.resultVariable, defaultVal);
+        }
+      }
+    } catch (error) {
+      console.error(`[Workflow ${step.name}] Failed to load state:`, error);
+      // Use default value on error
+      if (step.resultVariable) {
+        context.variables.set(step.resultVariable, step.defaultValue || null);
+      }
+    }
+  }
+
+  /**
+   * Execute save_state step - saves workflow state to global_state table
+   */
+  private async executeSaveState(step: WorkflowStep, context: ExecutionContext): Promise<void> {
+    if (!this.dbService) {
+      throw new Error('DatabaseService is required to save state');
+    }
+
+    if (!step.stateKey) {
+      throw new Error('save_state step requires a stateKey');
+    }
+
+    if (step.value === undefined) {
+      throw new Error('save_state step requires a value');
+    }
+
+    const stateKey = this.interpolateString(step.stateKey, context);
+    const value = this.interpolateValue(step.value, context);
+
+    console.log(`[Workflow ${step.name}] Saving state with key: ${stateKey}`);
+    console.log(`[Workflow ${step.name}] Value:`, JSON.stringify(value, null, 2));
+
+    try {
+      // Save to global_state table
+      await this.dbService.setGlobalState(stateKey, value, 'workflow');
+      console.log(`[Workflow ${step.name}] State saved successfully`);
+    } catch (error) {
+      console.error(`[Workflow ${step.name}] Failed to save state:`, error);
+      throw new Error(`Failed to save workflow state: ${(error as Error).message}`);
+    }
+  }
+
+  /**
+   * Execute switch step - multi-branch routing based on value
+   */
+  private async executeSwitch(step: WorkflowStep, context: ExecutionContext): Promise<void> {
+    if (!step.switchValue) {
+      throw new Error('switch step requires a switchValue');
+    }
+
+    const switchValue = this.interpolateString(step.switchValue, context);
+    console.log(`[Workflow ${step.name}] Switch value: ${switchValue}`);
+
+    // Find matching case
+    const cases = step.cases || {};
+    const matchingCase = cases[switchValue];
+
+    if (matchingCase && matchingCase.length > 0) {
+      console.log(`[Workflow ${step.name}] Executing case: ${switchValue}`);
+      for (const caseStep of matchingCase) {
+        await this.executeStep(caseStep, context);
+        if (context.result !== undefined) break;
+      }
+    } else if (step.defaultCase && step.defaultCase.length > 0) {
+      console.log(`[Workflow ${step.name}] No matching case, executing default`);
+      for (const defaultStep of step.defaultCase) {
+        await this.executeStep(defaultStep, context);
+        if (context.result !== undefined) break;
+      }
+    } else {
+      console.log(`[Workflow ${step.name}] No matching case and no default - skipping`);
     }
   }
 }
