@@ -1,5 +1,5 @@
 import { Card } from '@/components/ui/card';
-import { Wrench, FileText, GitBranch, Variable, CornerDownRight, Play, StopCircle, Database, Download, Upload, Route } from 'lucide-react';
+import { Play, StopCircle, Bot } from 'lucide-react';
 
 export interface NodeType {
   type: string;
@@ -18,67 +18,11 @@ export const nodeTypes: NodeType[] = [
     description: 'Workflow entry point'
   },
   {
-    type: 'call_tool',
-    label: 'Call Tool',
-    icon: Wrench,
-    color: 'bg-blue-500',
-    description: 'Execute an MCP tool'
-  },
-  {
-    type: 'create_object',
-    label: 'Create Object',
-    icon: Database,
-    color: 'bg-teal-500',
-    description: 'Create task, project, epic, or rule'
-  },
-  {
-    type: 'log',
-    label: 'Log',
-    icon: FileText,
+    type: 'agent',
+    label: 'Agent',
+    icon: Bot,
     color: 'bg-purple-500',
-    description: 'Log a message'
-  },
-  {
-    type: 'conditional',
-    label: 'Conditional',
-    icon: GitBranch,
-    color: 'bg-orange-500',
-    description: 'Branch based on condition'
-  },
-  {
-    type: 'set_variable',
-    label: 'Set Variable',
-    icon: Variable,
-    color: 'bg-cyan-500',
-    description: 'Set a workflow variable'
-  },
-  {
-    type: 'return',
-    label: 'Return',
-    icon: CornerDownRight,
-    color: 'bg-pink-500',
-    description: 'Return a value'
-  },
-  {
-    type: 'load_state',
-    label: 'Load State',
-    icon: Download,
-    color: 'bg-emerald-500',
-    description: 'Load workflow state from database'
-  },
-  {
-    type: 'save_state',
-    label: 'Save State',
-    icon: Upload,
-    color: 'bg-amber-500',
-    description: 'Save workflow state to database'
-  },
-  {
-    type: 'switch',
-    label: 'Switch',
-    icon: Route,
-    color: 'bg-indigo-500',
-    description: 'Multi-branch routing'
+    description: 'Agent node'
   },
   {
     type: 'end',

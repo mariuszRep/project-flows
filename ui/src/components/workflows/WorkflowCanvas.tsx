@@ -15,17 +15,9 @@ import ReactFlow, {
   ReactFlowProvider,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { CallToolNode } from './nodes/CallToolNode';
-import { CreateObjectNode } from './nodes/CreateObjectNode';
-import { LogNode } from './nodes/LogNode';
-import { ConditionalNode } from './nodes/ConditionalNode';
-import { SetVariableNode } from './nodes/SetVariableNode';
-import { ReturnNode } from './nodes/ReturnNode';
 import { StartNode } from './nodes/StartNode';
 import { EndNode } from './nodes/EndNode';
-import { LoadStateNode } from './nodes/LoadStateNode';
-import { SaveStateNode } from './nodes/SaveStateNode';
-import { SwitchNode } from './nodes/SwitchNode';
+import { AgentNode } from './nodes/AgentNode';
 import { NodeEditModal } from './NodeEditModal';
 import { WorkflowEditModal } from './WorkflowEditModal';
 import { GitBranch, Save, Loader2, Rocket, XCircle, Settings } from 'lucide-react';
@@ -39,10 +31,12 @@ interface WorkflowCanvasProps {
 }
 
 interface WorkflowStep {
+  id?: number;
   name: string;
   type: string;
   step_type?: string;
   step_config?: any;
+  execution_order?: number;
 }
 
 interface WorkflowData {
@@ -55,21 +49,12 @@ interface WorkflowData {
 const nodeTypes: NodeTypes = {
   start: StartNode,
   end: EndNode,
-  call_tool: CallToolNode,
-  create_object: CreateObjectNode,
-  log: LogNode,
-  conditional: ConditionalNode,
-  set_variable: SetVariableNode,
-  return: ReturnNode,
-  load_state: LoadStateNode,
-  save_state: SaveStateNode,
-  switch: SwitchNode,
+  agent: AgentNode,
 };
 
 function workflowToReactFlow(workflow: WorkflowData): { nodes: Node[]; edges: Edge[] } {
   const nodes: Node[] = workflow.steps.map((step, index) => {
     const stepType = step.step_type || step.type || 'log';
-    const isStartNode = stepType === 'start';
 
     return {
       id: `step-${index}`,
@@ -79,9 +64,10 @@ function workflowToReactFlow(workflow: WorkflowData): { nodes: Node[]; edges: Ed
         label: step.name,
         stepType: stepType,
         config: step.step_config || step,
+        dbId: step.id, // Store database ID in node data
       },
       draggable: true,
-      deletable: !isStartNode,
+      deletable: true,
     };
   });
 
@@ -187,6 +173,7 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
                       type: prop.step_type,
                       step_type: prop.step_type,
                       step_config: prop.step_config,
+                      execution_order: prop.execution_order,
                     }))
                 : [];
               
@@ -229,35 +216,10 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
   useEffect(() => {
     if (workflow) {
       const { nodes: newNodes, edges: newEdges } = workflowToReactFlow(workflow);
-      
-      // Auto-create start node if workflow has no steps
-      if (newNodes.length === 0) {
-        const startNode: Node = {
-          id: 'start-node',
-          type: 'start',
-          position: { x: 50, y: 150 },
-          data: {
-            label: 'Start',
-            stepType: 'start',
-            config: {
-              tool_name: workflow.name.toLowerCase().replace(/\s+/g, '_'),
-              display_description: workflow.description,
-              tool_description: workflow.description,
-              input_parameters: []
-            }
-          },
-          draggable: true,
-          deletable: false,
-          selectable: true,
-          connectable: true
-        };
-        setNodes([startNode]);
-        setEdges([]);
-        setIsDirty(true);
-      } else {
-        setNodes(newNodes);
-        setEdges(newEdges);
-      }
+
+      setNodes(newNodes);
+      setEdges(newEdges);
+
       // Update counter to be higher than existing node IDs
       const maxId = newNodes.reduce((max, node) => {
         const nodeNum = parseInt(node.id.replace(/\D/g, '')) || 0;
@@ -285,6 +247,7 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
       const currentSteps = nodes
         .filter(node => node.type !== 'end')
         .map((node, index) => ({
+          id: node.data.dbId, // Include database ID if it exists
           name: node.data.label || `Step ${index + 1}`,
           type: node.data.stepType || node.type,
           step_type: node.data.stepType || node.type,
@@ -297,17 +260,42 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
       console.log('originalSteps (from DB):', originalSteps);
 
       // Find steps to create, update, or delete
+      // Match by ID if available, otherwise it's a new step
       const stepsToCreate = currentSteps.filter(step =>
-        !originalSteps.find(orig => orig.name === step.name)
+        !step.id || !originalSteps.find(orig => orig.id === step.id)
       );
 
       const stepsToUpdate = currentSteps.filter(step => {
-        const original = originalSteps.find(orig => orig.name === step.name);
-        return original && JSON.stringify(original.step_config) !== JSON.stringify(step.step_config);
+        if (!step.id) return false; // New steps don't need updating
+
+        const original = originalSteps.find(orig => orig.id === step.id);
+        if (!original) return false;
+
+        // Compare step_config, execution_order, and name (for renames)
+        const configChanged = JSON.stringify(original.step_config) !== JSON.stringify(step.step_config);
+        const orderChanged = original.execution_order !== step.execution_order;
+        const nameChanged = original.name !== step.name;
+
+        if (configChanged || orderChanged || nameChanged) {
+          console.log(`Step "${step.name}" (ID: ${step.id}) needs update:`, {
+            configChanged,
+            orderChanged,
+            nameChanged,
+            originalName: original.name,
+            newName: step.name,
+            originalConfig: original.step_config,
+            newConfig: step.step_config,
+            originalOrder: original.execution_order,
+            newOrder: step.execution_order
+          });
+          return true;
+        }
+
+        return false;
       });
 
       const stepsToDelete = originalSteps.filter(orig =>
-        !currentSteps.find(step => step.name === orig.name)
+        !currentSteps.find(step => step.id === orig.id)
       );
 
       console.log('stepsToCreate:', stepsToCreate);
@@ -315,6 +303,7 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
       console.log('stepsToDelete:', stepsToDelete);
 
       // Create new steps
+      const createdSteps = [];
       for (const step of stepsToCreate) {
         console.log('Creating step:', step);
         const result = await callTool('create_property', {
@@ -327,20 +316,36 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
           execution_order: step.execution_order
         });
         console.log('create_property result:', result);
+
+        // Extract the created property ID from the result
+        if (result && result.content && result.content[0]) {
+          const createdProp = JSON.parse(result.content[0].text);
+          createdSteps.push({
+            ...step,
+            id: createdProp.id
+          });
+        }
       }
 
       // Update existing steps
       for (const step of stepsToUpdate) {
-        const original = originalSteps.find(orig => orig.name === step.name);
+        const original = originalSteps.find(orig => orig.id === step.id);
         console.log('Updating step:', step);
         console.log('Original step:', original);
-        if (original && (original as any).id) {
-          console.log('Calling update_property with property_id:', (original as any).id);
-          const result = await callTool('update_property', {
-            property_id: (original as any).id,
+        if (step.id) {
+          console.log('Calling update_property with property_id:', step.id);
+          const updateParams: any = {
+            property_id: step.id,
             step_config: step.step_config,
             execution_order: step.execution_order
-          });
+          };
+
+          // Include key (name) if it changed
+          if (original && original.name !== step.name) {
+            updateParams.key = step.name;
+          }
+
+          const result = await callTool('update_property', updateParams);
           console.log('update_property result:', result);
         } else {
           console.warn('Could not update step - no ID found:', { step, original });
@@ -349,10 +354,14 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
 
       // Delete removed steps
       for (const step of stepsToDelete) {
+        console.log('Deleting step:', step);
         if ((step as any).id) {
-          await callTool('delete_property', {
+          const deleteResult = await callTool('delete_property', {
             property_id: (step as any).id
           });
+          console.log('delete_property result:', deleteResult);
+        } else {
+          console.warn('Cannot delete step - no ID found:', step);
         }
       }
 
@@ -378,8 +387,26 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
         });
       }
 
+      // Rebuild originalSteps with proper IDs
+      const updatedOriginalSteps = currentSteps.map(step => {
+        // If step already has an ID, it's either existing or was just created
+        if (step.id) {
+          return step;
+        }
+
+        // Check if this was a newly created step
+        const createdStep = createdSteps.find(created => created.name === step.name);
+        if (createdStep) {
+          return createdStep;
+        }
+
+        return step;
+      });
+
+      console.log('Updated originalSteps with IDs:', updatedOriginalSteps);
+
       setIsDirty(false);
-      setOriginalSteps(currentSteps);
+      setOriginalSteps(updatedOriginalSteps);
 
       toast({
         title: "Workflow Saved",
@@ -544,6 +571,8 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
         setSelectedNode(null);
         setIsPanelOpen(false);
       }
+      // Mark workflow as dirty when nodes are deleted
+      setIsDirty(true);
     },
     [selectedNode]
   );
@@ -552,9 +581,19 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
   const handlePropertySave = useCallback(
     (nodeId: string, data: any) => {
       setNodes((nds) =>
-        nds.map((node) =>
-          node.id === nodeId ? { ...node, data } : node
-        )
+        nds.map((node) => {
+          if (node.id === nodeId) {
+            // Preserve dbId when updating node data
+            return {
+              ...node,
+              data: {
+                ...data,
+                dbId: node.data.dbId // Preserve the database ID
+              }
+            };
+          }
+          return node;
+        })
       );
       setIsDirty(true);
     },

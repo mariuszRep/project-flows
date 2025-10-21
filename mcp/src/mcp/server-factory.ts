@@ -89,6 +89,7 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
     {
       capabilities: {
         tools: {},
+        sampling: {}, // Enable sampling capability for AI responses
       },
     }
   );
@@ -472,7 +473,7 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
     }
   };
 
-  workflowExecutor = new WorkflowExecutor(sharedDbService, toolCaller);
+  workflowExecutor = new WorkflowExecutor(sharedDbService, toolCaller, server);
 
   // Load workflows from database at startup
   loadWorkflowsFromDatabase(sharedDbService).catch((error) => {
@@ -657,22 +658,78 @@ async function handleDynamicWorkflow(name: string, args: Record<string, any>) {
   }
 
   try {
-    const context = await workflowExecutor.execute(workflow, args);
-    
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify({
-            success: true,
-            workflow: name,
-            result: context.result,
-            logs: context.logs,
-            variables: Object.fromEntries(context.variables)
-          }, null, 2)
-        }
-      ]
+    // Check if this is a resume from a previous agent step
+    const stateKey = `workflow_${name}_state`;
+    console.log(`[Dynamic Workflow] Loading state with key: ${stateKey}`);
+    const workflowState = await workflowExecutor.loadState(stateKey);
+
+    // Add workflow metadata to inputs
+    const enhancedArgs = {
+      ...args,
+      __workflow_total_steps: workflow.steps.length
     };
+
+    let context;
+    if (workflowState && workflowState.currentStep !== undefined) {
+      // Resume from saved step
+      console.log(`[Dynamic Workflow] Resuming workflow '${name}' from step ${workflowState.currentStep + 1} of ${workflow.steps.length}`);
+      context = await workflowExecutor.executeFromStep(workflow, enhancedArgs, workflowState.currentStep + 1, workflowState.variables);
+    } else {
+      // Start from beginning
+      console.log(`[Dynamic Workflow] Starting workflow '${name}' (${workflow.steps.length} steps)`);
+      context = await workflowExecutor.execute(workflow, enhancedArgs);
+    }
+
+    // If workflow paused at an agent step, save the state
+    if (context.result && context.result.action === 'agent_prompt') {
+      await workflowExecutor.saveState(stateKey, {
+        currentStep: context.currentStep,
+        variables: Array.from(context.variables.entries())
+      });
+      console.log(`[Dynamic Workflow] Saved state at step ${context.currentStep}`);
+    } else {
+      // Workflow completed, clear the state
+      await workflowExecutor.clearState(stateKey);
+      console.log(`[Dynamic Workflow] Workflow completed, cleared state`);
+    }
+    
+    // Format response based on whether we're paused or completed
+    if (context.result && context.result.action === 'agent_instructions') {
+      // Workflow paused at agent step
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              status: 'paused',
+              workflow: name,
+              step: context.result.current_step + 1,
+              total_steps: context.result.total_steps,
+              step_name: context.result.step_name,
+              instructions: context.result.instructions,
+              next_action: `Execute the above ${context.result.instructions.length} instruction(s), then call the '${name}' tool again with the same inputs to continue to the next step.`
+            }, null, 2)
+          }
+        ]
+      };
+    } else {
+      // Workflow completed
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              status: 'completed',
+              workflow: name,
+              steps_executed: context.stepResults.length,
+              step_results: context.stepResults,
+              logs: context.logs,
+              variables: Object.fromEntries(context.variables)
+            }, null, 2)
+          }
+        ]
+      };
+    }
   } catch (error) {
     return {
       content: [
