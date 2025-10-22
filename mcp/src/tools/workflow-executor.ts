@@ -7,7 +7,7 @@ import DatabaseService from '../database.js';
 
 export interface WorkflowStep {
   name: string;
-  type: 'log' | 'set_variable' | 'conditional' | 'call_tool' | 'return' | 'create_object' | 'load_state' | 'save_state' | 'switch' | 'agent';
+  type: 'log' | 'set_variable' | 'conditional' | 'call_tool' | 'return' | 'create_object' | 'load_object' | 'load_state' | 'save_state' | 'switch' | 'agent';
   message?: string;
   variableName?: string;
   value?: any;
@@ -164,6 +164,12 @@ export class WorkflowExecutor {
             break;
 
           case 'create_object':
+            step.templateId = config.template_id;
+            step.properties = config.properties;
+            step.resultVariable = config.result_variable;
+            break;
+
+          case 'load_object':
             step.templateId = config.template_id;
             step.properties = config.properties;
             step.resultVariable = config.result_variable;
@@ -489,6 +495,10 @@ export class WorkflowExecutor {
         await this.executeCreateObject(step, context);
         break;
 
+      case 'load_object':
+        await this.executeLoadObject(step, context);
+        break;
+
       case 'load_state':
         await this.executeLoadState(step, context);
         break;
@@ -683,6 +693,93 @@ export class WorkflowExecutor {
     // The agent will see this return value and call create_object itself
     const returnValue = {
       action: 'create_object',
+      template_id: step.templateId,
+      template_name: templateName,
+      property_schemas: propertySchemas,
+      property_values: interpolatedMappings, // Pre-filled values from workflow parameters
+      instruction: Object.keys(propertySchemas).length > 0
+        ? `Please call the create_object tool with template_id=${step.templateId} and populate the following properties based on their descriptions: ${Object.keys(propertySchemas).join(', ')}. These values are already provided from workflow inputs: ${Object.keys(interpolatedMappings).join(', ')}`
+        : `Please call the create_object tool with template_id=${step.templateId}. All property values are provided from workflow inputs: ${Object.keys(interpolatedMappings).join(', ')}`,
+      next_step: step.resultVariable ? `Store the result in variable: ${step.resultVariable}` : undefined
+    };
+
+    console.log(`[Workflow ${step.name}] Returning schema to agent:`, JSON.stringify(returnValue, null, 2));
+
+    // Set this as the workflow result to stop execution and return to agent
+    context.result = returnValue;
+  }
+
+  /**
+   * Execute load_object step - RETURNS schema to agent for execution
+   * The workflow cannot execute load_object directly because it needs the agent to populate values
+   * Instead, we return the schema and let the agent call create_object with the generated values
+   */
+  private async executeLoadObject(step: WorkflowStep, context: ExecutionContext): Promise<void> {
+    if (!step.templateId) {
+      throw new Error('load_object step requires a templateId');
+    }
+
+    if (!this.dbService) {
+      throw new Error('DatabaseService is required to load property schemas for load_object steps.');
+    }
+
+    console.log(`[Workflow ${step.name}] Loading property schema for template_id: ${step.templateId}`);
+
+    // Load all properties for the template
+    const allProperties = await this.dbService.listProperties(step.templateId);
+
+    // Filter to only properties with step_type='property' (not workflow steps)
+    const templateProperties = allProperties.filter((p: any) => p.step_type === 'property');
+
+    // Filter to only the selected properties (where step.properties[key] exists - can be true or a string reference)
+    const selectedPropKeys = step.properties ? Object.keys(step.properties) : [];
+    const selectedProps = templateProperties.filter((p: any) => selectedPropKeys.includes(p.key));
+
+    if (selectedProps.length === 0) {
+      throw new Error('load_object step requires at least one selected property');
+    }
+
+    console.log(`[Workflow ${step.name}] Selected properties:`, selectedProps.map((p: any) => p.key).join(', '));
+
+    // Build a dynamic schema with only selected properties and their descriptions
+    // Properties can be mapped to workflow parameters using {{input.paramName}} syntax
+    const propertySchemas: Record<string, any> = {};
+    const propertyMappings: Record<string, string> = {};
+
+    for (const prop of selectedProps) {
+      const mappingValue = step.properties![prop.key];
+
+      // Check if this property is mapped to a workflow parameter
+      if (typeof mappingValue === 'string' && mappingValue.includes('{{input.')) {
+        // Store the mapping for later interpolation
+        propertyMappings[prop.key] = mappingValue;
+        // Don't add to schema - will be filled from workflow inputs
+        console.log(`[Workflow ${step.name}] Property ${prop.key} mapped to: ${mappingValue}`);
+      } else {
+        // Add to schema for agent to fill
+        propertySchemas[prop.key] = {
+          type: prop.type === 'text' ? 'string' : prop.type,
+          description: prop.description || `Value for ${prop.key}`
+        };
+      }
+    }
+
+    // Get template name for display
+    const templates = await this.dbService.getTemplates();
+    const template = templates.find(t => t.id === step.templateId);
+    const templateName = template ? template.name : `template ${step.templateId}`;
+
+    // Interpolate property mappings with context values
+    const interpolatedMappings: Record<string, any> = {};
+    for (const [key, mappingExpr] of Object.entries(propertyMappings)) {
+      interpolatedMappings[key] = this.interpolateValue(mappingExpr, context);
+      console.log(`[Workflow ${step.name}] Interpolated ${key}: ${mappingExpr} => ${interpolatedMappings[key]}`);
+    }
+
+    // RETURN schema to agent instead of trying to execute
+    // The agent will see this return value and call create_object itself
+    const returnValue = {
+      action: 'load_object',
       template_id: step.templateId,
       template_name: templateName,
       property_schemas: propertySchemas,

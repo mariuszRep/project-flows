@@ -1,5 +1,5 @@
 import { Card } from '@/components/ui/card';
-import { Play, StopCircle, Bot, Database } from 'lucide-react';
+import { Play, StopCircle, Bot, Database, FolderOpen } from 'lucide-react';
 
 export interface NodeType {
   type: string;
@@ -30,6 +30,13 @@ export const nodeTypes: NodeType[] = [
     icon: Database,
     color: 'bg-teal-500',
     description: 'Create object (Task, Project, Epic, Rule)'
+  },
+  {
+    type: 'load_object',
+    label: 'Load Object',
+    icon: FolderOpen,
+    color: 'bg-blue-500',
+    description: 'Load object properties for agent population'
   },
   {
     type: 'end',

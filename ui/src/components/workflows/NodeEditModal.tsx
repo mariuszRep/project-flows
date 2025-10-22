@@ -163,6 +163,18 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
         setSelectedProperties({});
       }
 
+      // Parse load_object configuration
+      if (node.type === 'load_object') {
+        const properties = node.data.config?.properties;
+        if (properties && typeof properties === 'object') {
+          setSelectedProperties(properties);
+        } else {
+          setSelectedProperties({});
+        }
+      } else if (node.type !== 'create_object') {
+        setSelectedProperties({});
+      }
+
       // Focus first input after modal opens
       setTimeout(() => {
         if (firstInputRef.current) {
@@ -212,10 +224,10 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
     loadWorkflowParameters();
   }, [isOpen, node, isConnected, callTool]);
 
-  // Load templates for create_object node
+  // Load templates for create_object and load_object nodes
   useEffect(() => {
     const loadTemplates = async () => {
-      if (!isOpen || !node || node.type !== 'create_object' || !isConnected || !callTool) {
+      if (!isOpen || !node || (node.type !== 'create_object' && node.type !== 'load_object') || !isConnected || !callTool) {
         return;
       }
 
@@ -251,7 +263,7 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
   useEffect(() => {
     const loadProperties = async () => {
       const templateId = config.template_id;
-      if (!isOpen || !node || node.type !== 'create_object' || !templateId || !isConnected || !callTool) {
+      if (!isOpen || !node || (node.type !== 'create_object' && node.type !== 'load_object') || !templateId || !isConnected || !callTool) {
         setAvailableProperties([]);
         return;
       }
@@ -486,6 +498,34 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
       console.log('Saving create_object node with config:', updatedConfig);
     }
 
+    // Validate and prepare config for load_object node
+    if (node.type === 'load_object') {
+      // Validate template selection
+      if (!updatedConfig.template_id) {
+        setError('Template selection is required');
+        toast({
+          title: "Validation Error",
+          description: "Please select a template",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Validate at least one property is selected
+      if (Object.keys(selectedProperties).length === 0) {
+        setError('At least one property must be selected');
+        toast({
+          title: "Validation Error",
+          description: "Please select at least one property to configure",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      updatedConfig.properties = selectedProperties;
+      console.log('Saving load_object node with config:', updatedConfig);
+    }
+
     const dataToSave = {
       ...node.data,
       label,
@@ -523,6 +563,7 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
       agent: 'Agent Node',
       call_tool: 'Call Tool Node',
       create_object: 'Create Object Node',
+      load_object: 'Load Object Node',
       log: 'Log Node',
       conditional: 'Conditional Node',
       set_variable: 'Set Variable Node',
@@ -1016,6 +1057,168 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
                     />
                     <p className="text-xs text-muted-foreground mt-1">
                       Store the created object ID in a variable for use in subsequent nodes
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {node.type === 'load_object' && (
+              <div className="border rounded-xl border-border bg-muted/5 p-4 space-y-4">
+                <h3 className="text-sm font-semibold mb-2">Load Object Configuration</h3>
+
+                {/* Template Selection */}
+                <div>
+                  <Label className="text-xs">Select Template</Label>
+                  {isLoadingTemplates ? (
+                    <div className="flex items-center gap-2 p-2 text-sm text-muted-foreground">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Loading templates...
+                    </div>
+                  ) : (
+                    <Select
+                      value={config.template_id?.toString() || ''}
+                      onValueChange={handleTemplateSelection}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a template..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableTemplates.map((template) => (
+                          <SelectItem key={template.id} value={template.id.toString()}>
+                            {template.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Choose the type of object to load properties from (Task, Project, Epic, Rule)
+                  </p>
+                </div>
+
+                {/* Properties Configuration */}
+                {config.template_id && (
+                  <div>
+                    <Label className="text-xs mb-2 block">Configure Properties</Label>
+                    {isLoadingProperties ? (
+                      <div className="flex items-center gap-2 p-2 text-sm text-muted-foreground">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Loading properties...
+                      </div>
+                    ) : availableProperties.length === 0 ? (
+                      <div className="text-xs text-muted-foreground text-center py-4 border border-dashed rounded-lg">
+                        No properties available for this template
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {/* Selected Properties List */}
+                        {Object.keys(selectedProperties).length > 0 && (
+                          <div className="space-y-2">
+                            {Object.keys(selectedProperties).map((propKey) => {
+                              const currentValue = selectedProperties[propKey];
+                              const isDirectInput = currentValue === true;
+                              const hasWorkflowParams = workflowParameters.length > 0;
+
+                              return (
+                                <div key={propKey} className="border rounded-lg p-3 bg-background space-y-2">
+                                  <div className="flex items-center justify-between">
+                                    <Label className="text-sm font-medium">{propKey}</Label>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() => removeProperty(propKey)}
+                                      className="h-6 w-6 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                    >
+                                      <X className="h-4 w-4" />
+                                    </Button>
+                                  </div>
+
+                                  {/* Parameter Mapping Dropdown */}
+                                  {hasWorkflowParams && (
+                                    <div>
+                                      <Label className="text-xs text-muted-foreground mb-1 block">
+                                        Map to workflow parameter (optional)
+                                      </Label>
+                                      <Select
+                                        value={typeof currentValue === 'string' ? currentValue : ''}
+                                        onValueChange={(value) => {
+                                          if (value === '__direct__') {
+                                            updatePropertyMapping(propKey, true);
+                                          } else {
+                                            updatePropertyMapping(propKey, `{{input.${value}}}`);
+                                          }
+                                        }}
+                                      >
+                                        <SelectTrigger className="h-8 text-sm">
+                                          <SelectValue placeholder="Direct input (agent fills)" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="__direct__">
+                                            <span className="text-muted-foreground">Direct input (agent fills)</span>
+                                          </SelectItem>
+                                          {workflowParameters.map((param) => (
+                                            <SelectItem key={param} value={param}>
+                                              <span className="font-mono text-xs">{`{{input.${param}}}`}</span>
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                      {typeof currentValue === 'string' && (
+                                        <p className="text-xs text-muted-foreground mt-1">
+                                          Will use: <span className="font-mono">{currentValue}</span>
+                                        </p>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {!hasWorkflowParams && (
+                                    <p className="text-xs text-muted-foreground italic">
+                                      No workflow parameters defined. The agent will fill this value directly.
+                                    </p>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {/* Add Property Dropdown */}
+                        <Select onValueChange={addProperty}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Add a property..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {availableProperties
+                              .filter(prop => !(prop.key in selectedProperties))
+                              .map((prop) => (
+                                <SelectItem key={prop.key} value={prop.key}>
+                                  {prop.key}
+                                </SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">
+                          Use {'{{input.field}}'} for start node parameters or {'{{variable.name}}'} for workflow variables.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Result Variable */}
+                {config.template_id && (
+                  <div>
+                    <Label className="text-xs">Result Variable (Optional)</Label>
+                    <Input
+                      value={config.result_variable || ''}
+                      onChange={(e) => setConfig({ ...config, result_variable: e.target.value })}
+                      placeholder="e.g., loaded_schema, property_info"
+                      className="font-mono text-sm"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Store the loaded property schema in a variable for use in subsequent nodes
                     </p>
                   </div>
                 )}
