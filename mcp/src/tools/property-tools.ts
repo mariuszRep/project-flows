@@ -303,11 +303,15 @@ export class PropertyTools {
 
       console.log('Property created successfully with ID:', propertyId);
 
+      // Load the created property to return full data
+      const properties = await this.sharedDbService.listProperties(templateId);
+      const createdProperty = properties.find(p => p.id === propertyId);
+
       return {
         content: [
           {
             type: "text",
-            text: `Property created successfully with ID: ${propertyId}`,
+            text: JSON.stringify(createdProperty || { id: propertyId }, null, 2),
           } as TextContent,
         ],
       };
