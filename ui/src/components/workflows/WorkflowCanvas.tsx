@@ -19,6 +19,7 @@ import { StartNode } from './nodes/StartNode';
 import { EndNode } from './nodes/EndNode';
 import { AgentNode } from './nodes/AgentNode';
 import { CreateObjectNode } from './nodes/CreateObjectNode';
+import { LoadObjectNode } from './nodes/LoadObjectNode';
 import { NodeEditModal } from './NodeEditModal';
 import { WorkflowEditModal } from './WorkflowEditModal';
 import { GitBranch, Save, Loader2, Rocket, XCircle, Settings } from 'lucide-react';
@@ -52,6 +53,7 @@ const nodeTypes: NodeTypes = {
   end: EndNode,
   agent: AgentNode,
   create_object: CreateObjectNode,
+  load_object: LoadObjectNode,
 };
 
 function workflowToReactFlow(workflow: WorkflowData): { nodes: Node[]; edges: Edge[] } {
