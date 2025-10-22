@@ -7,7 +7,7 @@ import DatabaseService from '../database.js';
 
 export interface WorkflowStep {
   name: string;
-  type: 'log' | 'set_variable' | 'conditional' | 'call_tool' | 'return' | 'create_object' | 'load_state' | 'save_state' | 'switch';
+  type: 'log' | 'set_variable' | 'conditional' | 'call_tool' | 'return' | 'create_object' | 'load_state' | 'save_state' | 'switch' | 'agent';
   message?: string;
   variableName?: string;
   value?: any;
@@ -27,6 +27,8 @@ export interface WorkflowStep {
   switchValue?: string;
   cases?: Record<string, WorkflowStep[]>;
   defaultCase?: WorkflowStep[];
+  // agent fields
+  instructions?: string[];
 }
 
 export interface WorkflowDefinition {
@@ -63,10 +65,12 @@ export interface ToolCaller {
 export class WorkflowExecutor {
   private dbService?: DatabaseService;
   private toolCaller?: ToolCaller;
+  private server?: any; // MCP Server instance for sampling
 
-  constructor(dbService?: DatabaseService, toolCaller?: ToolCaller) {
+  constructor(dbService?: DatabaseService, toolCaller?: ToolCaller, server?: any) {
     this.dbService = dbService;
     this.toolCaller = toolCaller;
+    this.server = server;
   }
 
   /**
@@ -180,6 +184,10 @@ export class WorkflowExecutor {
             step.switchValue = config.switch_value;
             step.cases = config.cases;
             step.defaultCase = config.default;
+            break;
+
+          case 'agent':
+            step.instructions = config.instructions;
             break;
         }
 
@@ -337,11 +345,11 @@ export class WorkflowExecutor {
     for (let i = 0; i < workflow.steps.length; i++) {
       context.currentStep = i;
       const step = workflow.steps[i];
-      
+
       try {
         await this.executeStep(step, context);
         step.status = 'completed';
-        
+
         // If a return was executed, stop processing
         if (context.result !== undefined) {
           break;
@@ -353,6 +361,103 @@ export class WorkflowExecutor {
     }
 
     return context;
+  }
+
+  /**
+   * Execute workflow from a specific step (for resuming)
+   */
+  async executeFromStep(
+    workflow: WorkflowDefinition,
+    inputs: Record<string, any>,
+    startStep: number,
+    savedVariables?: Array<[string, any]>
+  ): Promise<ExecutionContext> {
+    const context: ExecutionContext = {
+      variables: new Map(savedVariables || []),
+      inputs,
+      logs: [],
+      stepResults: [],
+      currentStep: startStep,
+    };
+
+    // Validate inputs against schema
+    this.validateInputs(workflow.inputSchema, inputs);
+
+    console.log(`[Workflow] Resuming from step ${startStep} (${workflow.steps[startStep]?.name})`);
+    console.log(`[Workflow] Restored ${context.variables.size} variable(s)`);
+
+    // Execute steps sequentially starting from startStep
+    for (let i = startStep; i < workflow.steps.length; i++) {
+      context.currentStep = i;
+      const step = workflow.steps[i];
+
+      try {
+        await this.executeStep(step, context);
+        step.status = 'completed';
+
+        // If a return was executed or agent step, stop processing
+        if (context.result !== undefined) {
+          break;
+        }
+      } catch (error) {
+        step.status = 'failed';
+        throw error;
+      }
+    }
+
+    return context;
+  }
+
+  /**
+   * Load workflow state from database
+   */
+  async loadState(stateKey: string): Promise<any> {
+    if (!this.dbService) {
+      console.log(`[Workflow] No database service available for loading state`);
+      return null;
+    }
+
+    try {
+      const state = await this.dbService.getGlobalState(stateKey);
+      console.log(`[Workflow] Loaded state for key ${stateKey}:`, JSON.stringify(state, null, 2));
+      return state;
+    } catch (error) {
+      console.error(`[Workflow] Error loading state for key ${stateKey}:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Save workflow state to database
+   */
+  async saveState(stateKey: string, value: any): Promise<void> {
+    if (!this.dbService) {
+      throw new Error('Database service not available');
+    }
+
+    try {
+      await this.dbService.setGlobalState(stateKey, value, 'workflow');
+      console.log(`[Workflow] Saved state: ${stateKey}`);
+    } catch (error) {
+      console.error(`Error saving state for key ${stateKey}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Clear workflow state from database
+   */
+  async clearState(stateKey: string): Promise<void> {
+    if (!this.dbService) {
+      return;
+    }
+
+    try {
+      await this.dbService.deleteGlobalState(stateKey);
+      console.log(`[Workflow] Cleared state: ${stateKey}`);
+    } catch (error) {
+      console.error(`Error clearing state for key ${stateKey}:`, error);
+    }
   }
 
   /**
@@ -394,6 +499,10 @@ export class WorkflowExecutor {
 
       case 'switch':
         await this.executeSwitch(step, context);
+        break;
+
+      case 'agent':
+        await this.executeAgent(step, context);
         break;
 
       default:
@@ -879,5 +988,40 @@ export class WorkflowExecutor {
     } else {
       console.log(`[Workflow ${step.name}] No matching case and no default - skipping`);
     }
+  }
+
+  /**
+   * Execute agent step - pauses workflow and returns instructions to agent
+   * The agent should execute the instructions and then call the workflow again to continue
+   */
+  private async executeAgent(step: WorkflowStep, context: ExecutionContext): Promise<void> {
+    const instructions = step.instructions || [];
+
+    if (instructions.length === 0) {
+      throw new Error('agent step requires at least one instruction');
+    }
+
+    // Interpolate all instructions with current context
+    const interpolatedInstructions = instructions.map(instruction =>
+      this.interpolateString(instruction, context)
+    );
+
+    console.log(`[Workflow ${step.name}] Agent step - pausing workflow`);
+    console.log(`[Workflow ${step.name}] Instructions (${instructions.length}):`, interpolatedInstructions);
+
+    // Return instructions to the agent
+    const returnValue = {
+      action: 'agent_instructions',
+      step_name: step.name,
+      current_step: context.currentStep,
+      total_steps: context.inputs.__workflow_total_steps || 'unknown',
+      instructions: interpolatedInstructions,
+      next_action: 'After executing these instructions, call the workflow tool again with the same inputs to continue to the next step.'
+    };
+
+    console.log(`[Workflow ${step.name}] Pausing and returning ${instructions.length} instruction(s) to agent`);
+
+    // Set this as the workflow result to pause execution
+    context.result = returnValue;
   }
 }

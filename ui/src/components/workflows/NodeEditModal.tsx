@@ -520,6 +520,7 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
     const labels: Record<string, string> = {
       start: 'Start Node',
       end: 'End Node',
+      agent: 'Agent Node',
       call_tool: 'Call Tool Node',
       create_object: 'Create Object Node',
       log: 'Log Node',
@@ -586,6 +587,63 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
             </div>
 
             {/* Node-specific configuration fields */}
+            {node.type === 'agent' && (
+              <div className="border rounded-xl border-border bg-muted/5 p-4 space-y-3">
+                <h3 className="text-sm font-semibold mb-2">Agent Configuration</h3>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs">Instructions</Label>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const instructions = config.instructions || [];
+                        setConfig({ ...config, instructions: [...instructions, ''] });
+                      }}
+                    >
+                      <Plus className="h-3 w-3 mr-1" />
+                      Add Instruction
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Instructions will be presented to the AI agent for execution. Use <code className="bg-muted px-1 rounded">{'{{input.field}}'}</code> to reference workflow parameters or <code className="bg-muted px-1 rounded">{'{{variable.name}}'}</code> to reference previous step results.
+                  </p>
+                  {(config.instructions || []).map((instruction: string, index: number) => (
+                    <div key={index} className="flex gap-2">
+                      <AutoTextarea
+                        value={instruction}
+                        onChange={(e) => {
+                          const instructions = [...(config.instructions || [])];
+                          instructions[index] = e.target.value;
+                          setConfig({ ...config, instructions });
+                        }}
+                        placeholder={`Instruction ${index + 1}... Use {{input.field}} or {{variable.name}}`}
+                        minRows={2}
+                        maxRows={8}
+                        className="font-mono text-sm flex-1"
+                      />
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          const instructions = [...(config.instructions || [])];
+                          instructions.splice(index, 1);
+                          setConfig({ ...config, instructions });
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                  {(!config.instructions || config.instructions.length === 0) && (
+                    <div className="text-center py-4 text-sm text-muted-foreground border-2 border-dashed rounded">
+                      No instructions yet. Click "Add Instruction" to add your first instruction.
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {node.type === 'start' && (
               <div className="border rounded-xl border-border bg-muted/5 p-4 space-y-3">
                 <h3 className="text-sm font-semibold mb-2">Workflow Tool Configuration</h3>

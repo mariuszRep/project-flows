@@ -895,12 +895,13 @@ class DatabaseService {
     try {
       const query = 'SELECT value FROM global_state WHERE key = $1';
       const result = await this.pool.query(query, [key]);
-      
+
       if (result.rows.length === 0) {
         return null;
       }
 
-      return JSON.parse(result.rows[0].value);
+      // JSONB column returns object directly, no need to parse
+      return result.rows[0].value;
     } catch (error) {
       console.error('Error fetching global state:', error);
       return null;
