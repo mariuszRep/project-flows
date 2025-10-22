@@ -4,6 +4,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
 import { AutoTextarea } from '@/components/ui/auto-textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -396,7 +397,7 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
     if (!propertyKey || propertyKey in selectedProperties) return;
     setSelectedProperties({
       ...selectedProperties,
-      [propertyKey]: true // true means "use direct input", will be replaced with parameter reference
+      [propertyKey]: '' // Empty string means property is selected but no value assigned yet
     });
   };
 
@@ -913,68 +914,41 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
                         {Object.keys(selectedProperties).length > 0 && (
                           <div className="space-y-2">
                             {Object.keys(selectedProperties).map((propKey) => {
+                              const property = availableProperties.find(p => p.key === propKey);
                               const currentValue = selectedProperties[propKey];
-                              const isDirectInput = currentValue === true;
-                              const hasWorkflowParams = workflowParameters.length > 0;
 
                               return (
-                                <div key={propKey} className="border rounded-lg p-3 bg-background space-y-2">
-                                  <div className="flex items-center justify-between">
-                                    <Label className="text-sm font-medium">{propKey}</Label>
+                                <div key={propKey} className="border rounded-lg p-2 bg-background">
+                                  <div className="flex items-center gap-2">
+                                    {/* Property name label */}
+                                    <Label className="text-sm font-medium whitespace-nowrap min-w-[100px]">
+                                      {propKey}
+                                    </Label>
+
+                                    {/* Input field for value */}
+                                    <Input
+                                      value={typeof currentValue === 'string' ? currentValue : ''}
+                                      onChange={(e) => updatePropertyMapping(propKey, e.target.value)}
+                                      placeholder="e.g., 'My Title' or {{input.title}}"
+                                      className="font-mono text-sm flex-1"
+                                    />
+
+                                    {/* Type badge */}
+                                    <Badge variant="outline" className="text-xs whitespace-nowrap">
+                                      {property?.type || 'text'}
+                                    </Badge>
+
+                                    {/* Remove button */}
                                     <Button
                                       type="button"
                                       variant="ghost"
                                       size="icon"
                                       onClick={() => removeProperty(propKey)}
-                                      className="h-6 w-6 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                      className="h-8 w-8 flex-shrink-0 text-destructive hover:text-destructive hover:bg-destructive/10"
                                     >
                                       <X className="h-4 w-4" />
                                     </Button>
                                   </div>
-
-                                  {/* Parameter Mapping Dropdown */}
-                                  {hasWorkflowParams && (
-                                    <div>
-                                      <Label className="text-xs text-muted-foreground mb-1 block">
-                                        Map to workflow parameter (optional)
-                                      </Label>
-                                      <Select
-                                        value={typeof currentValue === 'string' ? currentValue : ''}
-                                        onValueChange={(value) => {
-                                          if (value === '__direct__') {
-                                            updatePropertyMapping(propKey, true);
-                                          } else {
-                                            updatePropertyMapping(propKey, `{{input.${value}}}`);
-                                          }
-                                        }}
-                                      >
-                                        <SelectTrigger className="h-8 text-sm">
-                                          <SelectValue placeholder="Direct input (agent fills)" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                          <SelectItem value="__direct__">
-                                            <span className="text-muted-foreground">Direct input (agent fills)</span>
-                                          </SelectItem>
-                                          {workflowParameters.map((param) => (
-                                            <SelectItem key={param} value={param}>
-                                              <span className="font-mono text-xs">{`{{input.${param}}}`}</span>
-                                            </SelectItem>
-                                          ))}
-                                        </SelectContent>
-                                      </Select>
-                                      {typeof currentValue === 'string' && (
-                                        <p className="text-xs text-muted-foreground mt-1">
-                                          Will use: <span className="font-mono">{currentValue}</span>
-                                        </p>
-                                      )}
-                                    </div>
-                                  )}
-
-                                  {!hasWorkflowParams && (
-                                    <p className="text-xs text-muted-foreground italic">
-                                      No workflow parameters defined. The agent will fill this value directly.
-                                    </p>
-                                  )}
                                 </div>
                               );
                             })}
@@ -997,7 +971,7 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
                           </SelectContent>
                         </Select>
                         <p className="text-xs text-muted-foreground">
-                          Use {'{{input.field}}'} for start node parameters or {'{{variable.name}}'} for workflow variables.
+                          Select properties to configure for the object being created
                         </p>
                       </div>
                     )}
