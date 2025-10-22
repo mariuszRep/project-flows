@@ -26,7 +26,7 @@ export const nodeTypes: NodeType[] = [
   },
   {
     type: 'create_object',
-    label: 'Object',
+    label: 'Create Object',
     icon: Database,
     color: 'bg-teal-500',
     description: 'Create object (Task, Project, Epic, Rule)'
