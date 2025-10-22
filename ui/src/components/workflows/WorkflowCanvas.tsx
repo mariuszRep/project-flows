@@ -13,6 +13,8 @@ import ReactFlow, {
   addEdge,
   Connection,
   ReactFlowProvider,
+  NodeChange,
+  EdgeChange,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { StartNode } from './nodes/StartNode';
@@ -103,6 +105,40 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
+
+  // Wrap onNodesChange to detect position, dimension, and remove changes
+  const handleNodesChange = useCallback(
+    (changes: NodeChange[]) => {
+      // Check if any changes should mark the workflow as dirty
+      const hasDirtyingChanges = changes.some(change =>
+        change.type === 'remove' ||
+        change.type === 'position' ||
+        change.type === 'dimensions'
+      );
+
+      if (hasDirtyingChanges) {
+        setIsDirty(true);
+      }
+
+      // Call the original handler from useNodesState
+      onNodesChange(changes);
+    },
+    [onNodesChange]
+  );
+
+  // Wrap onEdgesChange to detect edge deletions
+  const handleEdgesChange = useCallback(
+    (changes: EdgeChange[]) => {
+      const hasDirtyingChanges = changes.some(change => change.type === 'remove');
+
+      if (hasDirtyingChanges) {
+        setIsDirty(true);
+      }
+
+      onEdgesChange(changes);
+    },
+    [onEdgesChange]
+  );
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [nodeIdCounter, setNodeIdCounter] = useState(1);
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
@@ -796,8 +832,8 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
         <ReactFlow
           nodes={nodes}
           edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
+          onNodesChange={handleNodesChange}
+          onEdgesChange={handleEdgesChange}
           onConnect={onConnect}
           onNodeDoubleClick={onNodeDoubleClick}
           onNodesDelete={onNodesDelete}
