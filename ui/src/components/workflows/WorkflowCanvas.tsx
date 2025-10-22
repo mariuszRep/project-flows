@@ -18,6 +18,7 @@ import 'reactflow/dist/style.css';
 import { StartNode } from './nodes/StartNode';
 import { EndNode } from './nodes/EndNode';
 import { AgentNode } from './nodes/AgentNode';
+import { CreateObjectNode } from './nodes/CreateObjectNode';
 import { NodeEditModal } from './NodeEditModal';
 import { WorkflowEditModal } from './WorkflowEditModal';
 import { GitBranch, Save, Loader2, Rocket, XCircle, Settings } from 'lucide-react';
@@ -50,6 +51,7 @@ const nodeTypes: NodeTypes = {
   start: StartNode,
   end: EndNode,
   agent: AgentNode,
+  create_object: CreateObjectNode,
 };
 
 function workflowToReactFlow(workflow: WorkflowData): { nodes: Node[]; edges: Edge[] } {
@@ -243,9 +245,11 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
       console.log('All nodes:', nodes);
       console.log('Nodes to process (excluding end):', nodes.filter(node => node.type !== 'end'));
 
-      // Convert React Flow nodes back to workflow steps (include start node, exclude end node)
+      // CRITICAL FIX: Sort nodes by X position first, then assign execution_order
+      // This ensures visual left-to-right order matches database execution order
       const currentSteps = nodes
         .filter(node => node.type !== 'end')
+        .sort((a, b) => a.position.x - b.position.x) // Sort by X position (left to right)
         .map((node, index) => ({
           id: node.data.dbId, // Include database ID if it exists
           name: node.data.label || `Step ${index + 1}`,
@@ -253,7 +257,7 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
           step_type: node.data.stepType || node.type,
           step_config: node.data.config || {},
           position: node.position,
-          execution_order: index
+          execution_order: index // Now index corresponds to visual left-to-right order
         }));
 
       console.log('currentSteps (after conversion):', currentSteps);
@@ -265,6 +269,8 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
         !step.id || !originalSteps.find(orig => orig.id === step.id)
       );
 
+      // CRITICAL: Update execution_order for ALL existing steps, not just changed ones
+      // This ensures visual order is preserved in the database
       const stepsToUpdate = currentSteps.filter(step => {
         if (!step.id) return false; // New steps don't need updating
 
@@ -276,6 +282,7 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
         const orderChanged = original.execution_order !== step.execution_order;
         const nameChanged = original.name !== step.name;
 
+        // ALWAYS update if ANY field changed (including order)
         if (configChanged || orderChanged || nameChanged) {
           console.log(`Step "${step.name}" (ID: ${step.id}) needs update:`, {
             configChanged,
@@ -302,32 +309,22 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
       console.log('stepsToUpdate:', stepsToUpdate);
       console.log('stepsToDelete:', stepsToDelete);
 
-      // Create new steps
-      const createdSteps = [];
-      for (const step of stepsToCreate) {
-        console.log('Creating step:', step);
-        const result = await callTool('create_property', {
-          template_id: workflowId,
-          key: step.name,
-          type: 'text',
-          description: `Workflow step: ${step.name}`,
-          step_type: step.step_type,
-          step_config: step.step_config,
-          execution_order: step.execution_order
-        });
-        console.log('create_property result:', result);
-
-        // Extract the created property ID from the result
-        if (result && result.content && result.content[0]) {
-          const createdProp = JSON.parse(result.content[0].text);
-          createdSteps.push({
-            ...step,
-            id: createdProp.id
+      // CRITICAL: Delete first to avoid name conflicts when recreating with same name
+      console.log('=== Phase 1: Deleting removed steps ===');
+      for (const step of stepsToDelete) {
+        console.log('Deleting step:', step);
+        if ((step as any).id) {
+          const deleteResult = await callTool('delete_property', {
+            property_id: (step as any).id
           });
+          console.log('delete_property result:', deleteResult);
+        } else {
+          console.warn('Cannot delete step - no ID found:', step);
         }
       }
 
-      // Update existing steps
+      // Update existing steps (including execution_order changes)
+      console.log('=== Phase 2: Updating existing steps ===');
       for (const step of stepsToUpdate) {
         const original = originalSteps.find(orig => orig.id === step.id);
         console.log('Updating step:', step);
@@ -352,16 +349,29 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
         }
       }
 
-      // Delete removed steps
-      for (const step of stepsToDelete) {
-        console.log('Deleting step:', step);
-        if ((step as any).id) {
-          const deleteResult = await callTool('delete_property', {
-            property_id: (step as any).id
+      // Create new steps
+      console.log('=== Phase 3: Creating new steps ===');
+      const createdSteps = [];
+      for (const step of stepsToCreate) {
+        console.log('Creating step:', step);
+        const result = await callTool('create_property', {
+          template_id: workflowId,
+          key: step.name,
+          type: 'text',
+          description: `Workflow step: ${step.name}`,
+          step_type: step.step_type,
+          step_config: step.step_config,
+          execution_order: step.execution_order
+        });
+        console.log('create_property result:', result);
+
+        // Extract the created property ID from the result
+        if (result && result.content && result.content[0]) {
+          const createdProp = JSON.parse(result.content[0].text);
+          createdSteps.push({
+            ...step,
+            id: createdProp.id
           });
-          console.log('delete_property result:', deleteResult);
-        } else {
-          console.warn('Cannot delete step - no ID found:', step);
         }
       }
 
@@ -404,6 +414,32 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
       });
 
       console.log('Updated originalSteps with IDs:', updatedOriginalSteps);
+
+      // CRITICAL FIX: Update nodes with database IDs so they don't get re-created on next save
+      setNodes((nds) =>
+        nds.map((node) => {
+          // Skip end nodes
+          if (node.type === 'end') return node;
+
+          // Find the step by matching label
+          const matchingStep = updatedOriginalSteps.find(
+            step => step.name === node.data.label
+          );
+
+          if (matchingStep && matchingStep.id) {
+            // Update node with database ID
+            return {
+              ...node,
+              data: {
+                ...node.data,
+                dbId: matchingStep.id
+              }
+            };
+          }
+
+          return node;
+        })
+      );
 
       setIsDirty(false);
       setOriginalSteps(updatedOriginalSteps);

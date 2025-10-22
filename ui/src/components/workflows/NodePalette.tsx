@@ -1,5 +1,5 @@
 import { Card } from '@/components/ui/card';
-import { Play, StopCircle, Bot } from 'lucide-react';
+import { Play, StopCircle, Bot, Database } from 'lucide-react';
 
 export interface NodeType {
   type: string;
@@ -23,6 +23,13 @@ export const nodeTypes: NodeType[] = [
     icon: Bot,
     color: 'bg-purple-500',
     description: 'Agent node'
+  },
+  {
+    type: 'create_object',
+    label: 'Object',
+    icon: Database,
+    color: 'bg-teal-500',
+    description: 'Create object (Task, Project, Epic, Rule)'
   },
   {
     type: 'end',
