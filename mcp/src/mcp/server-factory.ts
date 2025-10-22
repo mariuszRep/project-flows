@@ -681,7 +681,7 @@ async function handleDynamicWorkflow(name: string, args: Record<string, any>) {
     }
 
     // If workflow paused at an agent step, save the state
-    if (context.result && context.result.action === 'agent_prompt') {
+    if (context.result && context.result.action === 'agent_instructions') {
       await workflowExecutor.saveState(stateKey, {
         currentStep: context.currentStep,
         variables: Array.from(context.variables.entries())
