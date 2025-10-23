@@ -680,13 +680,14 @@ async function handleDynamicWorkflow(name: string, args: Record<string, any>) {
       context = await workflowExecutor.execute(workflow, enhancedArgs);
     }
 
-    // If workflow paused at an agent step, save the state
-    if (context.result && context.result.action === 'agent_instructions') {
+    // If workflow paused (returned a result), save the state
+    // This includes: agent_instructions, load_object, create_object
+    if (context.result && context.result.action) {
       await workflowExecutor.saveState(stateKey, {
         currentStep: context.currentStep,
         variables: Array.from(context.variables.entries())
       });
-      console.log(`[Dynamic Workflow] Saved state at step ${context.currentStep}`);
+      console.log(`[Dynamic Workflow] Saved state at step ${context.currentStep} (action: ${context.result.action})`);
     } else {
       // Workflow completed, clear the state
       await workflowExecutor.clearState(stateKey);
@@ -694,24 +695,67 @@ async function handleDynamicWorkflow(name: string, args: Record<string, any>) {
     }
     
     // Format response based on whether we're paused or completed
-    if (context.result && context.result.action === 'agent_instructions') {
-      // Workflow paused at agent step
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify({
-              status: 'paused',
-              workflow: name,
-              step: context.result.current_step + 1,
-              total_steps: context.result.total_steps,
-              step_name: context.result.step_name,
-              instructions: context.result.instructions,
-              next_action: `Execute the above ${context.result.instructions.length} instruction(s), then call the '${name}' tool again with the same inputs to continue to the next step.`
-            }, null, 2)
-          }
-        ]
-      };
+    if (context.result && context.result.action) {
+      // Workflow paused at a step that requires agent action
+      if (context.result.action === 'agent_instructions') {
+        // Agent step (or load_object step) - return instructions
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                status: 'paused',
+                workflow: name,
+                step: context.result.current_step + 1,
+                total_steps: context.result.total_steps,
+                step_name: context.result.step_name,
+                instructions: context.result.instructions,
+                next_action: `Execute the above ${context.result.instructions.length} instruction(s), then call the '${name}' tool again with the same inputs to continue to the next step.`
+              }, null, 2)
+            }
+          ]
+        };
+      } else if (context.result.action === 'create_object') {
+        // Create object step - return schema and instruction
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                status: 'paused',
+                workflow: name,
+                action: context.result.action,
+                step: context.currentStep + 1,
+                total_steps: workflow.steps.length,
+                template_id: context.result.template_id,
+                template_name: context.result.template_name,
+                property_schemas: context.result.property_schemas,
+                property_values: context.result.property_values,
+                instruction: context.result.instruction,
+                next_action: `After completing the ${context.result.action} action, call the '${name}' tool again with the same inputs to continue to the next step.`
+              }, null, 2)
+            }
+          ]
+        };
+      } else {
+        // Unknown action type - return generic paused response
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                status: 'paused',
+                workflow: name,
+                action: context.result.action,
+                step: context.currentStep + 1,
+                total_steps: workflow.steps.length,
+                result: context.result,
+                next_action: `Call the '${name}' tool again with the same inputs to continue to the next step.`
+              }, null, 2)
+            }
+          ]
+        };
+      }
     } else {
       // Workflow completed
       return {

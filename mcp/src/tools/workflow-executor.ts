@@ -710,9 +710,9 @@ export class WorkflowExecutor {
   }
 
   /**
-   * Execute load_object step - RETURNS schema to agent for execution
-   * The workflow cannot execute load_object directly because it needs the agent to populate values
-   * Instead, we return the schema and let the agent call create_object with the generated values
+   * Execute load_object step - loads property descriptions as instructions for the agent
+   * Works identically to executeAgent, but sources instructions from database property descriptions
+   * instead of manually configured instruction array
    */
   private async executeLoadObject(step: WorkflowStep, context: ExecutionContext): Promise<void> {
     if (!step.templateId) {
@@ -720,10 +720,10 @@ export class WorkflowExecutor {
     }
 
     if (!this.dbService) {
-      throw new Error('DatabaseService is required to load property schemas for load_object steps.');
+      throw new Error('DatabaseService is required to load property descriptions for load_object steps.');
     }
 
-    console.log(`[Workflow ${step.name}] Loading property schema for template_id: ${step.templateId}`);
+    console.log(`[Workflow ${step.name}] Loading property descriptions for template_id: ${step.templateId}`);
 
     // Load all properties for the template
     const allProperties = await this.dbService.listProperties(step.templateId);
@@ -731,7 +731,7 @@ export class WorkflowExecutor {
     // Filter to only properties with step_type='property' (not workflow steps)
     const templateProperties = allProperties.filter((p: any) => p.step_type === 'property');
 
-    // Filter to only the selected properties (where step.properties[key] exists - can be true or a string reference)
+    // Filter to only the selected properties (where step.properties[key] exists)
     const selectedPropKeys = step.properties ? Object.keys(step.properties) : [];
     const selectedProps = templateProperties.filter((p: any) => selectedPropKeys.includes(p.key));
 
@@ -741,58 +741,36 @@ export class WorkflowExecutor {
 
     console.log(`[Workflow ${step.name}] Selected properties:`, selectedProps.map((p: any) => p.key).join(', '));
 
-    // Build a dynamic schema with only selected properties and their descriptions
-    // Properties can be mapped to workflow parameters using {{input.paramName}} syntax
-    const propertySchemas: Record<string, any> = {};
-    const propertyMappings: Record<string, string> = {};
+    // Build instructions array from property descriptions
+    const instructions = selectedProps.map((prop: any) => {
+      return prop.description || `Process ${prop.key}`;
+    });
 
-    for (const prop of selectedProps) {
-      const mappingValue = step.properties![prop.key];
-
-      // Check if this property is mapped to a workflow parameter
-      if (typeof mappingValue === 'string' && mappingValue.includes('{{input.')) {
-        // Store the mapping for later interpolation
-        propertyMappings[prop.key] = mappingValue;
-        // Don't add to schema - will be filled from workflow inputs
-        console.log(`[Workflow ${step.name}] Property ${prop.key} mapped to: ${mappingValue}`);
-      } else {
-        // Add to schema for agent to fill
-        propertySchemas[prop.key] = {
-          type: prop.type === 'text' ? 'string' : prop.type,
-          description: prop.description || `Value for ${prop.key}`
-        };
-      }
+    if (instructions.length === 0) {
+      throw new Error('load_object step requires at least one instruction');
     }
 
-    // Get template name for display
-    const templates = await this.dbService.getTemplates();
-    const template = templates.find(t => t.id === step.templateId);
-    const templateName = template ? template.name : `template ${step.templateId}`;
+    // Interpolate all instructions with current context
+    const interpolatedInstructions = instructions.map(instruction =>
+      this.interpolateString(instruction, context)
+    );
 
-    // Interpolate property mappings with context values
-    const interpolatedMappings: Record<string, any> = {};
-    for (const [key, mappingExpr] of Object.entries(propertyMappings)) {
-      interpolatedMappings[key] = this.interpolateValue(mappingExpr, context);
-      console.log(`[Workflow ${step.name}] Interpolated ${key}: ${mappingExpr} => ${interpolatedMappings[key]}`);
-    }
+    console.log(`[Workflow ${step.name}] Agent step - pausing workflow`);
+    console.log(`[Workflow ${step.name}] Instructions (${instructions.length}):`, interpolatedInstructions);
 
-    // RETURN schema to agent instead of trying to execute
-    // The agent will see this return value and call create_object itself
+    // Return instructions to the agent (identical structure to agent node)
     const returnValue = {
-      action: 'load_object',
-      template_id: step.templateId,
-      template_name: templateName,
-      property_schemas: propertySchemas,
-      property_values: interpolatedMappings, // Pre-filled values from workflow parameters
-      instruction: Object.keys(propertySchemas).length > 0
-        ? `Please call the create_object tool with template_id=${step.templateId} and populate the following properties based on their descriptions: ${Object.keys(propertySchemas).join(', ')}. These values are already provided from workflow inputs: ${Object.keys(interpolatedMappings).join(', ')}`
-        : `Please call the create_object tool with template_id=${step.templateId}. All property values are provided from workflow inputs: ${Object.keys(interpolatedMappings).join(', ')}`,
-      next_step: step.resultVariable ? `Store the result in variable: ${step.resultVariable}` : undefined
+      action: 'agent_instructions',
+      step_name: step.name,
+      current_step: context.currentStep,
+      total_steps: context.inputs.__workflow_total_steps || 'unknown',
+      instructions: interpolatedInstructions,
+      next_action: 'After executing these instructions, call the workflow tool again with the same inputs to continue to the next step.'
     };
 
-    console.log(`[Workflow ${step.name}] Returning schema to agent:`, JSON.stringify(returnValue, null, 2));
+    console.log(`[Workflow ${step.name}] Pausing and returning ${instructions.length} instruction(s) to agent`);
 
-    // Set this as the workflow result to stop execution and return to agent
+    // Set this as the workflow result to pause execution
     context.result = returnValue;
   }
 
