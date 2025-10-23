@@ -376,13 +376,14 @@ export class WorkflowExecutor {
     workflow: WorkflowDefinition,
     inputs: Record<string, any>,
     startStep: number,
-    savedVariables?: Array<[string, any]>
+    savedVariables?: Array<[string, any]>,
+    savedStepResults?: StepResult[]
   ): Promise<ExecutionContext> {
     const context: ExecutionContext = {
       variables: new Map(savedVariables || []),
       inputs,
       logs: [],
-      stepResults: [],
+      stepResults: savedStepResults || [],
       currentStep: startStep,
     };
 
@@ -390,7 +391,7 @@ export class WorkflowExecutor {
     this.validateInputs(workflow.inputSchema, inputs);
 
     console.log(`[Workflow] Resuming from step ${startStep} (${workflow.steps[startStep]?.name})`);
-    console.log(`[Workflow] Restored ${context.variables.size} variable(s)`);
+    console.log(`[Workflow] Restored ${context.variables.size} variable(s) and ${context.stepResults.length} step result(s)`);
 
     // Execute steps sequentially starting from startStep
     for (let i = startStep; i < workflow.steps.length; i++) {
@@ -755,20 +756,66 @@ export class WorkflowExecutor {
       this.interpolateString(instruction, context)
     );
 
-    console.log(`[Workflow ${step.name}] Agent step - pausing workflow`);
+    console.log(`[Workflow ${step.name}] Agent step - executing with MCP sampling`);
     console.log(`[Workflow ${step.name}] Instructions (${instructions.length}):`, interpolatedInstructions);
 
-    // Return instructions to the agent (identical structure to agent node)
+    // Use MCP sampling to get LLM response if server is available
+    let samplingResult: string | null = null;
+    if (this.server) {
+      try {
+        console.log(`[Workflow ${step.name}] Requesting sampling from MCP client`);
+
+        // Format instructions as a single prompt
+        const prompt = interpolatedInstructions.join('\n\n');
+
+        // Request sampling from MCP client
+        const response = await this.server.request({
+          method: 'sampling/createMessage',
+          params: {
+            messages: [
+              {
+                role: 'user',
+                content: {
+                  type: 'text',
+                  text: prompt
+                }
+              }
+            ],
+            maxTokens: 1000
+          }
+        }, null);
+
+        // Extract text from response
+        if (response && response.content && response.content.type === 'text') {
+          samplingResult = response.content.text;
+          console.log(`[Workflow ${step.name}] Sampling response received (${samplingResult?.length || 0} chars)`);
+        }
+      } catch (error) {
+        console.warn(`[Workflow ${step.name}] Sampling failed, continuing without result:`, error);
+      }
+    }
+
+    // Record step result
+    const stepResult: StepResult = {
+      step: step.name,
+      type: 'load_object',
+      status: samplingResult ? 'completed' : 'failed',
+      output: samplingResult || 'No sampling result available'
+    };
+    context.stepResults.push(stepResult);
+
+    // Return instructions to the agent with result (identical structure to agent node)
     const returnValue = {
       action: 'agent_instructions',
       step_name: step.name,
       current_step: context.currentStep,
       total_steps: context.inputs.__workflow_total_steps || 'unknown',
       instructions: interpolatedInstructions,
+      result: samplingResult,
       next_action: 'After executing these instructions, call the workflow tool again with the same inputs to continue to the next step.'
     };
 
-    console.log(`[Workflow ${step.name}] Pausing and returning ${instructions.length} instruction(s) to agent`);
+    console.log(`[Workflow ${step.name}] Returning ${instructions.length} instruction(s) with ${samplingResult ? 'sampling result' : 'no result'}`);
 
     // Set this as the workflow result to pause execution
     context.result = returnValue;
@@ -1066,7 +1113,7 @@ export class WorkflowExecutor {
   }
 
   /**
-   * Execute agent step - pauses workflow and returns instructions to agent
+   * Execute agent step - uses MCP sampling to get LLM response and captures result
    * The agent should execute the instructions and then call the workflow again to continue
    */
   private async executeAgent(step: WorkflowStep, context: ExecutionContext): Promise<void> {
@@ -1081,20 +1128,66 @@ export class WorkflowExecutor {
       this.interpolateString(instruction, context)
     );
 
-    console.log(`[Workflow ${step.name}] Agent step - pausing workflow`);
+    console.log(`[Workflow ${step.name}] Agent step - executing with MCP sampling`);
     console.log(`[Workflow ${step.name}] Instructions (${instructions.length}):`, interpolatedInstructions);
 
-    // Return instructions to the agent
+    // Use MCP sampling to get LLM response if server is available
+    let samplingResult: string | null = null;
+    if (this.server) {
+      try {
+        console.log(`[Workflow ${step.name}] Requesting sampling from MCP client`);
+
+        // Format instructions as a single prompt
+        const prompt = interpolatedInstructions.join('\n\n');
+
+        // Request sampling from MCP client
+        const response = await this.server.request({
+          method: 'sampling/createMessage',
+          params: {
+            messages: [
+              {
+                role: 'user',
+                content: {
+                  type: 'text',
+                  text: prompt
+                }
+              }
+            ],
+            maxTokens: 1000
+          }
+        }, null);
+
+        // Extract text from response
+        if (response && response.content && response.content.type === 'text') {
+          samplingResult = response.content.text;
+          console.log(`[Workflow ${step.name}] Sampling response received (${samplingResult?.length || 0} chars)`);
+        }
+      } catch (error) {
+        console.warn(`[Workflow ${step.name}] Sampling failed, continuing without result:`, error);
+      }
+    }
+
+    // Record step result
+    const stepResult: StepResult = {
+      step: step.name,
+      type: 'agent',
+      status: samplingResult ? 'completed' : 'failed',
+      output: samplingResult || 'No sampling result available'
+    };
+    context.stepResults.push(stepResult);
+
+    // Return instructions to the agent with result
     const returnValue = {
       action: 'agent_instructions',
       step_name: step.name,
       current_step: context.currentStep,
       total_steps: context.inputs.__workflow_total_steps || 'unknown',
       instructions: interpolatedInstructions,
+      result: samplingResult,
       next_action: 'After executing these instructions, call the workflow tool again with the same inputs to continue to the next step.'
     };
 
-    console.log(`[Workflow ${step.name}] Pausing and returning ${instructions.length} instruction(s) to agent`);
+    console.log(`[Workflow ${step.name}] Returning ${instructions.length} instruction(s) with ${samplingResult ? 'sampling result' : 'no result'}`);
 
     // Set this as the workflow result to pause execution
     context.result = returnValue;

@@ -673,7 +673,13 @@ async function handleDynamicWorkflow(name: string, args: Record<string, any>) {
     if (workflowState && workflowState.currentStep !== undefined) {
       // Resume from saved step
       console.log(`[Dynamic Workflow] Resuming workflow '${name}' from step ${workflowState.currentStep + 1} of ${workflow.steps.length}`);
-      context = await workflowExecutor.executeFromStep(workflow, enhancedArgs, workflowState.currentStep + 1, workflowState.variables);
+      context = await workflowExecutor.executeFromStep(
+        workflow,
+        enhancedArgs,
+        workflowState.currentStep + 1,
+        workflowState.variables,
+        workflowState.stepResults || []
+      );
     } else {
       // Start from beginning
       console.log(`[Dynamic Workflow] Starting workflow '${name}' (${workflow.steps.length} steps)`);
@@ -685,7 +691,8 @@ async function handleDynamicWorkflow(name: string, args: Record<string, any>) {
     if (context.result && context.result.action) {
       await workflowExecutor.saveState(stateKey, {
         currentStep: context.currentStep,
-        variables: Array.from(context.variables.entries())
+        variables: Array.from(context.variables.entries()),
+        stepResults: context.stepResults || []
       });
       console.log(`[Dynamic Workflow] Saved state at step ${context.currentStep} (action: ${context.result.action})`);
     } else {
@@ -698,7 +705,7 @@ async function handleDynamicWorkflow(name: string, args: Record<string, any>) {
     if (context.result && context.result.action) {
       // Workflow paused at a step that requires agent action
       if (context.result.action === 'agent_instructions') {
-        // Agent step (or load_object step) - return instructions
+        // Agent step (or load_object step) - return instructions with result
         return {
           content: [
             {
@@ -710,6 +717,8 @@ async function handleDynamicWorkflow(name: string, args: Record<string, any>) {
                 total_steps: context.result.total_steps,
                 step_name: context.result.step_name,
                 instructions: context.result.instructions,
+                result: context.result.result || null,
+                step_results: context.stepResults || [],
                 next_action: `Execute the above ${context.result.instructions.length} instruction(s), then call the '${name}' tool again with the same inputs to continue to the next step.`
               }, null, 2)
             }
