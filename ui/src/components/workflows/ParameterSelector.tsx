@@ -4,7 +4,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Code2, Type } from 'lucide-react';
+import { Link, Unlink } from 'lucide-react';
 
 export interface PreviousStep {
   name: string;
@@ -110,50 +110,13 @@ export function ParameterSelector({
   });
 
   return (
-    <div className="space-y-2">
-      {/* Mode Toggle Buttons */}
-      <div className="flex gap-2">
-        <Button
-          type="button"
-          variant={mode === 'previous_step' ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => setMode('previous_step')}
-          className="flex-1 h-8 text-xs"
-        >
-          <Code2 className="h-3 w-3 mr-1" />
-          Reference Parameter
-        </Button>
-        <Button
-          type="button"
-          variant={mode === 'manual' ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => setMode('manual')}
-          className="flex-1 h-8 text-xs"
-        >
-          <Type className="h-3 w-3 mr-1" />
-          Manual Value
-        </Button>
-      </div>
-
-      {/* Property Info */}
-      <div className="flex items-center gap-2">
-        <Label className="text-sm font-medium">{propertyKey}</Label>
-        {propertyType && (
-          <Badge variant="outline" className="text-xs">
-            {propertyType}
-          </Badge>
-        )}
-      </div>
-      {propertyDescription && (
-        <p className="text-xs text-muted-foreground">{propertyDescription}</p>
-      )}
-
-      {/* Mode-specific Input */}
-      {mode === 'previous_step' ? (
-        <div className="space-y-1">
+    <div className="flex items-center gap-2">
+      {/* Input Field */}
+      <div className="flex-1">
+        {mode === 'previous_step' ? (
           <Select value={selectedStepPath} onValueChange={setSelectedStepPath}>
             <SelectTrigger className="h-9 text-sm font-mono">
-              <SelectValue placeholder="Select a parameter..." />
+              <SelectValue placeholder="Select parameter..." />
             </SelectTrigger>
             <SelectContent className="max-h-[300px]">
               {availableParameters.length === 0 ? (
@@ -197,25 +160,31 @@ export function ParameterSelector({
               )}
             </SelectContent>
           </Select>
-          {selectedStepPath && (
-            <p className="text-xs text-muted-foreground">
-              Will use: <span className="font-mono">{`{{${selectedStepPath}}}`}</span>
-            </p>
-          )}
-        </div>
-      ) : (
-        <div className="space-y-1">
+        ) : (
           <Input
             value={manualValue}
             onChange={(e) => setManualValue(e.target.value)}
             placeholder={placeholder}
             className="h-9 text-sm font-mono"
           />
-          <p className="text-xs text-muted-foreground">
-            Enter a static value for this property
-          </p>
-        </div>
-      )}
+        )}
+      </div>
+
+      {/* Toggle Icon Button */}
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        onClick={handleModeToggle}
+        className="h-9 w-9 shrink-0"
+        title={mode === 'previous_step' ? 'Switch to manual value' : 'Link to parameter'}
+      >
+        {mode === 'previous_step' ? (
+          <Link className="h-4 w-4" />
+        ) : (
+          <Unlink className="h-4 w-4" />
+        )}
+      </Button>
     </div>
   );
 }

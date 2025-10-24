@@ -1097,24 +1097,19 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
                 {/* Stage Selection */}
                 {config.template_id && (
                   <div>
-                    <Label className="text-xs">Stage (Optional)</Label>
-                    <Select
+                    <Label className="text-xs mb-2 block">Stage (Optional)</Label>
+                    <ParameterSelector
                       value={config.stage || ''}
-                      onValueChange={(value) => setConfig({ ...config, stage: value || undefined })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select stage (defaults to draft)..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="draft">Draft</SelectItem>
-                        <SelectItem value="backlog">Backlog</SelectItem>
-                        <SelectItem value="doing">Doing</SelectItem>
-                        <SelectItem value="review">Review</SelectItem>
-                        <SelectItem value="completed">Completed</SelectItem>
-                      </SelectContent>
-                    </Select>
+                      onChange={(value) => setConfig({ ...config, stage: value || undefined })}
+                      propertyKey="stage"
+                      propertyType="enum"
+                      propertyDescription="Workflow stage: draft, backlog, doing, review, completed"
+                      workflowParameters={workflowParameters}
+                      previousSteps={previousSteps}
+                      placeholder="e.g., draft, doing, review"
+                    />
                     <p className="text-xs text-muted-foreground mt-1">
-                      Workflow stage for the created object. Use {'{{input.field}}'} for dynamic values. Defaults to 'draft' if not specified.
+                      Defaults to 'draft' if not specified
                     </p>
                   </div>
                 )}
@@ -1143,50 +1138,54 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
                     ) : (
                       <div className="space-y-2">
                         {relatedEntries.map((entry, index) => (
-                          <div key={index} className="border rounded-lg p-3 bg-background">
-                            <div className="grid grid-cols-[2fr_1fr_40px] gap-2 items-center">
-                              <div>
-                                <Label className="text-xs text-muted-foreground mb-1 block">Object ID</Label>
-                                <Input
-                                  value={entry.id}
-                                  onChange={(e) => {
-                                    const updated = [...relatedEntries];
-                                    updated[index].id = e.target.value;
-                                    setRelatedEntries(updated);
-                                  }}
-                                  placeholder="e.g., 42 or {{input.parent_id}}"
-                                  className="h-9 text-sm font-mono"
-                                />
-                              </div>
+                          <div key={index} className="grid grid-cols-[2fr_120px_32px] gap-2 items-start">
+                            <div>
+                              <Label className="text-xs mb-1 block">Object ID</Label>
+                              <ParameterSelector
+                                value={entry.id}
+                                onChange={(value) => {
+                                  const updated = [...relatedEntries];
+                                  updated[index].id = String(value);
+                                  setRelatedEntries(updated);
+                                }}
+                                propertyKey="Object ID"
+                                propertyType="number"
+                                propertyDescription="Parent object ID"
+                                workflowParameters={workflowParameters}
+                                previousSteps={previousSteps}
+                                placeholder="e.g., 42"
+                              />
+                            </div>
 
-                              <div>
-                                <Label className="text-xs text-muted-foreground mb-1 block">Type</Label>
-                                <Select
-                                  value={entry.object}
-                                  onValueChange={(value) => {
-                                    const updated = [...relatedEntries];
-                                    updated[index].object = value;
-                                    setRelatedEntries(updated);
-                                  }}
-                                >
-                                  <SelectTrigger className="h-9 text-sm">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="task">Task</SelectItem>
-                                    <SelectItem value="project">Project</SelectItem>
-                                    <SelectItem value="epic">Epic</SelectItem>
-                                    <SelectItem value="rule">Rule</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </div>
+                            <div>
+                              <Label className="text-xs mb-1 block">Type</Label>
+                              <Select
+                                value={entry.object}
+                                onValueChange={(value) => {
+                                  const updated = [...relatedEntries];
+                                  updated[index].object = value;
+                                  setRelatedEntries(updated);
+                                }}
+                              >
+                                <SelectTrigger className="h-9 text-sm">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="task">Task</SelectItem>
+                                  <SelectItem value="project">Project</SelectItem>
+                                  <SelectItem value="epic">Epic</SelectItem>
+                                  <SelectItem value="rule">Rule</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
 
+                            <div className="pt-5">
                               <Button
                                 type="button"
                                 variant="ghost"
                                 size="icon"
                                 onClick={() => setRelatedEntries(relatedEntries.filter((_, i) => i !== index))}
-                                className="h-9 w-9 text-destructive hover:text-destructive hover:bg-destructive/10 mt-4"
+                                className="h-9 w-9 text-destructive hover:text-destructive hover:bg-destructive/10"
                               >
                                 <Trash2 className="h-4 w-4" />
                               </Button>
@@ -1197,7 +1196,7 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
                     )}
 
                     <p className="text-xs text-muted-foreground mt-2">
-                      Define parent relationships for the created object. Use {'{{input.field}}'} to reference workflow parameters dynamically.
+                      Click the link icon to reference workflow parameters
                     </p>
                   </div>
                 )}
