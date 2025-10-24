@@ -4,7 +4,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Code2, Type } from 'lucide-react';
+import { Link, Unlink } from 'lucide-react';
 
 export interface PreviousStep {
   name: string;
@@ -21,6 +21,7 @@ export interface ParameterSelectorProps {
   workflowParameters: string[];
   previousSteps: PreviousStep[];
   placeholder?: string;
+  onCreateWorkflowParameter?: (paramName: string, paramType: string) => void;
 }
 
 type SelectionMode = 'previous_step' | 'manual';
@@ -33,7 +34,8 @@ export function ParameterSelector({
   propertyDescription,
   workflowParameters,
   previousSteps,
-  placeholder = 'Enter value...'
+  placeholder = 'Enter value...',
+  onCreateWorkflowParameter
 }: ParameterSelectorProps) {
   // Determine initial mode based on value
   const [mode, setMode] = useState<SelectionMode>(() => {
@@ -109,113 +111,130 @@ export function ParameterSelector({
     });
   });
 
+  console.log('[ParameterSelector] Debug:', {
+    propertyKey,
+    availableParametersCount: availableParameters.length,
+    workflowParametersCount: workflowParameters.length,
+    previousStepsCount: previousSteps.length,
+    hasCallback: !!onCreateWorkflowParameter,
+    mode
+  });
+
   return (
-    <div className="space-y-2">
-      {/* Mode Toggle Buttons */}
-      <div className="flex gap-2">
-        <Button
-          type="button"
-          variant={mode === 'previous_step' ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => setMode('previous_step')}
-          className="flex-1 h-8 text-xs"
-        >
-          <Code2 className="h-3 w-3 mr-1" />
-          Reference Parameter
-        </Button>
-        <Button
-          type="button"
-          variant={mode === 'manual' ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => setMode('manual')}
-          className="flex-1 h-8 text-xs"
-        >
-          <Type className="h-3 w-3 mr-1" />
-          Manual Value
-        </Button>
-      </div>
-
-      {/* Property Info */}
-      <div className="flex items-center gap-2">
-        <Label className="text-sm font-medium">{propertyKey}</Label>
-        {propertyType && (
-          <Badge variant="outline" className="text-xs">
-            {propertyType}
-          </Badge>
-        )}
-      </div>
-      {propertyDescription && (
-        <p className="text-xs text-muted-foreground">{propertyDescription}</p>
-      )}
-
-      {/* Mode-specific Input */}
-      {mode === 'previous_step' ? (
-        <div className="space-y-1">
+    <div className="flex items-center gap-2">
+      {/* Input Field */}
+      <div className="flex-1">
+        {mode === 'previous_step' ? (
           <Select value={selectedStepPath} onValueChange={setSelectedStepPath}>
             <SelectTrigger className="h-9 text-sm font-mono">
-              <SelectValue placeholder="Select a parameter..." />
+              <SelectValue placeholder="Select parameter..." />
             </SelectTrigger>
             <SelectContent className="max-h-[300px]">
-              {availableParameters.length === 0 ? (
+              {/* Group by Workflow Parameters */}
+              {availableParameters.some(p => p.group === 'Workflow Parameters') && (
+                <>
+                  <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+                    Workflow Parameters
+                  </div>
+                  {availableParameters
+                    .filter(p => p.group === 'Workflow Parameters')
+                    .map(param => (
+                      <SelectItem key={param.value} value={param.value}>
+                        <span className="font-mono text-xs">{param.label}</span>
+                      </SelectItem>
+                    ))}
+                </>
+              )}
+
+              {/* Group by Previous Steps */}
+              {availableParameters.some(p => p.group === 'Previous Steps') && (
+                <>
+                  <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+                    Previous Steps
+                  </div>
+                  {availableParameters
+                    .filter(p => p.group === 'Previous Steps')
+                    .map(param => (
+                      <SelectItem key={param.value} value={param.value}>
+                        <span className="font-mono text-xs">{param.label}</span>
+                      </SelectItem>
+                    ))}
+                </>
+              )}
+
+              {/* Add New Parameter Option - Always show if callback exists */}
+              {onCreateWorkflowParameter && (
+                <>
+                  {availableParameters.length > 0 && (
+                    <div className="border-t my-1" />
+                  )}
+                  <div className="px-2 py-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="w-full text-xs justify-start"
+                      onClick={() => {
+                        // For "id" property, use the context from propertyDescription or a generic name
+                        // If propertyDescription mentions a parent type, use that
+                        let paramName = propertyKey;
+                        
+                        // Check if this is an ID field for a parent relationship
+                        if (propertyKey === 'id' && propertyDescription) {
+                          // Extract parent type from description like "ID of the Project to link"
+                          const match = propertyDescription.match(/ID of the (\w+)/i);
+                          if (match) {
+                            const parentType = match[1].toLowerCase();
+                            paramName = `${parentType}_id`;
+                          }
+                        }
+                        
+                        onCreateWorkflowParameter(paramName, propertyType);
+                        // Auto-link to the new parameter
+                        setSelectedStepPath(`steps.input.${paramName}`);
+                      }}
+                    >
+                      + Add "{propertyKey === 'id' && propertyDescription?.match(/ID of the (\w+)/i) 
+                        ? propertyDescription.match(/ID of the (\w+)/i)![1].toLowerCase() + '_id'
+                        : propertyKey}" as parameter
+                    </Button>
+                  </div>
+                </>
+              )}
+
+              {/* Show message only if no parameters AND no callback */}
+              {availableParameters.length === 0 && !onCreateWorkflowParameter && (
                 <div className="px-2 py-4 text-center text-sm text-muted-foreground">
                   No parameters available
                 </div>
-              ) : (
-                <>
-                  {/* Group by Workflow Parameters */}
-                  {availableParameters.some(p => p.group === 'Workflow Parameters') && (
-                    <>
-                      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
-                        Workflow Parameters
-                      </div>
-                      {availableParameters
-                        .filter(p => p.group === 'Workflow Parameters')
-                        .map(param => (
-                          <SelectItem key={param.value} value={param.value}>
-                            <span className="font-mono text-xs">{param.label}</span>
-                          </SelectItem>
-                        ))}
-                    </>
-                  )}
-
-                  {/* Group by Previous Steps */}
-                  {availableParameters.some(p => p.group === 'Previous Steps') && (
-                    <>
-                      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
-                        Previous Steps
-                      </div>
-                      {availableParameters
-                        .filter(p => p.group === 'Previous Steps')
-                        .map(param => (
-                          <SelectItem key={param.value} value={param.value}>
-                            <span className="font-mono text-xs">{param.label}</span>
-                          </SelectItem>
-                        ))}
-                    </>
-                  )}
-                </>
               )}
             </SelectContent>
           </Select>
-          {selectedStepPath && (
-            <p className="text-xs text-muted-foreground">
-              Will use: <span className="font-mono">{`{{${selectedStepPath}}}`}</span>
-            </p>
-          )}
-        </div>
-      ) : (
-        <div className="space-y-1">
+        ) : (
           <Input
             value={manualValue}
             onChange={(e) => setManualValue(e.target.value)}
             placeholder={placeholder}
             className="h-9 text-sm font-mono"
           />
-          <p className="text-xs text-muted-foreground">
-            Enter a static value for this property
-          </p>
-        </div>
-      )}
+        )}
+      </div>
+
+      {/* Toggle Icon Button */}
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        onClick={handleModeToggle}
+        className="h-9 w-9 shrink-0"
+        title={mode === 'previous_step' ? 'Switch to manual value' : 'Link to parameter'}
+      >
+        {mode === 'previous_step' ? (
+          <Link className="h-4 w-4" />
+        ) : (
+          <Unlink className="h-4 w-4" />
+        )}
+      </Button>
     </div>
   );
 }

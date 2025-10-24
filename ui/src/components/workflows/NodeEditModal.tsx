@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { AutoTextarea } from '@/components/ui/auto-textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { X, Save, Trash2, Plus, Loader2 } from 'lucide-react';
+import { X, Save, Trash2, Plus, Loader2, Link, Unlink } from 'lucide-react';
 import { Node } from 'reactflow';
 import { useToast } from '@/hooks/use-toast';
 import { useMCP } from '@/contexts/MCPContext';
@@ -54,10 +54,17 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
   const [availableTemplates, setAvailableTemplates] = useState<any[]>([]);
   const [availableProperties, setAvailableProperties] = useState<any[]>([]);
   const [selectedProperties, setSelectedProperties] = useState<Record<string, boolean | string>>({});
+  const [propertyEnabled, setPropertyEnabled] = useState<Record<string, boolean>>({});
+  const [allowedParentTypes, setAllowedParentTypes] = useState<any[]>([]);
   const [isLoadingTemplates, setIsLoadingTemplates] = useState(false);
   const [isLoadingProperties, setIsLoadingProperties] = useState(false);
   const [workflowParameters, setWorkflowParameters] = useState<string[]>([]);
   const [previousSteps, setPreviousSteps] = useState<PreviousStep[]>([]);
+  const [relatedParents, setRelatedParents] = useState<Record<string, {
+    enabled: boolean;
+    id: string | number;
+  }>>({});
+  const [stageLinked, setStageLinked] = useState(false);
 
   useEffect(() => {
     if (node && isOpen) {
@@ -160,11 +167,41 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
         const properties = node.data.config?.properties;
         if (properties && typeof properties === 'object') {
           setSelectedProperties(properties);
+          // Mark properties with values as enabled
+          const enabled: Record<string, boolean> = {};
+          Object.keys(properties).forEach(key => {
+            enabled[key] = true;
+          });
+          setPropertyEnabled(enabled);
         } else {
           setSelectedProperties({});
+          setPropertyEnabled({});
         }
+
+        // Parse related array from config
+        const related = node.data.config?.related;
+        if (Array.isArray(related)) {
+          const parsedParents: Record<string, any> = {};
+          related.forEach((entry: any) => {
+            parsedParents[entry.object] = {
+              enabled: true,
+              properties: entry.properties || {},
+              propertyEnabled: entry.propertyEnabled || {},
+              availableProperties: []
+            };
+          });
+          // Merge with allowed types (will be set by loadTemplateSchema)
+          setRelatedParents(prev => ({ ...prev, ...parsedParents }));
+        }
+
+        // Check if stage is linked to a parameter
+        const stage = node.data.config?.stage;
+        setStageLinked(typeof stage === 'string' && stage.includes('{{'));
       } else {
         setSelectedProperties({});
+        setPropertyEnabled({});
+        setRelatedParents({});
+        setStageLinked(false);
       }
 
       // Parse load_object configuration
@@ -345,6 +382,47 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
     loadProperties();
   }, [isOpen, node, config.template_id, isConnected, callTool]);
 
+  // Load template's related_schema when template is selected
+  useEffect(() => {
+    const loadTemplateSchema = async () => {
+      const templateId = config.template_id;
+      if (!isOpen || !node || node.type !== 'create_object' || !templateId || !isConnected || !callTool) {
+        setAllowedParentTypes([]);
+        return;
+      }
+
+      try {
+        const result = await callTool('get_template', { template_id: templateId });
+        if (result && result.content && result.content[0]) {
+          const templateData = JSON.parse(result.content[0].text);
+
+          if (templateData.related_schema && Array.isArray(templateData.related_schema)) {
+            setAllowedParentTypes(templateData.related_schema);
+
+            // Initialize relatedParents state with all allowed types
+            const initialParents: Record<string, any> = {};
+            templateData.related_schema.forEach((schema: any) => {
+              initialParents[schema.key] = {
+                enabled: false,
+                id: ''
+              };
+            });
+            setRelatedParents(initialParents);
+          } else {
+            setAllowedParentTypes([]);
+            setRelatedParents({});
+          }
+        }
+      } catch (error) {
+        console.error('Error loading template schema:', error);
+        setAllowedParentTypes([]);
+        setRelatedParents({});
+      }
+    };
+
+    loadTemplateSchema();
+  }, [config.template_id, isOpen, node, isConnected, callTool]);
+
   if (!isOpen || !node) {
     return null;
   }
@@ -474,6 +552,45 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
     });
   };
 
+  // Handler to create a new workflow parameter and update the start node
+  const handleCreateWorkflowParameter = async (paramName: string, paramType: string) => {
+    if (!isConnected || !callTool || !workflowId) {
+      toast({
+        title: "Error",
+        description: "Cannot create workflow parameter: not connected to MCP",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      // Create the new property in the workflow template
+      await callTool('create_property', {
+        template_id: workflowId,
+        key: paramName,
+        type: paramType,
+        description: `Auto-generated parameter for ${paramName}`,
+        step_type: 'property',
+        execution_order: 0
+      });
+
+      // Refresh workflow parameters
+      setWorkflowParameters([...workflowParameters, paramName]);
+
+      toast({
+        title: "Success",
+        description: `Added "${paramName}" as workflow parameter`,
+      });
+    } catch (error) {
+      console.error('Error creating workflow parameter:', error);
+      toast({
+        title: "Error",
+        description: "Failed to create workflow parameter",
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleSave = () => {
     // Validate required fields
     if (!label.trim()) {
@@ -532,18 +649,44 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
         return;
       }
 
-      // Validate at least one property is selected
-      if (Object.keys(selectedProperties).length === 0) {
-        setError('At least one property must be selected');
+      // Filter to only include enabled properties
+      const enabledProperties: Record<string, any> = {};
+      Object.keys(propertyEnabled).forEach(key => {
+        if (propertyEnabled[key] && selectedProperties[key] !== undefined) {
+          enabledProperties[key] = selectedProperties[key];
+        }
+      });
+
+      // Validate at least one property is enabled
+      if (Object.keys(enabledProperties).length === 0) {
+        setError('At least one property must be enabled');
         toast({
           title: "Validation Error",
-          description: "Please select at least one property to configure",
+          description: "Please enable at least one property to configure",
           variant: "destructive",
         });
         return;
       }
 
-      updatedConfig.properties = selectedProperties;
+      updatedConfig.properties = enabledProperties;
+
+      // Add stage if specified
+      if (config.stage) {
+        updatedConfig.stage = config.stage;
+      }
+
+      // Add related array for enabled parents
+      const enabledParents = Object.keys(relatedParents).filter(key => relatedParents[key].enabled);
+      if (enabledParents.length > 0) {
+        updatedConfig.related = enabledParents.map(parentKey => {
+          const parent = relatedParents[parentKey];
+          return {
+            object: parentKey,
+            id: parent.id
+          };
+        });
+      }
+
       console.log('Saving create_object node with config:', updatedConfig);
     }
 
@@ -998,70 +1141,229 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
                         No properties available for this template
                       </div>
                     ) : (
-                      <div className="space-y-3">
-                        {/* Selected Properties List */}
-                        {Object.keys(selectedProperties).length > 0 && (
-                          <div className="space-y-3">
-                            {Object.keys(selectedProperties).map((propKey) => {
-                              const property = availableProperties.find(p => p.key === propKey);
-                              const currentValue = selectedProperties[propKey];
+                      <div className="space-y-2">
+                        {availableProperties.map((property) => {
+                          const isEnabled = propertyEnabled[property.key] || false;
+                          const currentValue = selectedProperties[property.key] || '';
 
-                              return (
-                                <div key={propKey} className="border rounded-lg p-3 bg-background">
-                                  <div className="flex items-center justify-between mb-2">
-                                    <div className="flex items-center gap-2">
-                                      <Label className="text-sm font-medium">{propKey}</Label>
-                                      <Badge variant="outline" className="text-xs">
-                                        {property?.type || 'text'}
-                                      </Badge>
-                                    </div>
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="icon"
-                                      onClick={() => removeProperty(propKey)}
-                                      className="h-6 w-6 text-destructive hover:text-destructive hover:bg-destructive/10"
-                                    >
-                                      <X className="h-4 w-4" />
-                                    </Button>
-                                  </div>
-
-                                  <ParameterSelector
-                                    value={currentValue}
-                                    onChange={(newValue) => updatePropertyMapping(propKey, newValue)}
-                                    propertyKey={propKey}
-                                    propertyType={property?.type || 'text'}
-                                    propertyDescription={property?.description}
-                                    workflowParameters={workflowParameters}
-                                    previousSteps={previousSteps}
-                                    placeholder="e.g., 'My Title' or select from parameters"
+                          return (
+                            <div key={property.key} className="border rounded-lg p-3 bg-background">
+                              <div className="flex items-start gap-3">
+                                {/* Enable/Disable Checkbox */}
+                                <div className="pt-2">
+                                  <Checkbox
+                                    checked={isEnabled}
+                                    onCheckedChange={(checked) => {
+                                      setPropertyEnabled({
+                                        ...propertyEnabled,
+                                        [property.key]: !!checked
+                                      });
+                                      if (!checked) {
+                                        // Clear value when disabled
+                                        const newProps = { ...selectedProperties };
+                                        delete newProps[property.key];
+                                        setSelectedProperties(newProps);
+                                      }
+                                    }}
                                   />
                                 </div>
-                              );
-                            })}
-                          </div>
-                        )}
 
-                        {/* Add Property Dropdown */}
-                        <Select onValueChange={addProperty}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Add a property..." />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {availableProperties
-                              .filter(prop => !(prop.key in selectedProperties))
-                              .map((prop) => (
-                                <SelectItem key={prop.key} value={prop.key}>
-                                  {prop.key}
-                                </SelectItem>
-                              ))}
-                          </SelectContent>
-                        </Select>
-                        <p className="text-xs text-muted-foreground">
-                          Use {'{{input.field}}'} for start node parameters or {'{{variable.name}}'} for workflow variables.
-                        </p>
+                                {/* Property Configuration */}
+                                <div className="flex-1 space-y-2">
+                                  <div className="flex items-center gap-2">
+                                    <Label className="text-sm font-medium">{property.key}</Label>
+                                    <Badge variant="outline" className="text-xs">
+                                      {property.type || 'text'}
+                                    </Badge>
+                                  </div>
+
+                                  {property.description && (
+                                    <p className="text-xs text-muted-foreground">{property.description}</p>
+                                  )}
+
+                                  <div className={!isEnabled ? 'opacity-50 pointer-events-none' : ''}>
+                                    <ParameterSelector
+                                      value={currentValue}
+                                      onChange={(newValue) => {
+                                        setSelectedProperties({
+                                          ...selectedProperties,
+                                          [property.key]: newValue
+                                        });
+                                      }}
+                                      propertyKey={property.key}
+                                      propertyType={property.type || 'text'}
+                                      propertyDescription={property.description}
+                                      workflowParameters={workflowParameters}
+                                      previousSteps={previousSteps}
+                                      placeholder="Enter value or link parameter"
+                                      onCreateWorkflowParameter={handleCreateWorkflowParameter}
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
+                  </div>
+                )}
+
+                {/* Stage Selection */}
+                {config.template_id && (
+                  <div>
+                    <Label className="text-xs mb-2 block">Stage (Optional)</Label>
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1">
+                        {stageLinked ? (
+                          <Select
+                            value={(() => {
+                              const match = (config.stage || '').match(/\{\{(.*?)\}\}/);
+                              return match ? match[1] : '';
+                            })()}
+                            onValueChange={(value) => setConfig({ ...config, stage: `{{${value}}}` })}
+                          >
+                            <SelectTrigger className="h-9 text-sm font-mono">
+                              <SelectValue placeholder="Select parameter..." />
+                            </SelectTrigger>
+                            <SelectContent className="max-h-[300px]">
+                              {workflowParameters.length === 0 ? (
+                                <div className="px-2 py-4 text-center text-sm text-muted-foreground">
+                                  No parameters available
+                                </div>
+                              ) : (
+                                <>
+                                  <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+                                    Workflow Parameters
+                                  </div>
+                                  {workflowParameters.map(param => (
+                                    <SelectItem key={param} value={`steps.input.${param}`}>
+                                      <span className="font-mono text-xs">{param}</span>
+                                    </SelectItem>
+                                  ))}
+                                </>
+                              )}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Select
+                            value={config.stage || ''}
+                            onValueChange={(value) => setConfig({ ...config, stage: value || undefined })}
+                          >
+                            <SelectTrigger className="h-9 text-sm">
+                              <SelectValue placeholder="Select stage..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="draft">Draft</SelectItem>
+                              <SelectItem value="backlog">Backlog</SelectItem>
+                              <SelectItem value="doing">Doing</SelectItem>
+                              <SelectItem value="review">Review</SelectItem>
+                              <SelectItem value="completed">Completed</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        )}
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => {
+                          setStageLinked(!stageLinked);
+                          setConfig({ ...config, stage: undefined });
+                        }}
+                        className="h-9 w-9 shrink-0"
+                        title={stageLinked ? 'Switch to manual value' : 'Link to parameter'}
+                      >
+                        {stageLinked ? (
+                          <Link className="h-4 w-4" />
+                        ) : (
+                          <Unlink className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Defaults to 'draft' if not specified
+                    </p>
+                  </div>
+                )}
+
+                {/* Related Parent Relationships */}
+                {config.template_id && allowedParentTypes.length > 0 && (
+                  <div>
+                    <Label className="text-xs mb-2 block">Related Parents (Optional)</Label>
+                    <div className="space-y-3">
+                      {allowedParentTypes.map((parentSchema: any) => {
+                        const parentKey = parentSchema.key;
+                        const parent = relatedParents[parentKey];
+                        if (!parent) return null;
+
+                        const isEnabled = parent.enabled;
+                        const templateIds = parentSchema.allowed_types || [];
+
+                        return (
+                          <div key={parentKey} className="border rounded-lg p-4 bg-muted/5">
+                            {/* Header with Enable/Disable and Type Label */}
+                            <div className="flex items-start gap-3">
+                              <div className="pt-1">
+                                <Checkbox
+                                  checked={isEnabled}
+                                  onCheckedChange={(checked) => {
+                                    setRelatedParents(prev => ({
+                                      ...prev,
+                                      [parentKey]: {
+                                        ...prev[parentKey],
+                                        enabled: !!checked
+                                      }
+                                    }));
+                                  }}
+                                />
+                              </div>
+                              <div className="flex-1 space-y-2">
+                                <div className="flex items-center gap-2">
+                                  <Label className="text-sm font-medium capitalize">
+                                    {parentSchema.label || parentKey} ID{parentSchema.cardinality === 'multiple' ? 's' : ''}
+                                  </Label>
+                                  <Badge variant="outline" className="text-xs">
+                                    {parentSchema.cardinality || 'single'}
+                                  </Badge>
+                                  {parentSchema.required && (
+                                    <Badge variant="destructive" className="text-xs">Required</Badge>
+                                  )}
+                                </div>
+
+                                {/* ID Field */}
+                                {isEnabled && (
+                                  <div className={!isEnabled ? 'opacity-50 pointer-events-none' : ''}>
+                                    <ParameterSelector
+                                      value={parent.id?.toString() || ''}
+                                      onChange={(newValue) => {
+                                        setRelatedParents(prev => ({
+                                          ...prev,
+                                          [parentKey]: {
+                                            ...prev[parentKey],
+                                            id: newValue
+                                          }
+                                        }));
+                                      }}
+                                      propertyKey="id"
+                                      propertyType="number"
+                                      propertyDescription={`ID of the ${parentSchema.label || parentKey} to link`}
+                                      workflowParameters={workflowParameters}
+                                      previousSteps={previousSteps}
+                                      placeholder="Enter ID or link parameter"
+                                      onCreateWorkflowParameter={handleCreateWorkflowParameter}
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Enable parent relationships and provide their IDs (or link to parameters)
+                    </p>
                   </div>
                 )}
 
@@ -1170,6 +1472,7 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
                                     workflowParameters={workflowParameters}
                                     previousSteps={previousSteps}
                                     placeholder="Select parameter or enter value"
+                                    onCreateWorkflowParameter={handleCreateWorkflowParameter}
                                   />
                                 </div>
                               );

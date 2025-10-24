@@ -4,6 +4,7 @@
  */
 
 import DatabaseService from '../database.js';
+import { RelatedEntry } from './create-handler.js';
 
 export interface WorkflowStep {
   name: string;
@@ -19,6 +20,8 @@ export interface WorkflowStep {
   resultVariable?: string;
   templateId?: number;
   properties?: Record<string, any>;
+  stage?: string;
+  related?: RelatedEntry[];
   status?: 'pending' | 'completed' | 'failed';
   // load_state / save_state fields
   stateKey?: string;
@@ -167,6 +170,8 @@ export class WorkflowExecutor {
             step.templateId = config.template_id;
             step.properties = config.properties;
             step.resultVariable = config.result_variable;
+            step.stage = config.stage;
+            step.related = config.related;
             break;
 
           case 'load_object':
@@ -756,10 +761,26 @@ export class WorkflowExecutor {
       }
 
       try {
-        const result = await this.toolCaller.callTool('create_object', {
+        // Build parameters object
+        const toolParams: Record<string, any> = {
           template_id: step.templateId,
           properties: interpolatedMappings
-        });
+        };
+
+        // Add stage if specified (with interpolation support)
+        if (step.stage !== undefined) {
+          toolParams.stage = this.interpolateValue(step.stage, context);
+        }
+
+        // Add related if specified (with interpolation support for array elements)
+        if (step.related !== undefined) {
+          toolParams.related = step.related.map(entry => ({
+            id: typeof entry.id === 'string' ? this.interpolateValue(entry.id, context) : entry.id,
+            object: typeof entry.object === 'string' ? this.interpolateValue(entry.object, context) : entry.object
+          }));
+        }
+
+        const result = await this.toolCaller.callTool('create_object', toolParams);
 
         console.log(`[Workflow ${step.name}] Auto-executed create_object, result:`, result);
 
