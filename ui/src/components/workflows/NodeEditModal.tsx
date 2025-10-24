@@ -62,9 +62,7 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
   const [previousSteps, setPreviousSteps] = useState<PreviousStep[]>([]);
   const [relatedParents, setRelatedParents] = useState<Record<string, {
     enabled: boolean;
-    properties: Record<string, any>;
-    propertyEnabled: Record<string, boolean>;
-    availableProperties: any[];
+    id: string | number;
   }>>({});
   const [stageLinked, setStageLinked] = useState(false);
 
@@ -406,9 +404,7 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
             templateData.related_schema.forEach((schema: any) => {
               initialParents[schema.key] = {
                 enabled: false,
-                properties: {},
-                propertyEnabled: {},
-                availableProperties: []
+                id: ''
               };
             });
             setRelatedParents(initialParents);
@@ -556,33 +552,42 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
     });
   };
 
-  // Function to load properties for a parent type
-  const loadPropertiesForParentType = async (parentKey: string, templateId: number) => {
-    if (!isConnected || !callTool) return;
+  // Handler to create a new workflow parameter and update the start node
+  const handleCreateWorkflowParameter = async (paramName: string, paramType: string) => {
+    if (!isConnected || !callTool || !workflowId) {
+      toast({
+        title: "Error",
+        description: "Cannot create workflow parameter: not connected to MCP",
+        variant: "destructive",
+      });
+      return;
+    }
 
     try {
-      const result = await callTool('list_properties', { template_id: templateId });
-      if (result && result.content && result.content[0]) {
-        const propsText = result.content[0].text;
+      // Create the new property in the workflow template
+      await callTool('create_property', {
+        template_id: workflowId,
+        key: paramName,
+        type: paramType,
+        description: `Auto-generated parameter for ${paramName}`,
+        step_type: 'property',
+        execution_order: 0
+      });
 
-        if (!propsText.includes('No properties found')) {
-          const properties = JSON.parse(propsText);
-          const objectProps = Array.isArray(properties)
-            ? properties.filter((p: any) => p.step_type === 'property')
-            : [];
+      // Refresh workflow parameters
+      setWorkflowParameters([...workflowParameters, paramName]);
 
-          // Update the related parent with available properties
-          setRelatedParents(prev => ({
-            ...prev,
-            [parentKey]: {
-              ...prev[parentKey],
-              availableProperties: objectProps
-            }
-          }));
-        }
-      }
+      toast({
+        title: "Success",
+        description: `Added "${paramName}" as workflow parameter`,
+      });
     } catch (error) {
-      console.error('Error loading properties for parent type:', error);
+      console.error('Error creating workflow parameter:', error);
+      toast({
+        title: "Error",
+        description: "Failed to create workflow parameter",
+        variant: "destructive",
+      });
     }
   };
 
@@ -675,19 +680,9 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
       if (enabledParents.length > 0) {
         updatedConfig.related = enabledParents.map(parentKey => {
           const parent = relatedParents[parentKey];
-
-          // Filter to only include enabled properties
-          const enabledProps: Record<string, any> = {};
-          Object.keys(parent.propertyEnabled).forEach(key => {
-            if (parent.propertyEnabled[key] && parent.properties[key] !== undefined) {
-              enabledProps[key] = parent.properties[key];
-            }
-          });
-
           return {
             object: parentKey,
-            properties: enabledProps,
-            propertyEnabled: parent.propertyEnabled
+            id: parent.id
           };
         });
       }
@@ -1201,6 +1196,7 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
                                       workflowParameters={workflowParameters}
                                       previousSteps={previousSteps}
                                       placeholder="Enter value or link parameter"
+                                      onCreateWorkflowParameter={handleCreateWorkflowParameter}
                                     />
                                   </div>
                                 </div>
@@ -1307,7 +1303,7 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
                         return (
                           <div key={parentKey} className="border rounded-lg p-4 bg-muted/5">
                             {/* Header with Enable/Disable and Type Label */}
-                            <div className="flex items-start gap-3 mb-3">
+                            <div className="flex items-start gap-3">
                               <div className="pt-1">
                                 <Checkbox
                                   checked={isEnabled}
@@ -1319,17 +1315,14 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
                                         enabled: !!checked
                                       }
                                     }));
-
-                                    // Load properties when enabled
-                                    if (checked && templateIds.length > 0 && parent.availableProperties.length === 0) {
-                                      loadPropertiesForParentType(parentKey, templateIds[0]);
-                                    }
                                   }}
                                 />
                               </div>
-                              <div className="flex-1">
+                              <div className="flex-1 space-y-2">
                                 <div className="flex items-center gap-2">
-                                  <Label className="text-sm font-medium capitalize">{parentSchema.label || parentKey}</Label>
+                                  <Label className="text-sm font-medium capitalize">
+                                    {parentSchema.label || parentKey} ID{parentSchema.cardinality === 'multiple' ? 's' : ''}
+                                  </Label>
                                   <Badge variant="outline" className="text-xs">
                                     {parentSchema.cardinality || 'single'}
                                   </Badge>
@@ -1337,107 +1330,39 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
                                     <Badge variant="destructive" className="text-xs">Required</Badge>
                                   )}
                                 </div>
-                              </div>
-                            </div>
 
-                            {/* Properties */}
-                            {isEnabled && (
-                              <>
-                                {parent.availableProperties.length > 0 ? (
-                                  <div className="space-y-2 ml-7">
-                                    {parent.availableProperties.map((property: any) => {
-                                      const propEnabled = parent.propertyEnabled[property.key] || false;
-                                      const currentValue = parent.properties[property.key] || '';
-
-                                      return (
-                                        <div key={property.key} className="border rounded-lg p-3 bg-background">
-                                          <div className="flex items-start gap-3">
-                                            <div className="pt-2">
-                                              <Checkbox
-                                                checked={propEnabled}
-                                                onCheckedChange={(checked) => {
-                                                  setRelatedParents(prev => ({
-                                                    ...prev,
-                                                    [parentKey]: {
-                                                      ...prev[parentKey],
-                                                      propertyEnabled: {
-                                                        ...prev[parentKey].propertyEnabled,
-                                                        [property.key]: !!checked
-                                                      }
-                                                    }
-                                                  }));
-
-                                                  if (!checked) {
-                                                    setRelatedParents(prev => {
-                                                      const newProps = { ...prev[parentKey].properties };
-                                                      delete newProps[property.key];
-                                                      return {
-                                                        ...prev,
-                                                        [parentKey]: {
-                                                          ...prev[parentKey],
-                                                          properties: newProps
-                                                        }
-                                                      };
-                                                    });
-                                                  }
-                                                }}
-                                              />
-                                            </div>
-
-                                            <div className="flex-1 space-y-2">
-                                              <div className="flex items-center gap-2">
-                                                <Label className="text-sm font-medium">{property.key}</Label>
-                                                <Badge variant="outline" className="text-xs">
-                                                  {property.type || 'text'}
-                                                </Badge>
-                                              </div>
-
-                                              {property.description && (
-                                                <p className="text-xs text-muted-foreground">{property.description}</p>
-                                              )}
-
-                                              <div className={!propEnabled ? 'opacity-50 pointer-events-none' : ''}>
-                                                <ParameterSelector
-                                                  value={currentValue}
-                                                  onChange={(newValue) => {
-                                                    setRelatedParents(prev => ({
-                                                      ...prev,
-                                                      [parentKey]: {
-                                                        ...prev[parentKey],
-                                                        properties: {
-                                                          ...prev[parentKey].properties,
-                                                          [property.key]: newValue
-                                                        }
-                                                      }
-                                                    }));
-                                                  }}
-                                                  propertyKey={property.key}
-                                                  propertyType={property.type || 'text'}
-                                                  propertyDescription={property.description}
-                                                  workflowParameters={workflowParameters}
-                                                  previousSteps={previousSteps}
-                                                  placeholder="Enter value or link parameter"
-                                                />
-                                              </div>
-                                            </div>
-                                          </div>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                ) : (
-                                  <div className="text-xs text-muted-foreground text-center py-4 border border-dashed rounded-lg ml-7">
-                                    Loading {parentSchema.label || parentKey} properties...
+                                {/* ID Field */}
+                                {isEnabled && (
+                                  <div className={!isEnabled ? 'opacity-50 pointer-events-none' : ''}>
+                                    <ParameterSelector
+                                      value={parent.id?.toString() || ''}
+                                      onChange={(newValue) => {
+                                        setRelatedParents(prev => ({
+                                          ...prev,
+                                          [parentKey]: {
+                                            ...prev[parentKey],
+                                            id: newValue
+                                          }
+                                        }));
+                                      }}
+                                      propertyKey="id"
+                                      propertyType="number"
+                                      propertyDescription={`ID of the ${parentSchema.label || parentKey} to link`}
+                                      workflowParameters={workflowParameters}
+                                      previousSteps={previousSteps}
+                                      placeholder="Enter ID or link parameter"
+                                      onCreateWorkflowParameter={handleCreateWorkflowParameter}
+                                    />
                                   </div>
                                 )}
-                              </>
-                            )}
+                              </div>
+                            </div>
                           </div>
                         );
                       })}
                     </div>
                     <p className="text-xs text-muted-foreground mt-2">
-                      Enable parent relationships and configure their properties
+                      Enable parent relationships and provide their IDs (or link to parameters)
                     </p>
                   </div>
                 )}
@@ -1547,6 +1472,7 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
                                     workflowParameters={workflowParameters}
                                     previousSteps={previousSteps}
                                     placeholder="Select parameter or enter value"
+                                    onCreateWorkflowParameter={handleCreateWorkflowParameter}
                                   />
                                 </div>
                               );
