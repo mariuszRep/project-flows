@@ -58,6 +58,7 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
   const [isLoadingProperties, setIsLoadingProperties] = useState(false);
   const [workflowParameters, setWorkflowParameters] = useState<string[]>([]);
   const [previousSteps, setPreviousSteps] = useState<PreviousStep[]>([]);
+  const [relatedEntries, setRelatedEntries] = useState<Array<{id: string; object: string}>>([]);
 
   useEffect(() => {
     if (node && isOpen) {
@@ -163,8 +164,21 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
         } else {
           setSelectedProperties({});
         }
+
+        // Parse related array
+        const related = node.data.config?.related;
+        if (Array.isArray(related)) {
+          // Convert numeric IDs to strings for form handling
+          setRelatedEntries(related.map(entry => ({
+            id: String(entry.id),
+            object: entry.object
+          })));
+        } else {
+          setRelatedEntries([]);
+        }
       } else {
         setSelectedProperties({});
+        setRelatedEntries([]);
       }
 
       // Parse load_object configuration
@@ -544,6 +558,21 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
       }
 
       updatedConfig.properties = selectedProperties;
+
+      // Add stage if specified
+      if (config.stage) {
+        updatedConfig.stage = config.stage;
+      }
+
+      // Add related array if entries exist
+      if (relatedEntries.length > 0) {
+        // Convert string IDs to numbers where applicable, keep strings for interpolation
+        updatedConfig.related = relatedEntries.map(entry => ({
+          id: entry.id.includes('{{') ? entry.id : (parseInt(entry.id) || entry.id),
+          object: entry.object
+        }));
+      }
+
       console.log('Saving create_object node with config:', updatedConfig);
     }
 
@@ -1062,6 +1091,114 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
                         </p>
                       </div>
                     )}
+                  </div>
+                )}
+
+                {/* Stage Selection */}
+                {config.template_id && (
+                  <div>
+                    <Label className="text-xs">Stage (Optional)</Label>
+                    <Select
+                      value={config.stage || ''}
+                      onValueChange={(value) => setConfig({ ...config, stage: value || undefined })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select stage (defaults to draft)..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="draft">Draft</SelectItem>
+                        <SelectItem value="backlog">Backlog</SelectItem>
+                        <SelectItem value="doing">Doing</SelectItem>
+                        <SelectItem value="review">Review</SelectItem>
+                        <SelectItem value="completed">Completed</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Workflow stage for the created object. Use {'{{input.field}}'} for dynamic values. Defaults to 'draft' if not specified.
+                    </p>
+                  </div>
+                )}
+
+                {/* Related Parent Relationships */}
+                {config.template_id && (
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <Label className="text-xs">Related Parents (Optional)</Label>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setRelatedEntries([...relatedEntries, { id: '', object: 'project' }])}
+                        className="h-7 text-xs"
+                      >
+                        <Plus className="h-3 w-3 mr-1" />
+                        Add Parent
+                      </Button>
+                    </div>
+
+                    {relatedEntries.length === 0 ? (
+                      <div className="text-xs text-muted-foreground text-center py-4 border border-dashed rounded-lg">
+                        No parent relationships defined. Click "Add Parent" to create one.
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {relatedEntries.map((entry, index) => (
+                          <div key={index} className="border rounded-lg p-3 bg-background">
+                            <div className="grid grid-cols-[2fr_1fr_40px] gap-2 items-center">
+                              <div>
+                                <Label className="text-xs text-muted-foreground mb-1 block">Object ID</Label>
+                                <Input
+                                  value={entry.id}
+                                  onChange={(e) => {
+                                    const updated = [...relatedEntries];
+                                    updated[index].id = e.target.value;
+                                    setRelatedEntries(updated);
+                                  }}
+                                  placeholder="e.g., 42 or {{input.parent_id}}"
+                                  className="h-9 text-sm font-mono"
+                                />
+                              </div>
+
+                              <div>
+                                <Label className="text-xs text-muted-foreground mb-1 block">Type</Label>
+                                <Select
+                                  value={entry.object}
+                                  onValueChange={(value) => {
+                                    const updated = [...relatedEntries];
+                                    updated[index].object = value;
+                                    setRelatedEntries(updated);
+                                  }}
+                                >
+                                  <SelectTrigger className="h-9 text-sm">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="task">Task</SelectItem>
+                                    <SelectItem value="project">Project</SelectItem>
+                                    <SelectItem value="epic">Epic</SelectItem>
+                                    <SelectItem value="rule">Rule</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => setRelatedEntries(relatedEntries.filter((_, i) => i !== index))}
+                                className="h-9 w-9 text-destructive hover:text-destructive hover:bg-destructive/10 mt-4"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Define parent relationships for the created object. Use {'{{input.field}}'} to reference workflow parameters dynamically.
+                    </p>
                   </div>
                 )}
 
