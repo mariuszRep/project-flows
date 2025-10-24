@@ -12,6 +12,7 @@ import { X, Save, Trash2, Plus, Loader2 } from 'lucide-react';
 import { Node } from 'reactflow';
 import { useToast } from '@/hooks/use-toast';
 import { useMCP } from '@/contexts/MCPContext';
+import { ParameterSelector, PreviousStep } from './ParameterSelector';
 
 interface NodeEditModalProps {
   node: Node | null;
@@ -19,6 +20,7 @@ interface NodeEditModalProps {
   onClose: () => void;
   onSave: (nodeId: string, data: Record<string, unknown>) => void;
   onDelete?: (nodeId: string) => void;
+  workflowId?: number | null;
 }
 
 interface InputParameter {
@@ -37,7 +39,7 @@ interface ToolParameter {
   type?: string;
 }
 
-export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeEditModalProps) {
+export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflowId }: NodeEditModalProps) {
   const { toast } = useToast();
   const { tools, callTool, isConnected } = useMCP();
   const [label, setLabel] = useState('');
@@ -55,6 +57,7 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
   const [isLoadingTemplates, setIsLoadingTemplates] = useState(false);
   const [isLoadingProperties, setIsLoadingProperties] = useState(false);
   const [workflowParameters, setWorkflowParameters] = useState<string[]>([]);
+  const [previousSteps, setPreviousSteps] = useState<PreviousStep[]>([]);
 
   useEffect(() => {
     if (node && isOpen) {
@@ -189,41 +192,86 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
   useEffect(() => {
     const loadWorkflowParameters = async () => {
       if (!isOpen || !node || !isConnected || !callTool) {
+        console.log('[NodeEditModal] Skipping parameter load - prerequisites not met', {
+          isOpen,
+          hasNode: !!node,
+          isConnected,
+          hasCallTool: !!callTool,
+          hasWorkflowId: !!workflowId
+        });
+        return;
+      }
+
+      if (!workflowId) {
+        console.warn('[NodeEditModal] No workflow ID provided, cannot load parameters');
+        setWorkflowParameters([]);
         return;
       }
 
       try {
-        // Get the workflow template ID from URL or context
-        // For now, we'll parse it from the URL path
-        const pathParts = window.location.pathname.split('/');
-        const workflowIdIndex = pathParts.indexOf('workflows') + 1;
-        const workflowId = workflowIdIndex > 0 ? parseInt(pathParts[workflowIdIndex]) : null;
+        console.log('[NodeEditModal] Loading properties for workflow template:', workflowId);
 
-        if (!workflowId) {
-          setWorkflowParameters([]);
-          return;
-        }
+        // Load properties with step_type='property' which are the workflow input parameters
+        const result = await callTool('list_properties', { template_id: workflowId });
 
-        const result = await callTool('get_template', { template_id: workflowId });
+        console.log('[NodeEditModal] list_properties result:', result);
+
         if (result && result.content && result.content[0]) {
-          const templateData = JSON.parse(result.content[0].text);
-          const metadata = templateData.metadata || {};
-          const params = metadata.workflow_parameters || [];
+          const propsText = result.content[0].text;
 
-          // Extract parameter names
-          const paramNames = params.map((p: any) => p.name);
-          setWorkflowParameters(paramNames);
+          if (!propsText.includes('No properties found')) {
+            const properties = JSON.parse(propsText);
+            console.log('[NodeEditModal] Parsed properties:', properties);
+
+            // Filter to only properties with step_type='property' (workflow parameters)
+            const parameterProps = Array.isArray(properties)
+              ? properties.filter((p: any) => p.step_type === 'property')
+              : [];
+
+            console.log('[NodeEditModal] Filtered parameter properties:', parameterProps);
+
+            // Extract parameter names (keys)
+            const paramNames = parameterProps.map((p: any) => p.key);
+            console.log('[NodeEditModal] ✅ Loaded workflow parameters:', paramNames);
+            setWorkflowParameters(paramNames);
+          } else {
+            console.log('[NodeEditModal] No properties found for workflow');
+            setWorkflowParameters([]);
+          }
         } else {
+          console.warn('[NodeEditModal] Empty or invalid result from list_properties');
           setWorkflowParameters([]);
         }
       } catch (error) {
-        console.error('Error loading workflow parameters:', error);
+        console.error('[NodeEditModal] Error loading workflow parameters:', error);
         setWorkflowParameters([]);
       }
     };
 
     loadWorkflowParameters();
-  }, [isOpen, node, isConnected, callTool]);
+  }, [isOpen, node, isConnected, callTool, workflowId]);
+
+  // Extract previous steps from workflow for parameter selection
+  useEffect(() => {
+    if (!isOpen || !node) {
+      setPreviousSteps([]);
+      return;
+    }
+
+    // Helper function to extract previous steps from the workflow
+    // This is a simplified version - in a real implementation, you'd traverse the workflow graph
+    const extractPreviousSteps = (): PreviousStep[] => {
+      const steps: PreviousStep[] = [];
+
+      // For now, we'll return a placeholder
+      // TODO: Implement proper workflow graph traversal to find all previous steps
+      // and extract their result_variable configurations
+
+      return steps;
+    };
+
+    setPreviousSteps(extractPreviousSteps());
+  }, [isOpen, node]);
 
   // Load templates for create_object and load_object nodes
   useEffect(() => {
@@ -953,43 +1001,41 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
                       <div className="space-y-3">
                         {/* Selected Properties List */}
                         {Object.keys(selectedProperties).length > 0 && (
-                          <div className="space-y-2">
+                          <div className="space-y-3">
                             {Object.keys(selectedProperties).map((propKey) => {
                               const property = availableProperties.find(p => p.key === propKey);
                               const currentValue = selectedProperties[propKey];
 
                               return (
-                                <div key={propKey} className="border rounded-lg p-2 bg-background">
-                                  <div className="flex items-center gap-2">
-                                    {/* Property name label */}
-                                    <Label className="text-sm font-medium whitespace-nowrap min-w-[100px]">
-                                      {propKey}
-                                    </Label>
-
-                                    {/* Input field for value */}
-                                    <Input
-                                      value={typeof currentValue === 'string' ? currentValue : ''}
-                                      onChange={(e) => updatePropertyMapping(propKey, e.target.value)}
-                                      placeholder="e.g., 'My Title' or {{input.title}}"
-                                      className="font-mono text-sm flex-1"
-                                    />
-
-                                    {/* Type badge */}
-                                    <Badge variant="outline" className="text-xs whitespace-nowrap">
-                                      {property?.type || 'text'}
-                                    </Badge>
-
-                                    {/* Remove button */}
+                                <div key={propKey} className="border rounded-lg p-3 bg-background">
+                                  <div className="flex items-center justify-between mb-2">
+                                    <div className="flex items-center gap-2">
+                                      <Label className="text-sm font-medium">{propKey}</Label>
+                                      <Badge variant="outline" className="text-xs">
+                                        {property?.type || 'text'}
+                                      </Badge>
+                                    </div>
                                     <Button
                                       type="button"
                                       variant="ghost"
                                       size="icon"
                                       onClick={() => removeProperty(propKey)}
-                                      className="h-8 w-8 flex-shrink-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                      className="h-6 w-6 text-destructive hover:text-destructive hover:bg-destructive/10"
                                     >
                                       <X className="h-4 w-4" />
                                     </Button>
                                   </div>
+
+                                  <ParameterSelector
+                                    value={currentValue}
+                                    onChange={(newValue) => updatePropertyMapping(propKey, newValue)}
+                                    propertyKey={propKey}
+                                    propertyType={property?.type || 'text'}
+                                    propertyDescription={property?.description}
+                                    workflowParameters={workflowParameters}
+                                    previousSteps={previousSteps}
+                                    placeholder="e.g., 'My Title' or select from parameters"
+                                  />
                                 </div>
                               );
                             })}
@@ -1088,16 +1134,22 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
                       <div className="space-y-3">
                         {/* Selected Properties List */}
                         {Object.keys(selectedProperties).length > 0 && (
-                          <div className="space-y-2">
+                          <div className="space-y-3">
                             {Object.keys(selectedProperties).map((propKey) => {
+                              const property = availableProperties.find(p => p.key === propKey);
                               const currentValue = selectedProperties[propKey];
-                              const isDirectInput = currentValue === true;
-                              const hasWorkflowParams = workflowParameters.length > 0;
 
                               return (
-                                <div key={propKey} className="border rounded-lg p-3 bg-background space-y-2">
-                                  <div className="flex items-center justify-between">
-                                    <Label className="text-sm font-medium">{propKey}</Label>
+                                <div key={propKey} className="border rounded-lg p-3 bg-background">
+                                  <div className="flex items-center justify-between mb-2">
+                                    <div className="flex items-center gap-2">
+                                      <Label className="text-sm font-medium">{propKey}</Label>
+                                      {property?.type && (
+                                        <Badge variant="outline" className="text-xs">
+                                          {property.type}
+                                        </Badge>
+                                      )}
+                                    </div>
                                     <Button
                                       type="button"
                                       variant="ghost"
@@ -1109,49 +1161,16 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete }: NodeE
                                     </Button>
                                   </div>
 
-                                  {/* Parameter Mapping Dropdown */}
-                                  {hasWorkflowParams && (
-                                    <div>
-                                      <Label className="text-xs text-muted-foreground mb-1 block">
-                                        Map to workflow parameter (optional)
-                                      </Label>
-                                      <Select
-                                        value={typeof currentValue === 'string' ? currentValue : ''}
-                                        onValueChange={(value) => {
-                                          if (value === '__direct__') {
-                                            updatePropertyMapping(propKey, true);
-                                          } else {
-                                            updatePropertyMapping(propKey, `{{input.${value}}}`);
-                                          }
-                                        }}
-                                      >
-                                        <SelectTrigger className="h-8 text-sm">
-                                          <SelectValue placeholder="Direct input (agent fills)" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                          <SelectItem value="__direct__">
-                                            <span className="text-muted-foreground">Direct input (agent fills)</span>
-                                          </SelectItem>
-                                          {workflowParameters.map((param) => (
-                                            <SelectItem key={param} value={param}>
-                                              <span className="font-mono text-xs">{`{{input.${param}}}`}</span>
-                                            </SelectItem>
-                                          ))}
-                                        </SelectContent>
-                                      </Select>
-                                      {typeof currentValue === 'string' && (
-                                        <p className="text-xs text-muted-foreground mt-1">
-                                          Will use: <span className="font-mono">{currentValue}</span>
-                                        </p>
-                                      )}
-                                    </div>
-                                  )}
-
-                                  {!hasWorkflowParams && (
-                                    <p className="text-xs text-muted-foreground italic">
-                                      No workflow parameters defined. The agent will fill this value directly.
-                                    </p>
-                                  )}
+                                  <ParameterSelector
+                                    value={currentValue}
+                                    onChange={(newValue) => updatePropertyMapping(propKey, newValue)}
+                                    propertyKey={propKey}
+                                    propertyType={property?.type || 'text'}
+                                    propertyDescription={property?.description}
+                                    workflowParameters={workflowParameters}
+                                    previousSteps={previousSteps}
+                                    placeholder="Select parameter or enter value"
+                                  />
                                 </div>
                               );
                             })}

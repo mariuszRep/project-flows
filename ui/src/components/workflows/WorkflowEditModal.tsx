@@ -8,7 +8,7 @@ import { AutoTextarea } from '@/components/ui/auto-textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { X, Save, Plus, Trash2, Loader2, Settings, Edit2 } from 'lucide-react';
-import { Node } from 'reactflow';
+import { Node, useNodes } from 'reactflow';
 import { useToast } from '@/hooks/use-toast';
 import { useMCP } from '@/contexts/MCPContext';
 
@@ -30,6 +30,16 @@ interface WorkflowParameter {
   description: string;
   required?: boolean;
   default?: string;
+  step_config?: {
+    required?: boolean;
+    default?: string;
+    template_id?: number;
+    template_name?: string;
+    property_key?: string;
+    node_id?: string;
+    node_parameter?: string;
+    node_label?: string;
+  };
 }
 
 export function WorkflowEditModal({
@@ -61,7 +71,7 @@ export function WorkflowEditModal({
 
   // New parameter form state
   const [showAddParameterForm, setShowAddParameterForm] = useState(false);
-  const [parameterSource, setParameterSource] = useState<'custom' | 'template'>('custom');
+  const [parameterSource, setParameterSource] = useState<'custom' | 'template' | 'node'>('custom');
   const [newParamKey, setNewParamKey] = useState('');
   const [newParamType, setNewParamType] = useState('string');
   const [newParamRequired, setNewParamRequired] = useState(false);
@@ -69,6 +79,88 @@ export function WorkflowEditModal({
   const [newParamDefault, setNewParamDefault] = useState('');
   const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null);
   const [selectedPropertyKey, setSelectedPropertyKey] = useState<string>('');
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedNodeParameter, setSelectedNodeParameter] = useState<string>('');
+
+  // Get all nodes from canvas
+  const canvasNodes = useNodes();
+
+  // Helper function to extract parameters from a node based on its type
+  const getNodeParameters = (node: Node): Array<{ key: string; type: string; description?: string }> => {
+    const nodeData = node.data as any;
+    const parameters: Array<{ key: string; type: string; description?: string }> = [];
+
+    // Start nodes - extract from input_parameters
+    if (node.type === 'start' && nodeData?.config?.input_parameters) {
+      const inputParams = nodeData.config.input_parameters;
+      if (Array.isArray(inputParams)) {
+        inputParams.forEach((param: any) => {
+          if (param.key) {
+            parameters.push({
+              key: param.key,
+              type: param.type || 'string',
+              description: param.description,
+            });
+          }
+        });
+      }
+    }
+
+    // Load object / Create object nodes - extract from properties
+    if ((node.type === 'load_object' || node.type === 'create_object') && nodeData?.config?.properties) {
+      const properties = nodeData.config.properties;
+      Object.entries(properties).forEach(([key, value]: [string, any]) => {
+        parameters.push({
+          key,
+          type: typeof value === 'object' && value?.type ? value.type : 'string',
+          description: typeof value === 'object' && value?.description ? value.description : undefined,
+        });
+      });
+    }
+
+    // Call tool nodes - extract from parameters
+    if (node.type === 'call_tool' && nodeData?.config?.parameters) {
+      const params = nodeData.config.parameters;
+      Object.entries(params).forEach(([key, value]: [string, any]) => {
+        parameters.push({
+          key,
+          type: typeof value === 'object' && value?.type ? value.type : 'string',
+          description: typeof value === 'object' && value?.description ? value.description : undefined,
+        });
+      });
+    }
+
+    return parameters;
+  };
+
+  // Get nodes that have configurable parameters
+  const nodesWithParameters = canvasNodes.filter(node => {
+    const params = getNodeParameters(node);
+    return params.length > 0;
+  });
+
+  // Helper function to determine parameter source
+  const getParameterSource = (param: WorkflowParameter): { type: 'custom' | 'template' | 'node'; label: string; icon: string } => {
+    if (param.step_config?.node_id) {
+      return {
+        type: 'node',
+        label: param.step_config.node_label || 'Node',
+        icon: '🔗',
+      };
+    }
+    if (param.step_config?.template_id) {
+      return {
+        type: 'template',
+        label: param.step_config.template_name || 'Template',
+        icon: '📋',
+      };
+    }
+    return {
+      type: 'custom',
+      label: 'Custom',
+      icon: '🔧',
+    };
+  };
 
   // Load templates when modal opens
   useEffect(() => {
@@ -130,6 +222,7 @@ export function WorkflowEditModal({
                       description: p.description,
                       required: p.step_config?.required || false,
                       default: p.step_config?.default || '',
+                      step_config: p.step_config,
                     }))
                 : [];
               setParameters(params);
@@ -192,6 +285,8 @@ export function WorkflowEditModal({
     setNewParamDefault('');
     setSelectedTemplateId(null);
     setSelectedPropertyKey('');
+    setSelectedNodeId(null);
+    setSelectedNodeParameter('');
     setParameterSource('custom');
     setShowAddParameterForm(false);
   };
@@ -252,6 +347,10 @@ export function WorkflowEditModal({
             description: newParamDescription.trim(),
             required: newParamRequired,
             default: newParamDefault.trim(),
+            step_config: {
+              required: newParamRequired,
+              default: newParamDefault.trim(),
+            },
           },
         ]);
 
@@ -329,6 +428,13 @@ export function WorkflowEditModal({
             description: newParamDescription.trim() || property.description || `Value for ${property.key}`,
             required: newParamRequired,
             default: newParamDefault.trim(),
+            step_config: {
+              required: newParamRequired,
+              default: newParamDefault.trim(),
+              template_id: selectedTemplateId,
+              template_name: template.name,
+              property_key: selectedPropertyKey,
+            },
           },
         ]);
 
@@ -340,6 +446,111 @@ export function WorkflowEditModal({
       }
     } catch (error) {
       console.error('Error adding template parameter:', error);
+      toast({
+        title: "Error",
+        description: "Failed to add parameter. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Add node-based parameter
+  const addNodeParameter = async () => {
+    if (!workflowId || !callTool || !selectedNodeId || !selectedNodeParameter) return;
+
+    const node = canvasNodes.find(n => n.id === selectedNodeId);
+    if (!node) {
+      toast({
+        title: "Error",
+        description: "Selected node not found",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const nodeParams = getNodeParameters(node);
+    const nodeParam = nodeParams.find(p => p.key === selectedNodeParameter);
+
+    if (!nodeParam) {
+      toast({
+        title: "Error",
+        description: "Selected parameter not found on node",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const paramKey = newParamKey.trim() || selectedNodeParameter.toLowerCase().replace(/\s+/g, '_');
+
+    // Check if parameter key already exists
+    if (parameters.some(p => p.key === paramKey)) {
+      toast({
+        title: "Parameter Already Exists",
+        description: `Parameter "${paramKey}" is already in the workflow.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Check for duplicate node parameter mapping
+    const existingMapping = parameters.find(p => {
+      // Check if this parameter is sourced from the same node parameter
+      return p.id && parameters.some(param => {
+        // We'll need to check step_config in the database, but for now check locally
+        return false; // Will be validated server-side if needed
+      });
+    });
+
+    const nodeLabel = (node.data as any)?.label || node.type || node.id;
+
+    try {
+      const result = await callTool('create_property', {
+        template_id: workflowId,
+        key: paramKey,
+        type: newParamType || nodeParam.type,
+        description: newParamDescription.trim() || nodeParam.description || `Value from ${nodeLabel} node`,
+        step_type: 'property',
+        step_config: {
+          required: newParamRequired,
+          default: newParamDefault.trim(),
+          node_id: selectedNodeId,
+          node_parameter: selectedNodeParameter,
+          node_label: nodeLabel,
+        },
+      });
+
+      if (result && result.content && result.content[0]) {
+        const text = result.content[0].text;
+        const match = text.match(/ID:\s*(\d+)/);
+        const propertyId = match ? parseInt(match[1]) : undefined;
+
+        setParameters([
+          ...parameters,
+          {
+            id: propertyId,
+            key: paramKey,
+            type: newParamType || nodeParam.type,
+            description: newParamDescription.trim() || nodeParam.description || `Value from ${nodeLabel} node`,
+            required: newParamRequired,
+            default: newParamDefault.trim(),
+            step_config: {
+              required: newParamRequired,
+              default: newParamDefault.trim(),
+              node_id: selectedNodeId,
+              node_parameter: selectedNodeParameter,
+              node_label: nodeLabel,
+            },
+          },
+        ]);
+
+        resetNewParameterForm();
+        toast({
+          title: "Parameter Added",
+          description: `Node parameter "${paramKey}" has been linked to ${nodeLabel}.`,
+        });
+      }
+    } catch (error) {
+      console.error('Error adding node parameter:', error);
       toast({
         title: "Error",
         description: "Failed to add parameter. Please try again.",
@@ -637,6 +848,17 @@ export function WorkflowEditModal({
                     >
                       📋 From Template
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => setParameterSource('node')}
+                      className={`flex-1 px-4 py-2 rounded transition-colors ${
+                        parameterSource === 'node'
+                          ? 'bg-background shadow-sm font-medium'
+                          : 'hover:bg-background/50'
+                      }`}
+                    >
+                      🔗 Node
+                    </button>
                   </div>
 
                   {/* Custom Parameter Form */}
@@ -691,7 +913,7 @@ export function WorkflowEditModal({
                         <Checkbox
                           id="new-param-required"
                           checked={newParamRequired}
-                          onCheckedChange={setNewParamRequired}
+                          onCheckedChange={(checked) => setNewParamRequired(checked === true)}
                         />
                         <Label htmlFor="new-param-required" className="text-sm cursor-pointer">
                           Required parameter
@@ -844,7 +1066,7 @@ export function WorkflowEditModal({
                             <Checkbox
                               id="template-param-required"
                               checked={newParamRequired}
-                              onCheckedChange={setNewParamRequired}
+                              onCheckedChange={(checked) => setNewParamRequired(checked === true)}
                             />
                             <Label htmlFor="template-param-required" className="text-sm cursor-pointer">
                               Required parameter
@@ -873,6 +1095,165 @@ export function WorkflowEditModal({
                       )}
                     </div>
                   )}
+
+                  {/* Node-Based Parameter Form */}
+                  {parameterSource === 'node' && (
+                    <div className="space-y-3">
+                      <div>
+                        <Label className="text-sm">Select Node *</Label>
+                        {nodesWithParameters.length === 0 ? (
+                          <div className="flex items-center gap-2 p-2 border rounded-lg mt-1">
+                            <span className="text-sm text-muted-foreground">No nodes with parameters found on canvas</span>
+                          </div>
+                        ) : (
+                          <Select
+                            value={selectedNodeId || ''}
+                            onValueChange={(value) => {
+                              setSelectedNodeId(value);
+                              setSelectedNodeParameter('');
+                              setNewParamKey('');
+                              setNewParamDescription('');
+                            }}
+                          >
+                            <SelectTrigger className="mt-1">
+                              <SelectValue placeholder="Choose a node..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {nodesWithParameters.map((node) => {
+                                const nodeLabel = (node.data as any)?.label || node.type || node.id;
+                                return (
+                                  <SelectItem key={node.id} value={node.id}>
+                                    {nodeLabel} ({node.type})
+                                  </SelectItem>
+                                );
+                              })}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      </div>
+
+                      {selectedNodeId && (() => {
+                        const selectedNode = canvasNodes.find(n => n.id === selectedNodeId);
+                        const availableParams = selectedNode ? getNodeParameters(selectedNode) : [];
+                        return (
+                          <div>
+                            <Label className="text-sm">Select Parameter *</Label>
+                            {availableParams.length === 0 ? (
+                              <div className="flex items-center gap-2 p-2 border rounded-lg mt-1">
+                                <span className="text-sm text-muted-foreground">No parameters available</span>
+                              </div>
+                            ) : (
+                              <Select
+                                value={selectedNodeParameter}
+                                onValueChange={(value) => {
+                                  setSelectedNodeParameter(value);
+                                  const param = availableParams.find(p => p.key === value);
+                                  if (param) {
+                                    setNewParamKey(value.toLowerCase().replace(/\s+/g, '_'));
+                                    setNewParamDescription(param.description || '');
+                                    setNewParamType(param.type || 'string');
+                                  }
+                                }}
+                              >
+                                <SelectTrigger className="mt-1">
+                                  <SelectValue placeholder="Choose a parameter..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {availableParams.map((param) => (
+                                    <SelectItem key={param.key} value={param.key}>
+                                      {param.key} ({param.type})
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            )}
+                          </div>
+                        );
+                      })()}
+
+                      {selectedNodeParameter && (
+                        <>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <Label className="text-sm">Parameter Name</Label>
+                              <Input
+                                value={newParamKey}
+                                onChange={(e) => setNewParamKey(e.target.value)}
+                                placeholder="my_parameter"
+                                className="mt-1 font-mono"
+                              />
+                              <p className="text-xs text-muted-foreground mt-1">
+                                Leave blank to auto-generate
+                              </p>
+                            </div>
+                            <div>
+                              <Label className="text-sm">Type</Label>
+                              <Select value={newParamType} onValueChange={setNewParamType}>
+                                <SelectTrigger className="mt-1">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="string">String</SelectItem>
+                                  <SelectItem value="number">Number</SelectItem>
+                                  <SelectItem value="integer">Integer</SelectItem>
+                                  <SelectItem value="boolean">Boolean</SelectItem>
+                                  <SelectItem value="array">Array</SelectItem>
+                                  <SelectItem value="object">Object</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+                          <div>
+                            <Label className="text-sm">Description</Label>
+                            <Input
+                              value={newParamDescription}
+                              onChange={(e) => setNewParamDescription(e.target.value)}
+                              placeholder="Description..."
+                              className="mt-1"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-sm">Default Value (Optional)</Label>
+                            <Input
+                              value={newParamDefault}
+                              onChange={(e) => setNewParamDefault(e.target.value)}
+                              placeholder="Default value..."
+                              className="mt-1"
+                            />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Checkbox
+                              id="node-param-required"
+                              checked={newParamRequired}
+                              onCheckedChange={(checked) => setNewParamRequired(checked === true)}
+                            />
+                            <Label htmlFor="node-param-required" className="text-sm cursor-pointer">
+                              Required parameter
+                            </Label>
+                          </div>
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={resetNewParameterForm}
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={addNodeParameter}
+                              className="gap-2"
+                            >
+                              <Plus className="h-4 w-4" />
+                              Add Node Parameter
+                            </Button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -883,18 +1264,35 @@ export function WorkflowEditModal({
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {parameters.map((param, index) => (
-                    <div key={index} className="border rounded-lg p-4 bg-background space-y-3">
-                      <div className="grid grid-cols-[1.5fr_1.5fr_120px_80px_40px_40px] gap-2 items-start">
-                        <div>
-                          <Label className="text-xs text-muted-foreground">Parameter Name</Label>
-                          <Input
-                            value={param.key}
-                            onChange={(e) => updateParameter(index, 'key', e.target.value)}
-                            placeholder="e.g., project_title"
-                            className="h-9 text-sm font-mono mt-1"
-                          />
+                  {parameters.map((param, index) => {
+                    const source = getParameterSource(param);
+                    return (
+                      <div key={index} className="border rounded-lg p-4 bg-background space-y-3">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-xs px-2 py-1 rounded-md bg-muted font-medium">
+                            {source.icon} {source.label}
+                          </span>
+                          {source.type === 'node' && param.step_config?.node_parameter && (
+                            <span className="text-xs text-muted-foreground">
+                              → {param.step_config.node_parameter}
+                            </span>
+                          )}
+                          {source.type === 'template' && param.step_config?.property_key && (
+                            <span className="text-xs text-muted-foreground">
+                              → {param.step_config.property_key}
+                            </span>
+                          )}
                         </div>
+                        <div className="grid grid-cols-[1.5fr_1.5fr_120px_80px_40px_40px] gap-2 items-start">
+                          <div>
+                            <Label className="text-xs text-muted-foreground">Parameter Name</Label>
+                            <Input
+                              value={param.key}
+                              onChange={(e) => updateParameter(index, 'key', e.target.value)}
+                              placeholder="e.g., project_title"
+                              className="h-9 text-sm font-mono mt-1"
+                            />
+                          </div>
 
                         <div>
                           <Label className="text-xs text-muted-foreground">Default Value</Label>
@@ -965,13 +1363,14 @@ export function WorkflowEditModal({
                         </div>
                       </div>
 
-                      {/* Description (read-only display) */}
-                      <div className="bg-muted/30 rounded px-3 py-2">
-                        <Label className="text-xs text-muted-foreground block mb-1">Description</Label>
-                        <p className="text-sm">{param.description || <span className="text-muted-foreground italic">No description</span>}</p>
+                        {/* Description (read-only display) */}
+                        <div className="bg-muted/30 rounded px-3 py-2">
+                          <Label className="text-xs text-muted-foreground block mb-1">Description</Label>
+                          <p className="text-sm">{param.description || <span className="text-muted-foreground italic">No description</span>}</p>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
