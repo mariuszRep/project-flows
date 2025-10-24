@@ -55,11 +55,17 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
   const [availableProperties, setAvailableProperties] = useState<any[]>([]);
   const [selectedProperties, setSelectedProperties] = useState<Record<string, boolean | string>>({});
   const [propertyEnabled, setPropertyEnabled] = useState<Record<string, boolean>>({});
+  const [allowedParentTypes, setAllowedParentTypes] = useState<any[]>([]);
   const [isLoadingTemplates, setIsLoadingTemplates] = useState(false);
   const [isLoadingProperties, setIsLoadingProperties] = useState(false);
   const [workflowParameters, setWorkflowParameters] = useState<string[]>([]);
   const [previousSteps, setPreviousSteps] = useState<PreviousStep[]>([]);
-  const [relatedEntries, setRelatedEntries] = useState<Array<{id: string; object: string}>>([]);
+  const [relatedParents, setRelatedParents] = useState<Record<string, {
+    enabled: boolean;
+    properties: Record<string, any>;
+    propertyEnabled: Record<string, boolean>;
+    availableProperties: any[];
+  }>>({});
   const [stageLinked, setStageLinked] = useState(false);
 
   useEffect(() => {
@@ -174,16 +180,20 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
           setPropertyEnabled({});
         }
 
-        // Parse related array
+        // Parse related array from config
         const related = node.data.config?.related;
         if (Array.isArray(related)) {
-          // Convert numeric IDs to strings for form handling
-          setRelatedEntries(related.map(entry => ({
-            id: String(entry.id),
-            object: entry.object
-          })));
-        } else {
-          setRelatedEntries([]);
+          const parsedParents: Record<string, any> = {};
+          related.forEach((entry: any) => {
+            parsedParents[entry.object] = {
+              enabled: true,
+              properties: entry.properties || {},
+              propertyEnabled: entry.propertyEnabled || {},
+              availableProperties: []
+            };
+          });
+          // Merge with allowed types (will be set by loadTemplateSchema)
+          setRelatedParents(prev => ({ ...prev, ...parsedParents }));
         }
 
         // Check if stage is linked to a parameter
@@ -192,7 +202,7 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
       } else {
         setSelectedProperties({});
         setPropertyEnabled({});
-        setRelatedEntries([]);
+        setRelatedParents({});
         setStageLinked(false);
       }
 
@@ -374,6 +384,49 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
     loadProperties();
   }, [isOpen, node, config.template_id, isConnected, callTool]);
 
+  // Load template's related_schema when template is selected
+  useEffect(() => {
+    const loadTemplateSchema = async () => {
+      const templateId = config.template_id;
+      if (!isOpen || !node || node.type !== 'create_object' || !templateId || !isConnected || !callTool) {
+        setAllowedParentTypes([]);
+        return;
+      }
+
+      try {
+        const result = await callTool('get_template', { template_id: templateId });
+        if (result && result.content && result.content[0]) {
+          const templateData = JSON.parse(result.content[0].text);
+
+          if (templateData.related_schema && Array.isArray(templateData.related_schema)) {
+            setAllowedParentTypes(templateData.related_schema);
+
+            // Initialize relatedParents state with all allowed types
+            const initialParents: Record<string, any> = {};
+            templateData.related_schema.forEach((schema: any) => {
+              initialParents[schema.key] = {
+                enabled: false,
+                properties: {},
+                propertyEnabled: {},
+                availableProperties: []
+              };
+            });
+            setRelatedParents(initialParents);
+          } else {
+            setAllowedParentTypes([]);
+            setRelatedParents({});
+          }
+        }
+      } catch (error) {
+        console.error('Error loading template schema:', error);
+        setAllowedParentTypes([]);
+        setRelatedParents({});
+      }
+    };
+
+    loadTemplateSchema();
+  }, [config.template_id, isOpen, node, isConnected, callTool]);
+
   if (!isOpen || !node) {
     return null;
   }
@@ -503,6 +556,36 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
     });
   };
 
+  // Function to load properties for a parent type
+  const loadPropertiesForParentType = async (parentKey: string, templateId: number) => {
+    if (!isConnected || !callTool) return;
+
+    try {
+      const result = await callTool('list_properties', { template_id: templateId });
+      if (result && result.content && result.content[0]) {
+        const propsText = result.content[0].text;
+
+        if (!propsText.includes('No properties found')) {
+          const properties = JSON.parse(propsText);
+          const objectProps = Array.isArray(properties)
+            ? properties.filter((p: any) => p.step_type === 'property')
+            : [];
+
+          // Update the related parent with available properties
+          setRelatedParents(prev => ({
+            ...prev,
+            [parentKey]: {
+              ...prev[parentKey],
+              availableProperties: objectProps
+            }
+          }));
+        }
+      }
+    } catch (error) {
+      console.error('Error loading properties for parent type:', error);
+    }
+  };
+
   const handleSave = () => {
     // Validate required fields
     if (!label.trim()) {
@@ -587,13 +670,26 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
         updatedConfig.stage = config.stage;
       }
 
-      // Add related array if entries exist
-      if (relatedEntries.length > 0) {
-        // Convert string IDs to numbers where applicable, keep strings for interpolation
-        updatedConfig.related = relatedEntries.map(entry => ({
-          id: entry.id.includes('{{') ? entry.id : (parseInt(entry.id) || entry.id),
-          object: entry.object
-        }));
+      // Add related array for enabled parents
+      const enabledParents = Object.keys(relatedParents).filter(key => relatedParents[key].enabled);
+      if (enabledParents.length > 0) {
+        updatedConfig.related = enabledParents.map(parentKey => {
+          const parent = relatedParents[parentKey];
+
+          // Filter to only include enabled properties
+          const enabledProps: Record<string, any> = {};
+          Object.keys(parent.propertyEnabled).forEach(key => {
+            if (parent.propertyEnabled[key] && parent.properties[key] !== undefined) {
+              enabledProps[key] = parent.properties[key];
+            }
+          });
+
+          return {
+            object: parentKey,
+            properties: enabledProps,
+            propertyEnabled: parent.propertyEnabled
+          };
+        });
       }
 
       console.log('Saving create_object node with config:', updatedConfig);
@@ -1196,88 +1292,152 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
                 )}
 
                 {/* Related Parent Relationships */}
-                {config.template_id && (
+                {config.template_id && allowedParentTypes.length > 0 && (
                   <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <Label className="text-xs">Related Parents (Optional)</Label>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setRelatedEntries([...relatedEntries, { id: '', object: 'project' }])}
-                        className="h-7 text-xs"
-                      >
-                        <Plus className="h-3 w-3 mr-1" />
-                        Add Parent
-                      </Button>
-                    </div>
+                    <Label className="text-xs mb-2 block">Related Parents (Optional)</Label>
+                    <div className="space-y-3">
+                      {allowedParentTypes.map((parentSchema: any) => {
+                        const parentKey = parentSchema.key;
+                        const parent = relatedParents[parentKey];
+                        if (!parent) return null;
 
-                    {relatedEntries.length === 0 ? (
-                      <div className="text-xs text-muted-foreground text-center py-4 border border-dashed rounded-lg">
-                        No parent relationships defined. Click "Add Parent" to create one.
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {relatedEntries.map((entry, index) => (
-                          <div key={index} className="grid grid-cols-[2fr_120px_32px] gap-2 items-start">
-                            <div>
-                              <Label className="text-xs mb-1 block">Object ID</Label>
-                              <ParameterSelector
-                                value={entry.id}
-                                onChange={(value) => {
-                                  const updated = [...relatedEntries];
-                                  updated[index].id = String(value);
-                                  setRelatedEntries(updated);
-                                }}
-                                propertyKey="Object ID"
-                                propertyType="number"
-                                propertyDescription="Parent object ID"
-                                workflowParameters={workflowParameters}
-                                previousSteps={previousSteps}
-                                placeholder="e.g., 42"
-                              />
+                        const isEnabled = parent.enabled;
+                        const templateIds = parentSchema.allowed_types || [];
+
+                        return (
+                          <div key={parentKey} className="border rounded-lg p-4 bg-muted/5">
+                            {/* Header with Enable/Disable and Type Label */}
+                            <div className="flex items-start gap-3 mb-3">
+                              <div className="pt-1">
+                                <Checkbox
+                                  checked={isEnabled}
+                                  onCheckedChange={(checked) => {
+                                    setRelatedParents(prev => ({
+                                      ...prev,
+                                      [parentKey]: {
+                                        ...prev[parentKey],
+                                        enabled: !!checked
+                                      }
+                                    }));
+
+                                    // Load properties when enabled
+                                    if (checked && templateIds.length > 0 && parent.availableProperties.length === 0) {
+                                      loadPropertiesForParentType(parentKey, templateIds[0]);
+                                    }
+                                  }}
+                                />
+                              </div>
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                  <Label className="text-sm font-medium capitalize">{parentSchema.label || parentKey}</Label>
+                                  <Badge variant="outline" className="text-xs">
+                                    {parentSchema.cardinality || 'single'}
+                                  </Badge>
+                                  {parentSchema.required && (
+                                    <Badge variant="destructive" className="text-xs">Required</Badge>
+                                  )}
+                                </div>
+                              </div>
                             </div>
 
-                            <div>
-                              <Label className="text-xs mb-1 block">Type</Label>
-                              <Select
-                                value={entry.object}
-                                onValueChange={(value) => {
-                                  const updated = [...relatedEntries];
-                                  updated[index].object = value;
-                                  setRelatedEntries(updated);
-                                }}
-                              >
-                                <SelectTrigger className="h-9 text-sm">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="task">Task</SelectItem>
-                                  <SelectItem value="project">Project</SelectItem>
-                                  <SelectItem value="epic">Epic</SelectItem>
-                                  <SelectItem value="rule">Rule</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
+                            {/* Properties */}
+                            {isEnabled && (
+                              <>
+                                {parent.availableProperties.length > 0 ? (
+                                  <div className="space-y-2 ml-7">
+                                    {parent.availableProperties.map((property: any) => {
+                                      const propEnabled = parent.propertyEnabled[property.key] || false;
+                                      const currentValue = parent.properties[property.key] || '';
 
-                            <div className="pt-5">
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => setRelatedEntries(relatedEntries.filter((_, i) => i !== index))}
-                                className="h-9 w-9 text-destructive hover:text-destructive hover:bg-destructive/10"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
+                                      return (
+                                        <div key={property.key} className="border rounded-lg p-3 bg-background">
+                                          <div className="flex items-start gap-3">
+                                            <div className="pt-2">
+                                              <Checkbox
+                                                checked={propEnabled}
+                                                onCheckedChange={(checked) => {
+                                                  setRelatedParents(prev => ({
+                                                    ...prev,
+                                                    [parentKey]: {
+                                                      ...prev[parentKey],
+                                                      propertyEnabled: {
+                                                        ...prev[parentKey].propertyEnabled,
+                                                        [property.key]: !!checked
+                                                      }
+                                                    }
+                                                  }));
+
+                                                  if (!checked) {
+                                                    setRelatedParents(prev => {
+                                                      const newProps = { ...prev[parentKey].properties };
+                                                      delete newProps[property.key];
+                                                      return {
+                                                        ...prev,
+                                                        [parentKey]: {
+                                                          ...prev[parentKey],
+                                                          properties: newProps
+                                                        }
+                                                      };
+                                                    });
+                                                  }
+                                                }}
+                                              />
+                                            </div>
+
+                                            <div className="flex-1 space-y-2">
+                                              <div className="flex items-center gap-2">
+                                                <Label className="text-sm font-medium">{property.key}</Label>
+                                                <Badge variant="outline" className="text-xs">
+                                                  {property.type || 'text'}
+                                                </Badge>
+                                              </div>
+
+                                              {property.description && (
+                                                <p className="text-xs text-muted-foreground">{property.description}</p>
+                                              )}
+
+                                              <div className={!propEnabled ? 'opacity-50 pointer-events-none' : ''}>
+                                                <ParameterSelector
+                                                  value={currentValue}
+                                                  onChange={(newValue) => {
+                                                    setRelatedParents(prev => ({
+                                                      ...prev,
+                                                      [parentKey]: {
+                                                        ...prev[parentKey],
+                                                        properties: {
+                                                          ...prev[parentKey].properties,
+                                                          [property.key]: newValue
+                                                        }
+                                                      }
+                                                    }));
+                                                  }}
+                                                  propertyKey={property.key}
+                                                  propertyType={property.type || 'text'}
+                                                  propertyDescription={property.description}
+                                                  workflowParameters={workflowParameters}
+                                                  previousSteps={previousSteps}
+                                                  placeholder="Enter value or link parameter"
+                                                />
+                                              </div>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                ) : (
+                                  <div className="text-xs text-muted-foreground text-center py-4 border border-dashed rounded-lg ml-7">
+                                    Loading {parentSchema.label || parentKey} properties...
+                                  </div>
+                                )}
+                              </>
+                            )}
                           </div>
-                        ))}
-                      </div>
-                    )}
-
+                        );
+                      })}
+                    </div>
                     <p className="text-xs text-muted-foreground mt-2">
-                      Click the link icon to reference workflow parameters
+                      Enable parent relationships and configure their properties
                     </p>
                   </div>
                 )}
