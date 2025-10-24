@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { AutoTextarea } from '@/components/ui/auto-textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { X, Save, Trash2, Plus, Loader2 } from 'lucide-react';
+import { X, Save, Trash2, Plus, Loader2, Link, Unlink } from 'lucide-react';
 import { Node } from 'reactflow';
 import { useToast } from '@/hooks/use-toast';
 import { useMCP } from '@/contexts/MCPContext';
@@ -59,6 +59,7 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
   const [workflowParameters, setWorkflowParameters] = useState<string[]>([]);
   const [previousSteps, setPreviousSteps] = useState<PreviousStep[]>([]);
   const [relatedEntries, setRelatedEntries] = useState<Array<{id: string; object: string}>>([]);
+  const [stageLinked, setStageLinked] = useState(false);
 
   useEffect(() => {
     if (node && isOpen) {
@@ -176,9 +177,14 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
         } else {
           setRelatedEntries([]);
         }
+
+        // Check if stage is linked to a parameter
+        const stage = node.data.config?.stage;
+        setStageLinked(typeof stage === 'string' && stage.includes('{{'));
       } else {
         setSelectedProperties({});
         setRelatedEntries([]);
+        setStageLinked(false);
       }
 
       // Parse load_object configuration
@@ -1098,16 +1104,74 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
                 {config.template_id && (
                   <div>
                     <Label className="text-xs mb-2 block">Stage (Optional)</Label>
-                    <ParameterSelector
-                      value={config.stage || ''}
-                      onChange={(value) => setConfig({ ...config, stage: value || undefined })}
-                      propertyKey="stage"
-                      propertyType="enum"
-                      propertyDescription="Workflow stage: draft, backlog, doing, review, completed"
-                      workflowParameters={workflowParameters}
-                      previousSteps={previousSteps}
-                      placeholder="e.g., draft, doing, review"
-                    />
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1">
+                        {stageLinked ? (
+                          <Select
+                            value={(() => {
+                              const match = (config.stage || '').match(/\{\{(.*?)\}\}/);
+                              return match ? match[1] : '';
+                            })()}
+                            onValueChange={(value) => setConfig({ ...config, stage: `{{${value}}}` })}
+                          >
+                            <SelectTrigger className="h-9 text-sm font-mono">
+                              <SelectValue placeholder="Select parameter..." />
+                            </SelectTrigger>
+                            <SelectContent className="max-h-[300px]">
+                              {workflowParameters.length === 0 ? (
+                                <div className="px-2 py-4 text-center text-sm text-muted-foreground">
+                                  No parameters available
+                                </div>
+                              ) : (
+                                <>
+                                  <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+                                    Workflow Parameters
+                                  </div>
+                                  {workflowParameters.map(param => (
+                                    <SelectItem key={param} value={`steps.input.${param}`}>
+                                      <span className="font-mono text-xs">{param}</span>
+                                    </SelectItem>
+                                  ))}
+                                </>
+                              )}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Select
+                            value={config.stage || ''}
+                            onValueChange={(value) => setConfig({ ...config, stage: value || undefined })}
+                          >
+                            <SelectTrigger className="h-9 text-sm">
+                              <SelectValue placeholder="Select stage..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="draft">Draft</SelectItem>
+                              <SelectItem value="backlog">Backlog</SelectItem>
+                              <SelectItem value="doing">Doing</SelectItem>
+                              <SelectItem value="review">Review</SelectItem>
+                              <SelectItem value="completed">Completed</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        )}
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => {
+                          setStageLinked(!stageLinked);
+                          setConfig({ ...config, stage: undefined });
+                        }}
+                        className="h-9 w-9 shrink-0"
+                        title={stageLinked ? 'Switch to manual value' : 'Link to parameter'}
+                      >
+                        {stageLinked ? (
+                          <Link className="h-4 w-4" />
+                        ) : (
+                          <Unlink className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
                     <p className="text-xs text-muted-foreground mt-1">
                       Defaults to 'draft' if not specified
                     </p>
