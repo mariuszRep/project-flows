@@ -54,6 +54,7 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
   const [availableTemplates, setAvailableTemplates] = useState<any[]>([]);
   const [availableProperties, setAvailableProperties] = useState<any[]>([]);
   const [selectedProperties, setSelectedProperties] = useState<Record<string, boolean | string>>({});
+  const [propertyEnabled, setPropertyEnabled] = useState<Record<string, boolean>>({});
   const [isLoadingTemplates, setIsLoadingTemplates] = useState(false);
   const [isLoadingProperties, setIsLoadingProperties] = useState(false);
   const [workflowParameters, setWorkflowParameters] = useState<string[]>([]);
@@ -162,8 +163,15 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
         const properties = node.data.config?.properties;
         if (properties && typeof properties === 'object') {
           setSelectedProperties(properties);
+          // Mark properties with values as enabled
+          const enabled: Record<string, boolean> = {};
+          Object.keys(properties).forEach(key => {
+            enabled[key] = true;
+          });
+          setPropertyEnabled(enabled);
         } else {
           setSelectedProperties({});
+          setPropertyEnabled({});
         }
 
         // Parse related array
@@ -183,6 +191,7 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
         setStageLinked(typeof stage === 'string' && stage.includes('{{'));
       } else {
         setSelectedProperties({});
+        setPropertyEnabled({});
         setRelatedEntries([]);
         setStageLinked(false);
       }
@@ -552,18 +561,26 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
         return;
       }
 
-      // Validate at least one property is selected
-      if (Object.keys(selectedProperties).length === 0) {
-        setError('At least one property must be selected');
+      // Filter to only include enabled properties
+      const enabledProperties: Record<string, any> = {};
+      Object.keys(propertyEnabled).forEach(key => {
+        if (propertyEnabled[key] && selectedProperties[key] !== undefined) {
+          enabledProperties[key] = selectedProperties[key];
+        }
+      });
+
+      // Validate at least one property is enabled
+      if (Object.keys(enabledProperties).length === 0) {
+        setError('At least one property must be enabled');
         toast({
           title: "Validation Error",
-          description: "Please select at least one property to configure",
+          description: "Please enable at least one property to configure",
           variant: "destructive",
         });
         return;
       }
 
-      updatedConfig.properties = selectedProperties;
+      updatedConfig.properties = enabledProperties;
 
       // Add stage if specified
       if (config.stage) {
@@ -1033,68 +1050,68 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
                         No properties available for this template
                       </div>
                     ) : (
-                      <div className="space-y-3">
-                        {/* Selected Properties List */}
-                        {Object.keys(selectedProperties).length > 0 && (
-                          <div className="space-y-3">
-                            {Object.keys(selectedProperties).map((propKey) => {
-                              const property = availableProperties.find(p => p.key === propKey);
-                              const currentValue = selectedProperties[propKey];
+                      <div className="space-y-2">
+                        {availableProperties.map((property) => {
+                          const isEnabled = propertyEnabled[property.key] || false;
+                          const currentValue = selectedProperties[property.key] || '';
 
-                              return (
-                                <div key={propKey} className="border rounded-lg p-3 bg-background">
-                                  <div className="flex items-center justify-between mb-2">
-                                    <div className="flex items-center gap-2">
-                                      <Label className="text-sm font-medium">{propKey}</Label>
-                                      <Badge variant="outline" className="text-xs">
-                                        {property?.type || 'text'}
-                                      </Badge>
-                                    </div>
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="icon"
-                                      onClick={() => removeProperty(propKey)}
-                                      className="h-6 w-6 text-destructive hover:text-destructive hover:bg-destructive/10"
-                                    >
-                                      <X className="h-4 w-4" />
-                                    </Button>
-                                  </div>
-
-                                  <ParameterSelector
-                                    value={currentValue}
-                                    onChange={(newValue) => updatePropertyMapping(propKey, newValue)}
-                                    propertyKey={propKey}
-                                    propertyType={property?.type || 'text'}
-                                    propertyDescription={property?.description}
-                                    workflowParameters={workflowParameters}
-                                    previousSteps={previousSteps}
-                                    placeholder="e.g., 'My Title' or select from parameters"
+                          return (
+                            <div key={property.key} className="border rounded-lg p-3 bg-background">
+                              <div className="flex items-start gap-3">
+                                {/* Enable/Disable Checkbox */}
+                                <div className="pt-2">
+                                  <Checkbox
+                                    checked={isEnabled}
+                                    onCheckedChange={(checked) => {
+                                      setPropertyEnabled({
+                                        ...propertyEnabled,
+                                        [property.key]: !!checked
+                                      });
+                                      if (!checked) {
+                                        // Clear value when disabled
+                                        const newProps = { ...selectedProperties };
+                                        delete newProps[property.key];
+                                        setSelectedProperties(newProps);
+                                      }
+                                    }}
                                   />
                                 </div>
-                              );
-                            })}
-                          </div>
-                        )}
 
-                        {/* Add Property Dropdown */}
-                        <Select onValueChange={addProperty}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Add a property..." />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {availableProperties
-                              .filter(prop => !(prop.key in selectedProperties))
-                              .map((prop) => (
-                                <SelectItem key={prop.key} value={prop.key}>
-                                  {prop.key}
-                                </SelectItem>
-                              ))}
-                          </SelectContent>
-                        </Select>
-                        <p className="text-xs text-muted-foreground">
-                          Use {'{{input.field}}'} for start node parameters or {'{{variable.name}}'} for workflow variables.
-                        </p>
+                                {/* Property Configuration */}
+                                <div className="flex-1 space-y-2">
+                                  <div className="flex items-center gap-2">
+                                    <Label className="text-sm font-medium">{property.key}</Label>
+                                    <Badge variant="outline" className="text-xs">
+                                      {property.type || 'text'}
+                                    </Badge>
+                                  </div>
+
+                                  {property.description && (
+                                    <p className="text-xs text-muted-foreground">{property.description}</p>
+                                  )}
+
+                                  <div className={!isEnabled ? 'opacity-50 pointer-events-none' : ''}>
+                                    <ParameterSelector
+                                      value={currentValue}
+                                      onChange={(newValue) => {
+                                        setSelectedProperties({
+                                          ...selectedProperties,
+                                          [property.key]: newValue
+                                        });
+                                      }}
+                                      propertyKey={property.key}
+                                      propertyType={property.type || 'text'}
+                                      propertyDescription={property.description}
+                                      workflowParameters={workflowParameters}
+                                      previousSteps={previousSteps}
+                                      placeholder="Enter value or link parameter"
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
