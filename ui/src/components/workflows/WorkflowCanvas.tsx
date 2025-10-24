@@ -876,6 +876,7 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
           onClose={handlePanelClose}
           onSave={handlePropertySave}
           onDelete={handlePropertyDelete}
+          workflowId={workflowId}
         />
 
         <WorkflowEditModal

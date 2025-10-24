@@ -2,17 +2,37 @@
 
 ## Overview
 
-The `create_object` workflow step allows workflows to explicitly define which properties to use when creating objects. This gives workflow designers full control over which fields to populate, rather than being forced to provide all template properties.
+The `create_object` and `load_object` workflow steps allow workflows to explicitly define which properties to use and how to populate them. The system implements a **unified step model** where workflow inputs are treated as the first step in the execution chain, making all parameters (inputs and previous step outputs) accessible through a consistent interface.
 
-## How It Works
+## Key Concepts
 
-### Backend Behavior
+### Unified Step Model
 
-The `create_object` tool:
-- ✅ Accepts any subset of properties from the template schema
-- ✅ Does NOT enforce all required fields
-- ✅ Validates dependencies between provided properties only
-- ✅ Allows workflows to omit optional fields like `Analysis`
+All parameter sources are treated as "steps" in the workflow:
+- **Workflow Parameters**: The first step (named "input") containing all workflow input parameters defined in the start node
+- **Previous Steps**: All executed steps before the current step, with their result variables
+
+This creates a consistent mental model: `{{steps.stepName.variable}}` works for both workflow parameters and previous step outputs.
+
+### Parameter Resolution
+
+The workflow executor supports multiple parameter reference syntaxes:
+
+```javascript
+{{steps.input.paramName}}        // Workflow input (explicit)
+{{input.paramName}}              // Workflow input (backward compatible)
+{{steps.stepName.resultVar}}    // Previous step output
+{{variableName}}                 // Context variable
+```
+
+## Backend Behavior
+
+The workflow executor:
+- ✅ Stores workflow inputs as the first "step" result
+- ✅ Supports `{{steps.stepName.variable}}` syntax for all references
+- ✅ Validates that referenced steps exist and are defined before use
+- ✅ Provides clear error messages for missing references
+- ✅ Maintains backward compatibility with `{{input.field}}` syntax
 
 ### Workflow Step Configuration
 
@@ -24,8 +44,9 @@ When creating a `create_object` workflow step, you define:
   "step_config": {
     "template_id": 1,
     "properties": {
-      "Title": "{{input.title}}",
-      "Description": "{{input.description}}"
+      "Title": "{{steps.input.title}}",
+      "Description": "{{steps.analyze.summary}}",
+      "Analysis": "Static value"
     },
     "result_variable": "created_task"
   }
@@ -34,96 +55,85 @@ When creating a `create_object` workflow step, you define:
 
 **Key Points:**
 - Only properties listed in `properties` will be used
-- You can omit any property (e.g., `Analysis`)
-- Values support interpolation: `{{input.field}}`, `{{variable.name}}`
+- You can omit any property (e.g., optional fields)
+- Values support multiple syntaxes:
+  - `{{steps.input.field}}` - Workflow input parameter
+  - `{{steps.stepName.var}}` - Previous step output
+  - `{{input.field}}` - Backward compatible workflow input
+  - Plain text - Static value
 
 ## UI Implementation Guide
 
-### Step 1: Template Selection
+The UI uses the **ParameterSelector** component to provide a unified interface for selecting parameter sources.
 
-```tsx
-// Dropdown to select template type
-<Select value={templateId} onChange={setTemplateId}>
-  <option value={1}>Task</option>
-  <option value={2}>Project</option>
-  <option value={3}>Epic</option>
-  <option value={4}>Rule</option>
-</Select>
+### ParameterSelector Component
+
+Located at `ui/src/components/workflows/ParameterSelector.tsx`
+
+**Features:**
+- Two-mode toggle: "Reference Parameter" or "Manual Value"
+- Unified dropdown showing workflow parameters + previous step outputs
+- Automatic syntax generation: `{{steps.stepName.variable}}`
+- Support for static values in manual mode
+
+**Props:**
+```typescript
+{
+  value: string | boolean;                // Current parameter value
+  onChange: (value: string | boolean) => void;
+  propertyKey: string;                    // Property name
+  propertyType?: string;                  // Data type (text, number, etc.)
+  propertyDescription?: string;           // Help text
+  workflowParameters: string[];          // Workflow input parameter names
+  previousSteps: PreviousStep[];         // Array of previous steps with variables
+  placeholder?: string;
+}
 ```
 
-### Step 2: Load Available Properties
+### Integration Example (NodeEditModal.tsx)
+
+```tsx
+import { ParameterSelector, PreviousStep } from './ParameterSelector';
+
+// Extract previous steps (simplified - needs workflow graph traversal)
+const [previousSteps, setPreviousSteps] = useState<PreviousStep[]>([]);
+
+// For each property:
+<ParameterSelector
+  value={selectedProperties[propKey]}
+  onChange={(newValue) => updatePropertyMapping(propKey, newValue)}
+  propertyKey={propKey}
+  propertyType={property?.type || 'text'}
+  propertyDescription={property?.description}
+  workflowParameters={workflowParameters}
+  previousSteps={previousSteps}
+  placeholder="Select parameter or enter value"
+/>
+```
+
+### Workflow Graph Traversal (TODO)
+
+To extract previous steps from the workflow graph:
 
 ```typescript
-// Call MCP tool to get available properties for selected template
-const response = await mcpClient.callTool('list_properties', {
-  template_id: templateId
-});
+const extractPreviousSteps = (currentNode: Node, allNodes: Node[], edges: Edge[]): PreviousStep[] => {
+  const steps: PreviousStep[] = [];
 
-// Filter to only 'property' type (exclude workflow steps)
-const availableProperties = response.properties.filter(
-  prop => prop.step_type === 'property'
-);
-```
+  // Find all nodes that come before the current node
+  // by traversing edges backward from current node
 
-### Step 3: Property Selection UI
+  // For each previous node, extract:
+  // - name: node.data.label
+  // - variables: [node.data.config.result_variable] or infer from node type
+  // - type: node.type
 
-```tsx
-// Show checkboxes for each available property
-{availableProperties.map(prop => (
-  <div key={prop.key}>
-    <Checkbox
-      checked={selectedProperties.includes(prop.key)}
-      onChange={() => toggleProperty(prop.key)}
-    />
-    <label>{prop.key}</label>
-    <span className="text-muted">{prop.description}</span>
-  </div>
-))}
-```
-
-### Step 4: Value Configuration
-
-```tsx
-// For each selected property, show input for value/interpolation
-{selectedProperties.map(propKey => {
-  const prop = availableProperties.find(p => p.key === propKey);
-  return (
-    <div key={propKey}>
-      <label>{propKey}</label>
-      <Input
-        placeholder="e.g., {{input.title}} or static value"
-        value={propertyValues[propKey] || ''}
-        onChange={(e) => setPropertyValue(propKey, e.target.value)}
-      />
-      <small>{prop.description}</small>
-    </div>
-  );
-})}
-```
-
-### Step 5: Build Step Configuration
-
-```typescript
-const stepConfig = {
-  template_id: templateId,
-  properties: Object.fromEntries(
-    selectedProperties.map(key => [key, propertyValues[key]])
-  ),
-  result_variable: resultVariable // optional
+  return steps;
 };
-
-// Save to workflow step
-await saveWorkflowStep({
-  key: stepName,
-  step_type: 'create_object',
-  step_config: stepConfig,
-  execution_order: order
-});
 ```
 
 ## Example Workflows
 
-### Minimal Task Creation (Title + Description only)
+### Example 1: Workflow Input Parameters
 
 ```json
 {
@@ -132,14 +142,44 @@ await saveWorkflowStep({
   "step_config": {
     "template_id": 1,
     "properties": {
-      "Title": "{{input.task_title}}",
-      "Description": "{{input.task_description}}"
+      "Title": "{{steps.input.task_title}}",
+      "Description": "{{steps.input.task_description}}"
     }
   }
 }
 ```
 
-### Full Task Creation (All Fields)
+### Example 2: Previous Step Output
+
+```json
+{
+  "steps": [
+    {
+      "name": "analyze_task",
+      "step_type": "call_tool",
+      "step_config": {
+        "tool_name": "analyze_requirements",
+        "parameters": { "text": "{{steps.input.requirements}}" },
+        "result_variable": "analysis"
+      }
+    },
+    {
+      "name": "create_task",
+      "step_type": "create_object",
+      "step_config": {
+        "template_id": 1,
+        "properties": {
+          "Title": "{{steps.input.title}}",
+          "Description": "{{steps.input.description}}",
+          "Analysis": "{{steps.analyze_task.summary}}"
+        }
+      }
+    }
+  ]
+}
+```
+
+### Example 3: Mixed Sources (Inputs + Steps + Static)
 
 ```json
 {
@@ -148,28 +188,26 @@ await saveWorkflowStep({
   "step_config": {
     "template_id": 1,
     "properties": {
-      "Title": "{{input.title}}",
-      "Description": "{{input.description}}",
-      "Analysis": "{{analysis_result}}"
+      "Title": "{{steps.input.title}}",
+      "Description": "{{steps.analyze.summary}}",
+      "Analysis": "Generated from automated analysis"
     }
   }
 }
 ```
 
-### Epic Creation with Parent
+### Example 4: Backward Compatible Syntax
 
 ```json
 {
-  "name": "create_epic",
+  "name": "create_task_legacy",
   "step_type": "create_object",
   "step_config": {
-    "template_id": 3,
+    "template_id": 1,
     "properties": {
-      "Title": "{{input.epic_title}}",
-      "Description": "{{input.epic_description}}"
-    },
-    "stage": "draft",
-    "related": [{"id": "{{project_id}}", "object": "project"}]
+      "Title": "{{input.title}}",
+      "Description": "{{input.description}}"
+    }
   }
 }
 ```

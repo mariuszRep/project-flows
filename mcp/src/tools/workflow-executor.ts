@@ -256,9 +256,12 @@ export class WorkflowExecutor {
         // (Only add properties that need agent input - mapped ones are handled by workflow inputs)
         const selectedProps = templateProperties.filter((p: any) => {
           const mapping = step.properties![p.key];
-          // Include if: exists AND (is true OR doesn't contain {{input.)
+          // Include if: exists AND (is true OR doesn't contain workflow parameter references)
+          // Check for both old {{input.}} and new {{steps.input.}} syntax
           return mapping !== undefined &&
-                 (mapping === true || (typeof mapping === 'string' && !mapping.includes('{{input.')));
+                 (mapping === true || (typeof mapping === 'string' &&
+                   !mapping.includes('{{input.') &&
+                   !mapping.includes('{{steps.input.')));
         });
 
         // Add each selected property to the workflow's input schema
@@ -347,6 +350,18 @@ export class WorkflowExecutor {
     // Validate inputs against schema
     this.validateInputs(workflow.inputSchema, inputs);
 
+    // Validate step references in workflow
+    this.validateStepReferences(workflow);
+
+    // Store workflow inputs as the first "step" result for unified parameter access
+    // This allows {{steps.input.paramName}} to work alongside {{input.paramName}}
+    context.stepResults.push({
+      step: 'input',
+      type: 'workflow_input',
+      status: 'completed',
+      output: inputs
+    });
+
     // Execute steps sequentially
     for (let i = 0; i < workflow.steps.length; i++) {
       context.currentStep = i;
@@ -389,6 +404,16 @@ export class WorkflowExecutor {
 
     // Validate inputs against schema
     this.validateInputs(workflow.inputSchema, inputs);
+
+    // If no saved step results, store workflow inputs as the first "step" result
+    if (!savedStepResults || savedStepResults.length === 0) {
+      context.stepResults.push({
+        step: 'input',
+        type: 'workflow_input',
+        status: 'completed',
+        output: inputs
+      });
+    }
 
     console.log(`[Workflow] Resuming from step ${startStep} (${workflow.steps[startStep]?.name})`);
     console.log(`[Workflow] Restored ${context.variables.size} variable(s) and ${context.stepResults.length} step result(s)`);
@@ -612,7 +637,15 @@ export class WorkflowExecutor {
 
       console.log(`[Workflow ${step.name}] Tool result:`, JSON.stringify(result, null, 2));
 
-      // Store result in context variable if specified
+      // Store result in step results for access via {{steps.stepName.*}}
+      context.stepResults.push({
+        step: step.name,
+        type: 'call_tool',
+        status: 'completed',
+        output: result
+      });
+
+      // Store result in context variable if specified (for backward compatibility)
       if (step.resultVariable) {
         context.variables.set(step.resultVariable, result);
         console.log(`[Workflow ${step.name}] Stored result in variable: ${step.resultVariable}`);
@@ -654,6 +687,9 @@ export class WorkflowExecutor {
     }
 
     console.log(`[Workflow ${step.name}] Selected properties:`, selectedProps.map((p: any) => p.key).join(', '));
+    console.log(`[Workflow ${step.name}] === STEP PROPERTIES DEBUG ===`);
+    console.log(`[Workflow ${step.name}] step.properties object:`, step.properties);
+    console.log(`[Workflow ${step.name}] ============================`);
 
     // Build a dynamic schema with only selected properties and their descriptions
     // Properties can be mapped to workflow parameters using {{input.paramName}} syntax
@@ -662,13 +698,23 @@ export class WorkflowExecutor {
 
     for (const prop of selectedProps) {
       const mappingValue = step.properties![prop.key];
+      console.log(`[Workflow ${step.name}] Processing property "${prop.key}":`, mappingValue);
 
-      // Check if this property is mapped to a workflow parameter
-      if (typeof mappingValue === 'string' && mappingValue.includes('{{input.')) {
+      // Check if this property is mapped to a parameter (workflow input or previous step)
+      // Supports: {{input.x}}, {{steps.input.x}}, {{steps.stepName.x}}, {{variable}}
+      if (typeof mappingValue === 'string' && (
+        mappingValue.includes('{{input.') ||
+        mappingValue.includes('{{steps.') ||
+        mappingValue.match(/\{\{[^}]+\}\}/)
+      )) {
         // Store the mapping for later interpolation
         propertyMappings[prop.key] = mappingValue;
-        // Don't add to schema - will be filled from workflow inputs
+        // Don't add to schema - will be filled from parameters
         console.log(`[Workflow ${step.name}] Property ${prop.key} mapped to: ${mappingValue}`);
+      } else if (typeof mappingValue === 'string' && mappingValue.trim() !== '') {
+        // Static value - add to mappings directly
+        propertyMappings[prop.key] = mappingValue;
+        console.log(`[Workflow ${step.name}] Property ${prop.key} has static value: ${mappingValue}`);
       } else {
         // Add to schema for agent to fill
         propertySchemas[prop.key] = {
@@ -684,14 +730,62 @@ export class WorkflowExecutor {
     const templateName = template ? template.name : `template ${step.templateId}`;
 
     // Interpolate property mappings with context values
+    console.log(`[Workflow ${step.name}] === INTERPOLATION DEBUG START ===`);
+    console.log(`[Workflow ${step.name}] Property mappings to interpolate:`, propertyMappings);
+    console.log(`[Workflow ${step.name}] Current context inputs:`, context.inputs);
+    console.log(`[Workflow ${step.name}] Current context step results:`, context.stepResults);
+
     const interpolatedMappings: Record<string, any> = {};
     for (const [key, mappingExpr] of Object.entries(propertyMappings)) {
-      interpolatedMappings[key] = this.interpolateValue(mappingExpr, context);
-      console.log(`[Workflow ${step.name}] Interpolated ${key}: ${mappingExpr} => ${interpolatedMappings[key]}`);
+      const interpolatedValue = this.interpolateValue(mappingExpr, context);
+      interpolatedMappings[key] = interpolatedValue;
+      console.log(`[Workflow ${step.name}] Interpolated ${key}:`);
+      console.log(`  - Expression: ${mappingExpr}`);
+      console.log(`  - Result: ${interpolatedValue}`);
+      console.log(`  - Type: ${typeof interpolatedValue}`);
+    }
+    console.log(`[Workflow ${step.name}] === INTERPOLATION DEBUG END ===`);
+
+    // Check if all properties are provided (no schemas needing agent input)
+    if (Object.keys(propertySchemas).length === 0 && Object.keys(interpolatedMappings).length > 0) {
+      // All values are provided - auto-execute create_object
+      console.log(`[Workflow ${step.name}] All property values provided, auto-executing create_object`);
+
+      if (!this.toolCaller) {
+        throw new Error('ToolCaller is required to auto-execute create_object. Provide toolCaller in constructor.');
+      }
+
+      try {
+        const result = await this.toolCaller.callTool('create_object', {
+          template_id: step.templateId,
+          properties: interpolatedMappings
+        });
+
+        console.log(`[Workflow ${step.name}] Auto-executed create_object, result:`, result);
+
+        // Store result in step results
+        context.stepResults.push({
+          step: step.name,
+          type: 'create_object',
+          status: 'completed',
+          output: result
+        });
+
+        // Store in variable if specified
+        if (step.resultVariable) {
+          context.variables.set(step.resultVariable, result);
+          console.log(`[Workflow ${step.name}] Stored result in variable: ${step.resultVariable}`);
+        }
+
+        // Continue to next step (don't set context.result)
+        return;
+      } catch (error) {
+        console.error(`[Workflow ${step.name}] Auto-execute create_object failed:`, error);
+        throw new Error(`Auto-execute create_object failed: ${(error as Error).message}`);
+      }
     }
 
-    // RETURN schema to agent instead of trying to execute
-    // The agent will see this return value and call create_object itself
+    // Some properties need agent input - RETURN schema to agent
     const returnValue = {
       action: 'create_object',
       template_id: step.templateId,
@@ -863,10 +957,48 @@ export class WorkflowExecutor {
   }
 
   /**
-   * Resolve a value path (e.g., "variableName" or "input.fieldName" or "created_object.object_id")
+   * Resolve a value path with support for:
+   * - {{steps.stepName.variable}} - Access previous step output
+   * - {{steps.input.paramName}} - Access workflow input (explicit)
+   * - {{input.paramName}} - Access workflow input (backward compatible)
+   * - {{variableName}} - Access context variable
    */
   private resolveValue(path: string, context: ExecutionContext): any {
-    // Check if it's an input reference
+    // Check if it's a step reference: steps.stepName.variable
+    if (path.startsWith('steps.')) {
+      const pathParts = path.substring(6).split('.');
+      if (pathParts.length < 2) {
+        console.warn(`[Workflow] Invalid step reference: ${path}. Expected format: steps.stepName.variable`);
+        return undefined;
+      }
+
+      const stepName = pathParts[0];
+      const variablePath = pathParts.slice(1);
+
+      // Find the step result
+      const stepResult = context.stepResults.find(sr => sr.step === stepName);
+      if (!stepResult) {
+        console.warn(`[Workflow] Step "${stepName}" not found in step results`);
+        return undefined;
+      }
+
+      // Navigate to the variable within the step output
+      let value = stepResult.output;
+      for (const part of variablePath) {
+        if (value === undefined || value === null) {
+          return undefined;
+        }
+        if (typeof value === 'object') {
+          value = value[part];
+        } else {
+          return undefined;
+        }
+      }
+
+      return value;
+    }
+
+    // Check if it's an input reference (backward compatibility)
     if (path.startsWith('input.')) {
       const fieldName = path.substring(6);
       return context.inputs[fieldName];
@@ -882,7 +1014,7 @@ export class WorkflowExecutor {
       return context.logs;
     }
 
-    // Check if path contains dots (nested property access)
+    // Check if path contains dots (nested property access for variables)
     if (path.includes('.')) {
       const parts = path.split('.');
       const variableName = parts[0];
@@ -1005,6 +1137,68 @@ export class WorkflowExecutor {
         throw new Error(`Input field '${field}' must be an object`);
       }
     }
+  }
+
+  /**
+   * Validate that step references in workflow are valid
+   * Checks that referenced steps exist and are defined before they are referenced
+   */
+  private validateStepReferences(workflow: WorkflowDefinition): void {
+    const stepNames = new Set<string>(['input']); // 'input' is always available
+
+    for (let i = 0; i < workflow.steps.length; i++) {
+      const step = workflow.steps[i];
+
+      // Extract step references from step configuration
+      const stepRefs = this.extractStepReferences(step);
+
+      // Validate each reference
+      for (const ref of stepRefs) {
+        if (!stepNames.has(ref)) {
+          throw new Error(
+            `Step "${step.name}" references step "${ref}" which is not defined or not yet executed. ` +
+            `Available steps: ${Array.from(stepNames).join(', ')}`
+          );
+        }
+      }
+
+      // Add current step to available steps for subsequent steps
+      stepNames.add(step.name);
+    }
+  }
+
+  /**
+   * Extract step references from a workflow step configuration
+   * Looks for {{steps.stepName.*}} patterns in step values
+   */
+  private extractStepReferences(step: WorkflowStep): Set<string> {
+    const refs = new Set<string>();
+    const stepRefPattern = /\{\{steps\.([^.}]+)\./g;
+
+    // Helper to find references in any value
+    const findRefsInValue = (value: any): void => {
+      if (typeof value === 'string') {
+        let match;
+        while ((match = stepRefPattern.exec(value)) !== null) {
+          refs.add(match[1]);
+        }
+      } else if (Array.isArray(value)) {
+        value.forEach(findRefsInValue);
+      } else if (typeof value === 'object' && value !== null) {
+        Object.values(value).forEach(findRefsInValue);
+      }
+    };
+
+    // Search all step properties for references
+    findRefsInValue(step.message);
+    findRefsInValue(step.value);
+    findRefsInValue(step.condition);
+    findRefsInValue(step.parameters);
+    findRefsInValue(step.properties);
+    findRefsInValue(step.instructions);
+    findRefsInValue(step.switchValue);
+
+    return refs;
   }
 
   /**
