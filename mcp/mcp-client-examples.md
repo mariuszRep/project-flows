@@ -8,7 +8,7 @@ This document contains example MCP client configurations for different clients.
 ## Claude Code
 
 ```bash
-claude mcp add --transport streamable-http project-flows http://localhost:3001/mcp --header "X-MCP-Client: claude-code"
+claude mcp add --transport http project-flows http://localhost:3001/mcp --header "X-MCP-Client: claude-code"
 ```
 
 ## Windsurf
