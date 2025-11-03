@@ -112,9 +112,12 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
 
     try {
       // Use callToolWithEvent to trigger events after successful creation
-      const result = await callToolWithEvent('create_project', {
-        Title: projectData.name,
-        Description: projectData.description
+      const result = await callToolWithEvent('create_object', {
+        template_id: 2,  // Project template ID
+        properties: {
+          Title: projectData.name,
+          Description: projectData.description
+        }
       });
 
       if (result && result.content && result.content[0]) {
