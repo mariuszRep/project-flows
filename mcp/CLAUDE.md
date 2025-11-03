@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a TypeScript implementation of the MCP (Model Context Protocol) server with SSE (Server-Sent Events) support for multiple concurrent clients. The project provides task creation and planning functionality through multiple tools with shared database persistence.
+This is a TypeScript implementation of the MCP (Model Context Protocol) server with Streamable HTTP transport (protocol version 2025-06-18) for multiple concurrent clients. The project provides task creation and planning functionality through multiple tools with shared database persistence.
 
 ## Architecture
 
@@ -14,9 +14,10 @@ This is a TypeScript implementation of the MCP (Model Context Protocol) server w
 
 ### Core Components
 
-- **SSE Multi-Client Support**: Express.js server with SSE transport for concurrent client connections
+- **Streamable HTTP Transport**: Express.js server with StreamableHTTPServerTransport for concurrent client connections
+- **Session Management**: Built-in session management with UUID-based session IDs via Mcp-Session-Id headers
+- **Resumability**: InMemoryEventStore enables connection continuation after interruptions
 - **Shared Database**: PostgreSQL database service shared across all client sessions with audit trail
-- **Session Management**: Individual MCP server instances per client with session tracking
 - **Client Identification**: Automatic client detection for audit tracking (windsurf, claude-desktop, etc.)
 - Tool registration system with dynamic schema loading from database/JSON configuration
 - Dependency validation and execution ordering for task properties
@@ -61,9 +62,10 @@ npm run clean
 - Dynamic properties are loaded from `schema_properties.json` with execution order and dependency management
 - Properties include Research (depends on Summary) and Items (depends on Summary and Research)
 - Output is formatted as structured markdown with sections for each property
-- Server runs over HTTP with SSE (Server-Sent Events) for real-time communication
+- Server runs over HTTP with Streamable HTTP transport for real-time communication
 - Multiple clients can connect simultaneously, sharing the same database
-- Each client gets its own MCP server instance with session management
+- Each client gets its own MCP server instance with automatic session management
+- Sessions identified via Mcp-Session-Id headers (not query parameters)
 - Default port: 3001 (configurable via PORT environment variable)
 - **Audit Trail**: All database operations track `created_by` and `updated_by` using client identification
 
@@ -76,7 +78,7 @@ The server automatically identifies MCP clients for audit tracking through multi
 {
   "mcpServers": {
     "project-flows": {
-      "serverUrl": "http://localhost:3001/sse?client=windsurf"
+      "serverUrl": "http://localhost:3001/mcp?client=windsurf"
     }
   }
 }
@@ -87,7 +89,7 @@ The server automatically identifies MCP clients for audit tracking through multi
 {
   "mcpServers": {
     "project-flows": {
-      "serverUrl": "http://localhost:3001/sse",
+      "serverUrl": "http://localhost:3001/mcp",
       "headers": {
         "X-MCP-Client": "windsurf"
       }

@@ -2,8 +2,8 @@
 
 /**
  * Project Flows MCP Server - Main Entry Point
- * 
- * A TypeScript MCP server with SSE transport for real-time multi-client communication,
+ *
+ * A TypeScript MCP server with Streamable HTTP transport for real-time multi-client communication,
  * PostgreSQL integration for persistent task storage, and dynamic schema system.
  */
 
@@ -22,25 +22,61 @@ const connectionManager = new ConnectionManager();
 
 // Root endpoint
 app.get("/", async (_: any, res: any) => {
-  res.status(200).send('Project Flows MCP Server - Multiple clients supported with shared database');
+  res.status(200).send('Project Flows MCP Server - Streamable HTTP transport with shared database');
 });
 
-// SSE endpoint for MCP client connections
-app.get("/sse", async (req: any, res: any) => {
-  await connectionManager.handleSSEConnection(req, res, (clientId) => 
+// Unified MCP endpoint for Streamable HTTP transport (GET, POST, DELETE)
+app.all("/mcp", async (req: any, res: any) => {
+  await connectionManager.handleStreamableHTTPRequest(req, res, (clientId) =>
     createMcpServer(clientId, sharedDbService)
   );
-});
-
-// POST endpoint for MCP messages
-app.post("/messages", async (req: any, res: any) => {
-  await connectionManager.handlePostMessage(req, res);
 });
 
 // SSE endpoint for notifications only (separate from MCP)
 const notificationHandler = createNotificationHandler();
 app.get("/notifications", async (req: any, res: any) => {
   await notificationHandler.handleConnection(req, res);
+});
+
+// REST API endpoints for session management
+app.get("/api/sessions", async (_: any, res: any) => {
+  try {
+    const sessions = connectionManager.getActiveSessions();
+    res.status(200).json({
+      success: true,
+      count: sessions.length,
+      sessions
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: (error as Error).message
+    });
+  }
+});
+
+app.post("/api/sessions/:sessionId/disconnect", async (req: any, res: any) => {
+  try {
+    const { sessionId } = req.params;
+    const success = await connectionManager.disconnectSession(sessionId);
+
+    if (success) {
+      res.status(200).json({
+        success: true,
+        message: `Session ${sessionId} disconnected successfully`
+      });
+    } else {
+      res.status(404).json({
+        success: false,
+        error: `Session ${sessionId} not found`
+      });
+    }
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: (error as Error).message
+    });
+  }
 });
 
 // REST API endpoints for dynamic workflow management
@@ -150,14 +186,18 @@ async function main() {
     process.exit(1);
   }
 
-  // Cleanup database connection on exit
+  // Cleanup database connection and active transports on exit
   process.on('SIGINT', async () => {
+    console.log('Shutting down server...');
+    await connectionManager.cleanup();
     console.log('Closing database connection...');
     await sharedDbService.close();
     process.exit(0);
   });
-  
+
   process.on('SIGTERM', async () => {
+    console.log('Shutting down server...');
+    await connectionManager.cleanup();
     console.log('Closing database connection...');
     await sharedDbService.close();
     process.exit(0);
@@ -168,7 +208,8 @@ async function main() {
     console.log(`🚀 Project Flows MCP Server running on port ${port}`);
     console.log('📊 Multiple clients can now connect simultaneously');
     console.log('🗄️ Shared database ensures all clients see the same data');
-    console.log(`🔗 Connect to: http://localhost:${port}/sse`);
+    console.log('🔄 Streamable HTTP transport with session management and resumability');
+    console.log(`🔗 Connect to: http://localhost:${port}/mcp`);
   });
 }
 

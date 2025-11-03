@@ -104,7 +104,7 @@ To connect various AI clients to the MCP server:
 #### Claude Code
 
 ```bash
-claude mcp add --transport sse project-flows http://localhost:3001/sse --header "X-MCP-Client: claude-code"
+claude mcp add --transport streamable-http project-flows http://localhost:3001/mcp --header "X-MCP-Client: claude-code"
 ```
 
 #### Windsurf
@@ -113,7 +113,7 @@ claude mcp add --transport sse project-flows http://localhost:3001/sse --header 
 {
   "mcpServers": {
     "project-flows": {
-      "serverUrl": "http://localhost:3001/sse",
+      "serverUrl": "http://localhost:3001/mcp",
       "headers": {
         "X-MCP-Client": "windsurf"
       }
@@ -131,7 +131,7 @@ claude mcp add --transport sse project-flows http://localhost:3001/sse --header 
       "command": "npx",
       "args": [
         "mcp-remote",
-        "http://localhost:3001/sse?clientId=claude-desktop"
+        "http://localhost:3001/mcp?clientId=claude-desktop"
       ]
     }
   }
@@ -143,7 +143,7 @@ claude mcp add --transport sse project-flows http://localhost:3001/sse --header 
 ```toml
 [mcp_servers.project-flows]
 command = "npx"
-args = ["mcp-remote", "http://localhost:3001/sse?clientId=codex-cli"]
+args = ["mcp-remote", "http://localhost:3001/mcp?clientId=codex-cli"]
 ```
 
 #### Cursor
@@ -152,7 +152,7 @@ args = ["mcp-remote", "http://localhost:3001/sse?clientId=codex-cli"]
 {
   "mcpServers": {
     "project-flows": {
-      "serverUrl": "http://localhost:3001/sse?clientId=cursor"
+      "serverUrl": "http://localhost:3001/mcp?clientId=cursor"
     }
   }
 }
@@ -164,7 +164,7 @@ args = ["mcp-remote", "http://localhost:3001/sse?clientId=codex-cli"]
 {
   "mcpServers": {
     "project-flows": {
-      "url": "http://localhost:3001/sse?clientId=gemini-cli"
+      "url": "http://localhost:3001/mcp?clientId=gemini-cli"
     }
   }
 }
@@ -176,7 +176,7 @@ args = ["mcp-remote", "http://localhost:3001/sse?clientId=codex-cli"]
 {
 	"servers": {
 		"project-flows": {
-			"url": "http://localhost:3001/sse",
+			"url": "http://localhost:3001/mcp",
 			"type": "http",
             "headers": {
 				"X-MCP-Client": "co-pilot"

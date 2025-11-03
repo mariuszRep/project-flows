@@ -84,7 +84,7 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
             id="server-url"
             value={serverUrl}
             onChange={(e) => onServerUrlChange(e.target.value)}
-            placeholder="http://localhost:3001/sse"
+            placeholder="http://localhost:3001/mcp"
             disabled={isConnected || isLoading}
           />
         </div>

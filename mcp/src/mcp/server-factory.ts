@@ -14,6 +14,7 @@ import { createRuleTools } from "../tools/rule-tools.js";
 import { createWorkflowTools } from "../tools/workflow-tools.js";
 import { createTemplateTools } from "../tools/template-tools.js";
 import { WorkflowDefinition, WorkflowExecutor } from "../tools/workflow-executor.js";
+import { createTestSamplingTool } from "../tools/test-sampling-tool.js";
 import pg from 'pg';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -396,6 +397,7 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
   // Create tool handlers
   const propertyTools = createPropertyTools(sharedDbService, clientId);
   const templateTools = createTemplateTools(sharedDbService, clientId);
+  const testSamplingTool = createTestSamplingTool(server);
 
   // Create projectTools first (needed by other tools)
   const projectTools = createProjectTools(
@@ -579,6 +581,8 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
         ...workflowTools.getToolDefinitions(),
         // Add dynamic workflow tools
         ...dynamicWorkflowTools,
+        // Add test sampling tool (isolated and disposable)
+        ...testSamplingTool.getToolDefinitions(),
       ],
     };
   });
@@ -625,6 +629,11 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
     // Handle workflow tools
     if (workflowTools.canHandle(name)) {
       return await workflowTools.handle(name, toolArgs);
+    }
+
+    // Handle test sampling tool
+    if (testSamplingTool.canHandle(name)) {
+      return await testSamplingTool.handle(name, toolArgs);
     }
 
     // Handle dynamic workflow tools
