@@ -975,20 +975,7 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
         return;
       }
 
-      // Prepare the create payload from edit values
-      const createPayload: Record<string, any> = {};
-
-      // Add all template properties to the payload
-      orderedProperties.forEach(propName => {
-        const value = editValues[propName];
-        if (value !== undefined && value !== '') {
-          // Skip meta fields that are handled separately
-          if (propName !== 'stage' && propName !== 'project_id' && propName !== 'parent_id' && propName !== 'epic_id') {
-            createPayload[propName] = value;
-          }
-        }
-      });
-
+      // Validate required relationships
       const relationshipError = validateRequiredRelationships();
       if (relationshipError) {
         setError(relationshipError);
@@ -1000,23 +987,40 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
         return;
       }
 
+      // Build properties object with ONLY template properties
+      const properties: Record<string, any> = {};
+
+      orderedProperties.forEach(propName => {
+        const value = editValues[propName];
+        if (value !== undefined && value !== '') {
+          // Skip meta fields that are NOT template properties
+          if (propName !== 'stage' && propName !== 'project_id' && propName !== 'parent_id' && propName !== 'epic_id') {
+            properties[propName] = value;
+          }
+        }
+      });
+
+      // Build top-level payload with correct structure for create_object
+      const template_id = getDefaultTemplateId(entityType);
+      const payload: Record<string, any> = {
+        template_id,
+        properties
+      };
+
+      // Add optional top-level fields (NOT in properties object)
+      if (editValues['stage']) {
+        payload.stage = editValues['stage'];
+      }
+
       const relatedEntries = getSelectedRelatedEntries();
       if (relatedEntries.length > 0) {
-        createPayload.related = relatedEntries;
+        payload.related = relatedEntries;
       }
 
-      console.log(`Creating ${entityType} with data:`, createPayload);
+      console.log(`Creating ${entityType} with create_object tool:`, payload);
 
-      let result: any;
-      if (entityType === 'task') {
-        result = await callTool('create_task', createPayload);
-      } else if (entityType === 'project') {
-        result = await callTool('create_project', createPayload);
-      } else if (entityType === 'epic') {
-        result = await callTool('create_epic', createPayload);
-      } else if (entityType === 'rule') {
-        result = await callTool('create_rule', createPayload);
-      }
+      // Call unified create_object tool
+      const result = await callTool('create_object', payload);
 
       if (result?.content?.[0]?.text) {
         try {
@@ -1033,9 +1037,9 @@ const ObjectView: React.FC<ObjectViewProps> = (props) => {
             if (onSuccess) {
               const createdEntity = {
                 id: responseData[`${entityType}_id`] || responseData.id,
-                title: createPayload.Title,
-                ...createPayload,
-                stage: entityType === 'task' ? initialStage : undefined,
+                title: properties.Title,
+                ...properties,
+                stage: payload.stage,
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
               };

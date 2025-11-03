@@ -47,9 +47,23 @@ export const useChangeEvents = (options: UseChangeEventsOptions = {}) => {
 
     try {
       const result = await callTool(toolName, args);
-      
+
+      // Special handling for create_object
+      if (toolName === 'create_object') {
+        console.log('Object created via create_object, emitting events');
+
+        // Always emit task_changed for all object types (universal refresh)
+        changeEventService.emit('task_changed');
+        changeEventService.emit('data_changed');
+
+        // Additionally emit project_changed if it's a project (sidebar refresh)
+        if (args?.template_id === 2) {
+          console.log('Project created, also emitting project_changed event');
+          changeEventService.emit('project_changed');
+        }
+      }
       // Emit appropriate events based on the tool called
-      if (toolName.includes('task')) {
+      else if (toolName.includes('task')) {
         console.log('Task operation completed, emitting task_changed event');
         changeEventService.emit('task_changed');
         changeEventService.emit('data_changed');
@@ -58,7 +72,7 @@ export const useChangeEvents = (options: UseChangeEventsOptions = {}) => {
         changeEventService.emit('project_changed');
         changeEventService.emit('data_changed');
       }
-      
+
       return result;
     } catch (error) {
       console.error(`Exception in MCP tool call ${toolName}:`, error);
