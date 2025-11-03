@@ -2,19 +2,22 @@
 
 This document contains example MCP client configurations for different clients.
 
+**Transport:** Streamable HTTP (protocol version 2025-06-18)
+**Endpoint:** `http://localhost:3001/mcp`
+
 ## Claude Code
 
 ```bash
-claude mcp add --transport sse project-flows http://localhost:3001/sse --header "X-MCP-Client: claude-code"
+claude mcp add --transport streamable-http project-flows http://localhost:3001/mcp --header "X-MCP-Client: claude-code"
 ```
 
-## Windsurf 
+## Windsurf
 
 ```json
 {
   "mcpServers": {
     "project-flows": {
-      "serverUrl": "http://localhost:3001/sse",
+      "serverUrl": "http://localhost:3001/mcp",
       "headers": {
         "X-MCP-Client": "windsurf"
       }
@@ -23,6 +26,16 @@ claude mcp add --transport sse project-flows http://localhost:3001/sse --header 
 }
 ```
 
+Alternative with query parameter:
+```json
+{
+  "mcpServers": {
+    "project-flows": {
+      "serverUrl": "http://localhost:3001/mcp?client=windsurf"
+    }
+  }
+}
+```
 
 ## Claude Desktop
 
@@ -33,7 +46,7 @@ claude mcp add --transport sse project-flows http://localhost:3001/sse --header 
       "command": "npx",
       "args": [
         "mcp-remote",
-        "http://localhost:3001/sse?clientId=claude-desktop"
+        "http://localhost:3001/mcp?client=claude-desktop"
       ]
     }
   }
@@ -46,20 +59,29 @@ claude mcp add --transport sse project-flows http://localhost:3001/sse --header 
 {
   "mcpServers": {
     "project-flows": {
-      "serverUrl": "http://localhost:3001/sse?clientId=cursor"
+      "serverUrl": "http://localhost:3001/mcp?client=cursor"
     }
   }
 }
 ```
 
-## Gemini CLI (not working properly evry comand will try to use tools)
+## Gemini CLI
 
 ```json
 {
   "mcpServers": {
     "project-flows": {
-      "url": "http://localhost:3001/sse?clientId=gemini-cli"
+      "url": "http://localhost:3001/mcp?client=gemini-cli"
     }
   }
 }
 ```
+
+## Key Changes from SSE Transport
+
+- **Endpoint**: Changed from `/sse` to `/mcp`
+- **Transport**: Streamable HTTP instead of SSE (HTTP+SSE)
+- **Session Management**: Automatic via `Mcp-Session-Id` headers (no manual sessionId query params)
+- **Methods**: Single endpoint handles GET (streaming), POST (requests), DELETE (session termination)
+- **Resumability**: Built-in connection resumption via event store
+- **Reconnection**: SDK handles exponential backoff automatically

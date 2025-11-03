@@ -1,12 +1,23 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { InMemoryEventStore } from "@modelcontextprotocol/sdk/examples/shared/inMemoryEventStore.js";
+import { randomUUID } from "node:crypto";
+import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { extractClientFromUserAgent } from "./express-server.js";
 import { stateEvents, StateChangeEvent } from "../events/state-events.js";
 
 export interface Connection {
-  transport: SSEServerTransport;
+  transport: StreamableHTTPServerTransport;
   server: Server;
   clientId: string;
+  connectedAt: Date;
+}
+
+export interface SessionInfo {
+  sessionId: string;
+  clientId: string;
+  connectedAt: string;
+  duration: number; // in seconds
 }
 
 export class ConnectionManager {
@@ -19,63 +30,95 @@ export class ConnectionManager {
     });
   }
 
-  async handleSSEConnection(req: any, res: any, createMcpServer: (clientId: string) => Server): Promise<void> {
+  async handleStreamableHTTPRequest(
+    req: any,
+    res: any,
+    createMcpServer: (clientId: string) => Server
+  ): Promise<void> {
     try {
-      // Extract client ID from headers, query params, or user-agent as fallback
-      const clientId = req.headers['x-mcp-client'] || 
-                       req.headers['x-client-id'] || 
-                       req.query.client || 
-                       req.query.clientId || 
-                       extractClientFromUserAgent(req.headers['user-agent']) || 
-                       'unknown';
-      
-      const transport = new SSEServerTransport('/messages', res);
-      const serverInstance = createMcpServer(clientId); // Create new MCP server instance per connection with client ID
-      
-      this.connections[transport.sessionId] = { transport, server: serverInstance, clientId };
-      
-      // Clean up connection on close
-      res.on("close", () => {
-        console.log(`Connection closed for session: ${transport.sessionId}`);
-        delete this.connections[transport.sessionId];
-      });
-      
-      console.log(`New connection established with session: ${transport.sessionId}, client: ${clientId}`);
-      console.log(`Active connections: ${Object.keys(this.connections).length}`);
-      
-      // Each server connects to its own transport
-      await serverInstance.connect(transport);
-    } catch (error) {
-      console.error('Error establishing SSE connection:', error);
-      res.status(500).send('Failed to establish connection');
-    }
-  }
+      // Check for existing session ID in headers
+      const sessionId = req.headers['mcp-session-id'] as string;
+      let transport: StreamableHTTPServerTransport;
 
-  async handlePostMessage(req: any, res: any): Promise<void> {
-    const sessionId = req.query.sessionId as string;
-    const connection = this.connections[sessionId];
-    
-    if (connection) {
-      try {
-        // Update client ID from headers if provided in POST request
-        const headerClientId = req.headers['x-mcp-client'] || 
-                              req.headers['x-client-id'] || 
-                              extractClientFromUserAgent(req.headers['user-agent']);
-        
-        if (headerClientId && headerClientId !== connection.clientId) {
-          connection.clientId = headerClientId;
-          console.log(`Updated client ID for session ${sessionId}: ${headerClientId}`);
-        }
-        
-        await connection.transport.handlePostMessage(req, res);
-      } catch (error) {
-        console.error(`Error handling message for session ${sessionId}:`, error);
-        res.status(500).send('Error processing message');
+      if (sessionId && this.connections[sessionId]) {
+        // Reuse existing transport for this session
+        transport = this.connections[sessionId].transport;
+      } else if (!sessionId && req.method === 'POST' && isInitializeRequest(req.body)) {
+        // New session initialization
+        // Extract client ID from headers, query params, or user-agent
+        const clientId = req.headers['x-mcp-client'] ||
+                        req.headers['x-client-id'] ||
+                        req.query.client ||
+                        req.query.clientId ||
+                        extractClientFromUserAgent(req.headers['user-agent']) ||
+                        'unknown';
+
+        // Create event store for resumability
+        const eventStore = new InMemoryEventStore();
+
+        // Create new transport with session management
+        transport = new StreamableHTTPServerTransport({
+          sessionIdGenerator: () => randomUUID(),
+          eventStore,
+          onsessioninitialized: (newSessionId: string) => {
+            console.log(`Streamable HTTP session initialized: ${newSessionId}, client: ${clientId}`);
+            // Store the connection
+            this.connections[newSessionId] = {
+              transport,
+              server: serverInstance,
+              clientId,
+              connectedAt: new Date()
+            };
+            console.log(`Active connections: ${Object.keys(this.connections).length}`);
+          },
+          onsessionclosed: (closedSessionId: string) => {
+            console.log(`Session closed: ${closedSessionId}`);
+            delete this.connections[closedSessionId];
+            console.log(`Active connections: ${Object.keys(this.connections).length}`);
+          }
+        });
+
+        // Set up transport close handler
+        transport.onclose = () => {
+          const sid = transport.sessionId;
+          if (sid && this.connections[sid]) {
+            console.log(`Transport closed for session ${sid}`);
+            delete this.connections[sid];
+          }
+        };
+
+        // Create new MCP server instance for this connection
+        const serverInstance = createMcpServer(clientId);
+
+        // Connect the server to the transport
+        await serverInstance.connect(transport);
+      } else {
+        // Invalid request - no session ID or not an initialization request
+        res.status(400).json({
+          jsonrpc: '2.0',
+          error: {
+            code: -32000,
+            message: 'Bad Request: No valid session ID provided or invalid initialization request',
+          },
+          id: null,
+        });
+        return;
       }
-    } else {
-      console.warn(`No connection found for sessionId: ${sessionId}`);
-      console.log(`Available sessions: ${Object.keys(this.connections).join(', ')}`);
-      res.status(400).send('No connection found for sessionId');
+
+      // Handle the request with the transport
+      await transport.handleRequest(req, res, req.body);
+    } catch (error) {
+      console.error('Error handling Streamable HTTP request:', error);
+      if (!res.headersSent) {
+        res.status(500).json({
+          jsonrpc: '2.0',
+          error: {
+            code: -32603,
+            message: 'Internal server error',
+          },
+          id: null,
+        });
+      }
     }
   }
 
@@ -90,7 +133,7 @@ export class ConnectionManager {
     Object.entries(this.connections).forEach(([sessionId, connection]) => {
       if (connection.clientId !== event.source_client) {
         try {
-          // Send MCP notification to client  
+          // Send MCP notification to client
           connection.server.notification({
             method: 'state_change',
             params: event
@@ -100,5 +143,49 @@ export class ConnectionManager {
         }
       }
     });
+  }
+
+  async cleanup(): Promise<void> {
+    console.log('Cleaning up all connections...');
+    for (const sessionId in this.connections) {
+      try {
+        console.log(`Closing transport for session ${sessionId}`);
+        await this.connections[sessionId].transport.close();
+        delete this.connections[sessionId];
+      } catch (error) {
+        console.error(`Error closing transport for session ${sessionId}:`, error);
+      }
+    }
+  }
+
+  getActiveSessions(): SessionInfo[] {
+    const now = new Date();
+    return Object.entries(this.connections).map(([sessionId, connection]) => {
+      const durationMs = now.getTime() - connection.connectedAt.getTime();
+      return {
+        sessionId,
+        clientId: connection.clientId,
+        connectedAt: connection.connectedAt.toISOString(),
+        duration: Math.floor(durationMs / 1000) // Convert to seconds
+      };
+    });
+  }
+
+  async disconnectSession(sessionId: string): Promise<boolean> {
+    const connection = this.connections[sessionId];
+    if (!connection) {
+      return false;
+    }
+
+    try {
+      console.log(`Manually disconnecting session: ${sessionId} (client: ${connection.clientId})`);
+      await connection.transport.close();
+      delete this.connections[sessionId];
+      console.log(`Session ${sessionId} disconnected. Active connections: ${Object.keys(this.connections).length}`);
+      return true;
+    } catch (error) {
+      console.error(`Error disconnecting session ${sessionId}:`, error);
+      return false;
+    }
   }
 }

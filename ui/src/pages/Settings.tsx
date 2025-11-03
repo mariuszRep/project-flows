@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { HeaderLayout } from '@/components/layout/HeaderLayout';
 import { useNavigate } from 'react-router-dom';
 import { ConnectionStatus } from '@/components/MCP/ConnectionStatus';
+import { ActiveSessionsCard } from '@/components/MCP/ActiveSessionsCard';
 import { useMCP } from '@/contexts/MCPContext';
 
 function Settings() {
@@ -99,6 +100,10 @@ function Settings() {
               />
             </CardContent>
           </Card>
+
+          <div className="mb-6">
+            <ActiveSessionsCard serverUrl={serverUrl.replace('/mcp', '')} />
+          </div>
 
           {/* Additional settings sections can be added here */}
         </div>

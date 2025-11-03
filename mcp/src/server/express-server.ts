@@ -4,22 +4,19 @@ import cors from "cors";
 export function createExpressApp(): express.Application {
   const app = express();
 
-  // Enable CORS for all routes
-  app.use(cors());
+  // Enable CORS with exposed headers for Streamable HTTP transport
+  app.use(cors({
+    origin: '*', // Allow all origins - adjust as needed for production
+    exposedHeaders: ['Mcp-Session-Id'], // Expose session ID header to browser clients
+  }));
 
-  // Parse JSON request bodies (but skip for MCP SSE /messages endpoint)
-  app.use((req: any, res: any, next: any) => {
-    // Skip JSON parsing for MCP SSE messages endpoint - it needs raw body stream
-    if (req.url.startsWith('/messages')) {
-      return next();
-    }
-    express.json()(req, res, next);
-  });
+  // Parse JSON request bodies for all routes
+  app.use(express.json());
 
-  // Add request timeout and connection limits (but skip for SSE connections)
+  // Add request timeout (but skip for MCP endpoint with SSE streams)
   app.use((req: any, res: any, next: any) => {
-    // Skip timeout for SSE connections since they're meant to be long-lived
-    if (req.url !== '/sse') {
+    // Skip timeout for MCP endpoint since SSE streams are long-lived
+    if (req.url !== '/mcp' || req.method === 'POST') {
       res.setTimeout(30000, () => {
         console.log('Request timeout for', req.url);
         if (!res.headersSent) {

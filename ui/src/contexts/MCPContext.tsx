@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { connectionService, ConnectionState, ConnectionProgress } from '../services/connectionService';
 import { useConnectionPersistence } from '../hooks/useConnectionPersistence';
 import { changeEventService } from '../services/changeEventService';
@@ -46,17 +45,15 @@ export const MCPProvider: React.FC<MCPProviderProps> = ({ children }) => {
     connectionState: ConnectionState.DISCONNECTED as ConnectionState,
     connectionProgress: null as ConnectionProgress | null,
   });
-  const [heartbeatCleanup, setHeartbeatCleanup] = useState<(() => void) | null>(null);
 
   const connect = useCallback(async () => {
     setState(prev => ({ ...prev, isLoading: true, error: null }));
-    
-    const result = await connectionService.connectWithRetry(
+
+    const result = await connectionService.connect(
       settings.serverUrl,
-      settings.maxRetryAttempts,
       (progress) => {
-        setState(prev => ({ 
-          ...prev, 
+        setState(prev => ({
+          ...prev,
           connectionState: progress.state,
           connectionProgress: progress,
           isLoading: progress.state === ConnectionState.CONNECTING || progress.state === ConnectionState.RECONNECTING,
@@ -66,24 +63,6 @@ export const MCPProvider: React.FC<MCPProviderProps> = ({ children }) => {
     );
 
     if (result.success && result.client && result.tools) {
-      // Setup heartbeat monitoring
-      const cleanup = connectionService.createConnectionHeartbeat(
-        result.client,
-        30000,
-        () => {
-          setState(prev => ({
-            ...prev,
-            connectionState: ConnectionState.CONNECTION_LOST,
-            error: 'Connection lost to MCP server',
-          }));
-          // Auto-reconnect if enabled
-          if (settings.autoConnect) {
-            setTimeout(() => connect(), 2000);
-          }
-        }
-      );
-      setHeartbeatCleanup(() => cleanup);
-      
       setState(prev => ({
         ...prev,
         client: result.client!,
@@ -94,7 +73,7 @@ export const MCPProvider: React.FC<MCPProviderProps> = ({ children }) => {
         connectionState: ConnectionState.CONNECTED,
         connectionProgress: null,
       }));
-      
+
       updateLastConnection();
       console.log('Connected to MCP server', { tools: result.tools!.length });
     } else {
@@ -106,15 +85,9 @@ export const MCPProvider: React.FC<MCPProviderProps> = ({ children }) => {
         error: result.error || 'Connection failed',
       }));
     }
-  }, [settings.serverUrl, settings.maxRetryAttempts, settings.autoConnect, updateLastConnection]);
+  }, [settings.serverUrl, updateLastConnection]);
 
   const disconnect = useCallback(async () => {
-    // Cleanup heartbeat
-    if (heartbeatCleanup) {
-      heartbeatCleanup();
-      setHeartbeatCleanup(null);
-    }
-    
     if (state.client) {
       try {
         await state.client.close();
@@ -132,7 +105,7 @@ export const MCPProvider: React.FC<MCPProviderProps> = ({ children }) => {
       connectionState: ConnectionState.DISCONNECTED,
       connectionProgress: null,
     }));
-  }, [state.client, heartbeatCleanup]);
+  }, [state.client]);
 
   const callTool = useCallback(async (name: string, args: any = {}) => {
     if (!state.client || !state.isConnected) {
@@ -188,14 +161,11 @@ export const MCPProvider: React.FC<MCPProviderProps> = ({ children }) => {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (heartbeatCleanup) {
-        heartbeatCleanup();
-      }
       if (state.client) {
         state.client.close().catch(console.error);
       }
     };
-  }, [state.client, heartbeatCleanup]);
+  }, [state.client]);
 
   // Listen for browser online/offline events
   useEffect(() => {
