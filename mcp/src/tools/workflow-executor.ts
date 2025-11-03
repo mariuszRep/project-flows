@@ -772,12 +772,29 @@ export class WorkflowExecutor {
           toolParams.stage = this.interpolateValue(step.stage, context);
         }
 
-        // Add related if specified (with interpolation support for array elements)
+        // Add related if specified (with interpolation support for array expansion)
         if (step.related !== undefined) {
-          toolParams.related = step.related.map(entry => ({
-            id: typeof entry.id === 'string' ? this.interpolateValue(entry.id, context) : entry.id,
-            object: typeof entry.object === 'string' ? this.interpolateValue(entry.object, context) : entry.object
-          }));
+          const relatedEntries: RelatedEntry[] = [];
+          for (const entry of step.related) {
+            const interpolatedId = typeof entry.id === 'string' ? this.interpolateValue(entry.id, context) : entry.id;
+            const interpolatedObject = typeof entry.object === 'string' ? this.interpolateValue(entry.object, context) : entry.object;
+
+            // If interpolated ID is an array, expand into multiple related entries
+            if (Array.isArray(interpolatedId)) {
+              console.log(`[Workflow ${step.name}] Expanding array parameter with ${interpolatedId.length} value(s) for '${interpolatedObject}' relationship`);
+              for (const id of interpolatedId) {
+                // Skip undefined, null, or empty values
+                if (id !== undefined && id !== null && id !== '') {
+                  relatedEntries.push({ id, object: interpolatedObject });
+                }
+              }
+            } else if (interpolatedId !== undefined && interpolatedId !== null && interpolatedId !== '') {
+              // Single value - add as-is
+              relatedEntries.push({ id: interpolatedId, object: interpolatedObject });
+            }
+            // Skip entries with undefined/null/empty IDs
+          }
+          toolParams.related = relatedEntries;
         }
 
         const result = await this.toolCaller.callTool('create_object', toolParams);
@@ -1119,7 +1136,8 @@ export class WorkflowExecutor {
   }
 
   /**
-   * Validate inputs against JSON Schema
+   * Normalize and validate inputs against JSON Schema
+   * Auto-coerces single values to arrays when schema expects array type
    */
   private validateInputs(schema: any, inputs: Record<string, any>): void {
     if (!schema || !schema.properties) {
@@ -1134,13 +1152,20 @@ export class WorkflowExecutor {
       }
     }
 
-    // Basic type validation
+    // Normalize and validate types
     for (const [field, value] of Object.entries(inputs)) {
       const fieldSchema = schema.properties[field];
       if (!fieldSchema) continue;
 
       const expectedType = fieldSchema.type;
       const actualType = Array.isArray(value) ? 'array' : typeof value;
+
+      // Auto-coerce single values to arrays when schema expects array
+      if (expectedType === 'array' && !Array.isArray(value)) {
+        console.log(`[Workflow] Auto-coercing input '${field}' from single value to array`);
+        inputs[field] = [value];
+        continue;
+      }
 
       if (expectedType === 'string' && actualType !== 'string') {
         throw new Error(`Input field '${field}' must be a string`);
@@ -1150,9 +1175,6 @@ export class WorkflowExecutor {
       }
       if (expectedType === 'boolean' && actualType !== 'boolean') {
         throw new Error(`Input field '${field}' must be a boolean`);
-      }
-      if (expectedType === 'array' && !Array.isArray(value)) {
-        throw new Error(`Input field '${field}' must be an array`);
       }
       if (expectedType === 'object' && (actualType !== 'object' || Array.isArray(value))) {
         throw new Error(`Input field '${field}' must be an object`);

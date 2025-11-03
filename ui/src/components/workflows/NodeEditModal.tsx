@@ -185,9 +185,7 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
           related.forEach((entry: any) => {
             parsedParents[entry.object] = {
               enabled: true,
-              properties: entry.properties || {},
-              propertyEnabled: entry.propertyEnabled || {},
-              availableProperties: []
+              id: entry.id || ''
             };
           });
           // Merge with allowed types (will be set by loadTemplateSchema)
@@ -399,15 +397,18 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
           if (templateData.related_schema && Array.isArray(templateData.related_schema)) {
             setAllowedParentTypes(templateData.related_schema);
 
-            // Initialize relatedParents state with all allowed types
-            const initialParents: Record<string, any> = {};
-            templateData.related_schema.forEach((schema: any) => {
-              initialParents[schema.key] = {
-                enabled: false,
-                id: ''
-              };
+            // Initialize relatedParents state with all allowed types, preserving any existing values from config
+            setRelatedParents(prev => {
+              const initialParents: Record<string, any> = {};
+              templateData.related_schema.forEach((schema: any) => {
+                // If parent was already loaded from config, keep it; otherwise initialize with defaults
+                initialParents[schema.key] = prev[schema.key] || {
+                  enabled: false,
+                  id: ''
+                };
+              });
+              return initialParents;
             });
-            setRelatedParents(initialParents);
           } else {
             setAllowedParentTypes([]);
             setRelatedParents({});
@@ -931,7 +932,7 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
                       </div>
 
                       {inputParameters.map((param, index) => (
-                        <div key={index} className="border rounded-lg p-3 bg-background space-y-2">
+                        <div key={index} className="rounded-lg p-3 bg-background space-y-2">
                           <div className="grid grid-cols-[1.5fr_1.5fr_120px_80px_40px] gap-2 items-center">
                             <Input
                               value={param.name}
@@ -1052,7 +1053,7 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
                       </div>
 
                       {toolParameters.map((param, index) => (
-                        <div key={index} className="border rounded-lg p-3 bg-background">
+                        <div key={index} className="rounded-lg p-3 bg-background">
                           <div className="grid grid-cols-[1fr_2fr_40px] gap-2 items-center">
                             <div className="flex items-center gap-1">
                               <Input
@@ -1147,7 +1148,7 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
                           const currentValue = selectedProperties[property.key] || '';
 
                           return (
-                            <div key={property.key} className="border rounded-lg p-3 bg-background">
+                            <div key={property.key} className="rounded-lg p-3 bg-background">
                               <div className="flex items-start gap-3">
                                 {/* Enable/Disable Checkbox */}
                                 <div className="pt-2">
@@ -1301,7 +1302,7 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
                         const templateIds = parentSchema.allowed_types || [];
 
                         return (
-                          <div key={parentKey} className="border rounded-lg p-4 bg-muted/5">
+                          <div key={parentKey} className="rounded-lg p-4 bg-muted/5">
                             {/* Header with Enable/Disable and Type Label */}
                             <div className="flex items-start gap-3">
                               <div className="pt-1">
@@ -1442,7 +1443,7 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
                               const currentValue = selectedProperties[propKey];
 
                               return (
-                                <div key={propKey} className="border rounded-lg p-3 bg-background">
+                                <div key={propKey} className="rounded-lg p-3 bg-background">
                                   <div className="flex items-center justify-between mb-2">
                                     <div className="flex items-center gap-2">
                                       <Label className="text-sm font-medium">{propKey}</Label>
