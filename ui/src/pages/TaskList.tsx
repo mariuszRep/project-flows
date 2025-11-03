@@ -20,7 +20,7 @@ import { MCPDisconnectedState } from '@/components/ui/empty-state';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { ProjectSidebar } from '@/components/ui/project-sidebar';
 import { parseTaskDate } from '@/lib/utils';
-import { FileText, Plus, ArrowRight, Filter, ChevronDown, CheckSquare, Layers } from 'lucide-react';
+import { FileText, Plus, ArrowRight, Filter, ChevronDown, CheckSquare, Layers, Gavel } from 'lucide-react';
 import ObjectView, { TEMPLATE_ID } from '@/components/forms/ObjectForm';
 
 const DraftTasks = () => {
@@ -43,6 +43,7 @@ const DraftTasks = () => {
   const [editingProjectId, setEditingProjectId] = useState<number | null>(null);
   const [showAddTaskForm, setShowAddTaskForm] = useState(false);
   const [showCreateEpicForm, setShowCreateEpicForm] = useState(false);
+  const [showCreateRuleForm, setShowCreateRuleForm] = useState(false);
   const [sidebarRefreshTrigger, setSidebarRefreshTrigger] = useState(0);
   
   // Filter state - default to all stages selected
@@ -702,6 +703,10 @@ const DraftTasks = () => {
               <Layers className="h-4 w-4 mr-2" />
               Epic
             </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleCreateEntity('rule')}>
+              <Gavel className="h-4 w-4 mr-2" />
+              Rule
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
         <Button variant="outline" onClick={() => navigate('/task-board')}>
@@ -766,11 +771,21 @@ const DraftTasks = () => {
     await fetchAllEntities();
   };
 
-  const handleCreateEntity = (entityType: 'task' | 'epic') => {
+  const handleRuleSuccess = async (rule: any) => {
+    console.log('Rule created successfully:', rule);
+    setShowCreateRuleForm(false);
+    setError(null);
+    // Refresh entities
+    await fetchAllEntities();
+  };
+
+  const handleCreateEntity = (entityType: 'task' | 'epic' | 'rule') => {
     if (entityType === 'task') {
       setShowAddTaskForm(true);
     } else if (entityType === 'epic') {
       setShowCreateEpicForm(true);
+    } else if (entityType === 'rule') {
+      setShowCreateRuleForm(true);
     }
   };
 
@@ -841,6 +856,10 @@ const DraftTasks = () => {
                 <DropdownMenuItem onClick={() => handleCreateEntity('epic')}>
                   <Layers className="h-4 w-4 mr-2" />
                   Epic
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleCreateEntity('rule')}>
+                  <Gavel className="h-4 w-4 mr-2" />
+                  Rule
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -1053,6 +1072,21 @@ const DraftTasks = () => {
             }}
             onSuccess={handleEpicSuccess}
             templateId={3}
+          />
+        )}
+
+        {/* Rule Creation using ObjectView create mode */}
+        {showCreateRuleForm && (
+          <ObjectView
+            entityType="rule"
+            createMode={true}
+            isOpen={showCreateRuleForm}
+            onClose={() => {
+              setShowCreateRuleForm(false);
+              setError(null);
+            }}
+            onSuccess={handleRuleSuccess}
+            templateId={TEMPLATE_ID.RULE}
           />
         )}
         
