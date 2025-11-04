@@ -55,8 +55,15 @@ const nodeTypes: NodeTypes = {
 };
 
 function workflowToReactFlow(workflow: WorkflowData): { nodes: Node[]; edges: Edge[] } {
-  const nodes: Node[] = workflow.steps.map((step, index) => {
-    const stepType = step.step_type || step.type || 'log';
+  // Filter out legacy node types when loading workflows
+  const legacyNodeTypes = ['start', 'end', 'call_tool', 'log', 'set_variable', 'conditional', 'return', 'load_state', 'save_state', 'switch'];
+  const activeSteps = workflow.steps.filter(step => {
+    const stepType = step.step_type || step.type || '';
+    return !legacyNodeTypes.includes(stepType);
+  });
+
+  const nodes: Node[] = activeSteps.map((step, index) => {
+    const stepType = step.step_type || step.type || 'agent';
 
     return {
       id: `step-${index}`,
@@ -73,7 +80,7 @@ function workflowToReactFlow(workflow: WorkflowData): { nodes: Node[]; edges: Ed
     };
   });
 
-  const edges: Edge[] = workflow.steps.slice(0, -1).map((step, index) => ({
+  const edges: Edge[] = activeSteps.slice(0, -1).map((step, index) => ({
     id: `edge-${index}`,
     source: `step-${index}`,
     target: `step-${index + 1}`,
