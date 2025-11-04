@@ -1052,30 +1052,6 @@ class DatabaseService {
 
       console.log(`Template created successfully with ID: ${templateId}`);
 
-      // Auto-create start node for workflow templates
-      if (type === 'workflow') {
-        const toolName = templateData.name.toLowerCase().replace(/\s+/g, '_');
-        await this.createProperty(
-          templateId,
-          {
-            key: 'start',
-            type: 'text',
-            description: 'Workflow start node - defines tool parameters and metadata',
-            execution_order: 0,
-            fixed: true,
-            step_type: 'start',
-            step_config: {
-              tool_name: toolName,
-              display_description: templateData.description.trim(),
-              tool_description: templateData.description.trim(),
-              input_parameters: []
-            }
-          },
-          userId
-        );
-        console.log(`Auto-created start node for workflow template ${templateId} with tool_name: ${toolName}`);
-      }
-
       return templateId;
     } catch (error) {
       console.error('Error creating template:', error);
@@ -1293,50 +1269,6 @@ class DatabaseService {
   }
 
   /**
-   * Gets the start node for a workflow template.
-   * Start node is identified by step_type='start' and execution_order=0.
-   * @param templateId - The workflow template ID
-   * @returns The start node property if found, null otherwise
-   */
-  async getWorkflowStartNode(templateId: number): Promise<(SchemaProperty & { key: string; step_type?: string; step_config?: any }) | null> {
-    try {
-      const query = `
-        SELECT id, template_id, key, type, description, dependencies, execution_order, fixed,
-               created_by, updated_by, created_at, updated_at, step_type, step_config
-        FROM template_properties
-        WHERE template_id = $1 AND step_type = 'start' AND execution_order = 0
-        LIMIT 1
-      `;
-      const result = await this.pool.query(query, [templateId]);
-
-      if (result.rows.length === 0) {
-        return null;
-      }
-
-      const row = result.rows[0];
-      return {
-        id: row.id,
-        template_id: row.template_id,
-        key: row.key,
-        type: row.type,
-        description: row.description,
-        dependencies: row.dependencies,
-        execution_order: row.execution_order,
-        fixed: row.fixed,
-        created_by: row.created_by,
-        updated_by: row.updated_by,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
-        step_type: row.step_type,
-        step_config: row.step_config
-      };
-    } catch (error) {
-      console.error('Error fetching workflow start node:', error);
-      return null;
-    }
-  }
-
-  /**
    * Updates the publish state of a workflow template.
    * Sets metadata.published flag to true or false.
    * @param templateId - The workflow template ID
@@ -1380,7 +1312,7 @@ class DatabaseService {
 
   /**
    * Validates that a workflow has a valid structure for publishing.
-   * Checks for start node presence and valid configuration.
+   * Checks for at least one executable step (agent, create_object, or load_object).
    * @param templateId - The workflow template ID
    * @returns Validation result with success flag and error message if failed
    */
@@ -1396,34 +1328,24 @@ class DatabaseService {
         return { valid: false, error: `Template ${templateId} is not a workflow (type: ${template.type})` };
       }
 
-      // Check for start node
-      const startNode = await this.getWorkflowStartNode(templateId);
-      if (!startNode) {
-        return { valid: false, error: 'Workflow must have a start node (step_type="start", execution_order=0)' };
+      // Check for at least one executable step
+      const properties = await this.listProperties(templateId);
+      const executableSteps = properties.filter((prop: any) => {
+        const stepType = prop.step_type || '';
+        return ['agent', 'create_object', 'load_object'].includes(stepType);
+      });
+
+      if (executableSteps.length === 0) {
+        return {
+          valid: false,
+          error: 'Workflow must have at least one executable step (agent, create_object, or load_object)'
+        };
       }
 
-      // Validate start node configuration
-      const stepConfig = startNode.step_config || {};
-
-      if (!stepConfig.tool_name || typeof stepConfig.tool_name !== 'string' || !stepConfig.tool_name.trim()) {
-        return { valid: false, error: 'Start node must have a valid tool_name in step_config' };
-      }
-
-      // Validate input_parameters if present
-      if (stepConfig.input_parameters) {
-        if (!Array.isArray(stepConfig.input_parameters)) {
-          return { valid: false, error: 'Start node input_parameters must be an array' };
-        }
-
-        // Validate each parameter
-        for (const param of stepConfig.input_parameters) {
-          if (!param.name || typeof param.name !== 'string') {
-            return { valid: false, error: 'Each input parameter must have a name' };
-          }
-          if (!param.type || !['string', 'number', 'boolean', 'array', 'object'].includes(param.type)) {
-            return { valid: false, error: `Input parameter "${param.name}" has invalid type: ${param.type}` };
-          }
-        }
+      // Validate tool name in metadata
+      const metadata = template.metadata || {};
+      if (!metadata.mcp_tool_name || typeof metadata.mcp_tool_name !== 'string' || !metadata.mcp_tool_name.trim()) {
+        return { valid: false, error: 'Workflow must have a valid mcp_tool_name in template metadata' };
       }
 
       return { valid: true };
