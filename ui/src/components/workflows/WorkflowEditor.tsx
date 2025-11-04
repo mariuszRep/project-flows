@@ -17,41 +17,36 @@ interface WorkflowEditorProps {
 
 const EXAMPLE_WORKFLOW = {
   name: "example_workflow",
-  description: "Example workflow that logs a message",
+  description: "Example workflow that creates a task using an agent",
   inputSchema: {
     type: "object",
     properties: {
-      message: {
+      task_title: {
         type: "string",
-        description: "Message to log"
+        description: "Title for the task to create"
       }
     },
-    required: ["message"]
+    required: ["task_title"]
   },
   steps: [
     {
-      name: "log_start",
-      type: "log",
-      message: "Starting workflow with message: {{input.message}}"
+      name: "analyze_task",
+      type: "agent",
+      instructions: [
+        "Analyze the task title: {{input.task_title}}",
+        "Generate a detailed description for this task"
+      ]
     },
     {
-      name: "set_result",
-      type: "set_variable",
-      variableName: "result",
-      value: "{{input.message}}"
-    },
-    {
-      name: "log_result",
-      type: "log",
-      message: "Result: {{result}}"
-    },
-    {
-      name: "return_result",
-      type: "return",
-      value: {
-        success: true,
-        message: "{{result}}"
-      }
+      name: "create_task",
+      type: "create_object",
+      templateId: 1,
+      properties: {
+        Title: "{{input.task_title}}",
+        Description: "{{steps.analyze_task.output}}"
+      },
+      stage: "draft",
+      resultVariable: "created_task"
     }
   ]
 };
@@ -193,18 +188,17 @@ export function WorkflowEditor({ workflow, onSave, onCancel }: WorkflowEditorPro
             <div>
               <h4 className="font-semibold mb-2">Step Types:</h4>
               <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                <li><code className="text-xs bg-muted px-1 py-0.5 rounded">log</code> - Output message to logs</li>
-                <li><code className="text-xs bg-muted px-1 py-0.5 rounded">set_variable</code> - Store value in variable</li>
-                <li><code className="text-xs bg-muted px-1 py-0.5 rounded">conditional</code> - Execute conditional logic</li>
-                <li><code className="text-xs bg-muted px-1 py-0.5 rounded">return</code> - Return result and stop execution</li>
+                <li><code className="text-xs bg-muted px-1 py-0.5 rounded">agent</code> - AI agent execution with instructions</li>
+                <li><code className="text-xs bg-muted px-1 py-0.5 rounded">create_object</code> - Create objects (Task, Project, Epic, Rule)</li>
+                <li><code className="text-xs bg-muted px-1 py-0.5 rounded">load_object</code> - Load object property schemas</li>
               </ul>
             </div>
 
             <div>
               <h4 className="font-semibold mb-2">Variable Interpolation:</h4>
               <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                <li><code className="text-xs bg-muted px-1 py-0.5 rounded">{'{{input.fieldName}}'}</code> - Access input field</li>
-                <li><code className="text-xs bg-muted px-1 py-0.5 rounded">{'{{variableName}}'}</code> - Access variable</li>
+                <li><code className="text-xs bg-muted px-1 py-0.5 rounded">{'{{input.fieldName}}'}</code> - Access workflow input parameter</li>
+                <li><code className="text-xs bg-muted px-1 py-0.5 rounded">{'{{steps.stepName.output}}'}</code> - Access previous step result</li>
               </ul>
             </div>
           </div>

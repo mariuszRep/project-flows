@@ -4,13 +4,13 @@
 
 export interface WorkflowStep {
   name: string;
-  type: 'log' | 'set_variable' | 'conditional' | 'return';
-  message?: string;
-  variableName?: string;
-  value?: any;
-  condition?: string;
-  then?: WorkflowStep[];
-  else?: WorkflowStep[];
+  type: 'agent' | 'create_object' | 'load_object';
+  instructions?: string[];
+  templateId?: number;
+  properties?: Record<string, any>;
+  resultVariable?: string;
+  stage?: string;
+  related?: any[];
 }
 
 export interface WorkflowDefinition {
@@ -142,8 +142,8 @@ export const workflowStorageService = {
         if (!step.name || typeof step.name !== 'string') {
           errors.push(`Step ${index + 1}: name is required and must be a string`);
         }
-        if (!step.type || !['log', 'set_variable', 'conditional', 'return'].includes(step.type)) {
-          errors.push(`Step ${index + 1}: type must be one of: log, set_variable, conditional, return`);
+        if (!step.type || !['agent', 'create_object', 'load_object'].includes(step.type)) {
+          errors.push(`Step ${index + 1}: type must be one of: agent, create_object, load_object`);
         }
       });
     }

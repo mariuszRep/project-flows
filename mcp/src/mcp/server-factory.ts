@@ -426,9 +426,7 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
     sharedDbService,
     clientId,
     loadDynamicSchemaProperties,
-    createExecutionChain,
-    validateDependencies,
-    projectTools
+    createExecutionChain
   );
 
   const epicTools = createEpicTools(

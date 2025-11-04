@@ -1,8 +1,6 @@
-import { Tool, TextContent } from "@modelcontextprotocol/sdk/types.js";
-import { TaskData, TaskStage } from "../types/task.js";
+import { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { SchemaProperties, ExecutionChainItem } from "../types/property.js";
 import DatabaseService from "../database.js";
-import { handleCreate } from "./create-handler.js";
 import { handleUpdate } from "./update-handler.js";
 
 export class TaskTools {
@@ -10,42 +8,11 @@ export class TaskTools {
     private sharedDbService: DatabaseService,
     private clientId: string,
     private loadDynamicSchemaProperties: () => Promise<SchemaProperties>,
-    private createExecutionChain: (properties: SchemaProperties) => ExecutionChainItem[],
-    private validateDependencies: (properties: SchemaProperties, args: Record<string, any>, isUpdateContext?: boolean) => boolean,
-    private projectTools?: any
+    private createExecutionChain: (properties: SchemaProperties) => ExecutionChainItem[]
   ) {}
 
   getToolDefinitions(allProperties: Record<string, any>): Tool[] {
     return [
-      {
-        name: "create_task",
-        description: "Create a task by following each property's individual prompt instructions exactly. Each field (Title, Description, etc.) has specific formatting requirements - read and follow each property's prompt precisely. Do not impose your own formatting or structure. Each property prompt defines exactly what content and format is required for that field. Use the related array to create hierarchical tasks (e.g., subtasks under a project).",
-        inputSchema: {
-          type: "object",
-          properties: {
-            related: {
-              type: "array",
-              description: "Optional parent relationship array (max 1 entry). Example: [{ \"id\": 42, \"object\": \"project\" }]",
-              items: {
-                type: "object",
-                properties: {
-                  id: {
-                    type: "number",
-                    description: "Parent object ID"
-                  },
-                  object: {
-                    type: "string",
-                    description: "Parent object type: 'task', 'project', 'epic', or 'rule'"
-                  }
-                },
-                required: ["id", "object"]
-              }
-            },
-            ...allProperties
-          },
-          required: ["Title", "Description"],
-        },
-      } as Tool,
       {
         name: "update_task",
         description: "Update an existing task plan by task ID. Provide the task_id and any subset of fields to update. All fields except task_id are optional. To change a task's stage, include the 'stage' parameter with one of these values: 'draft', 'backlog', 'doing', 'review', or 'completed'.",
@@ -82,35 +49,16 @@ export class TaskTools {
   }
 
   canHandle(toolName: string): boolean {
-    return ["create_task", "update_task"].includes(toolName);
+    return ["update_task"].includes(toolName);
   }
 
   async handle(name: string, toolArgs?: Record<string, any>) {
     switch (name) {
-      case "create_task":
-        return await this.handleCreateTask(toolArgs);
       case "update_task":
         return await this.handleUpdateTask(toolArgs);
       default:
         throw new Error(`Unknown task tool: ${name}`);
     }
-  }
-
-  private async handleCreateTask(toolArgs?: Record<string, any>) {
-    return handleCreate(
-      {
-        templateId: 1,
-        typeName: "Task",
-        responseIdField: "task_id",
-        loadSchema: this.loadDynamicSchemaProperties,
-      },
-      toolArgs,
-      this.sharedDbService,
-      this.clientId,
-      this.createExecutionChain,
-      this.validateDependencies,
-      this.projectTools
-    );
   }
 
   private async handleUpdateTask(toolArgs?: Record<string, any>) {
@@ -173,16 +121,12 @@ export function createTaskTools(
   sharedDbService: DatabaseService,
   clientId: string,
   loadDynamicSchemaProperties: () => Promise<SchemaProperties>,
-  createExecutionChain: (properties: SchemaProperties) => ExecutionChainItem[],
-  validateDependencies: (properties: SchemaProperties, args: Record<string, any>, isUpdateContext?: boolean) => boolean,
-  projectTools?: any
+  createExecutionChain: (properties: SchemaProperties) => ExecutionChainItem[]
 ): TaskTools {
   return new TaskTools(
     sharedDbService,
     clientId,
     loadDynamicSchemaProperties,
-    createExecutionChain,
-    validateDependencies,
-    projectTools
+    createExecutionChain
   );
 }

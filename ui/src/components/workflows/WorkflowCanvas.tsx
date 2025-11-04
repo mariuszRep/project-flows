@@ -17,8 +17,6 @@ import ReactFlow, {
   EdgeChange,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { StartNode } from './nodes/StartNode';
-import { EndNode } from './nodes/EndNode';
 import { AgentNode } from './nodes/AgentNode';
 import { CreateObjectNode } from './nodes/CreateObjectNode';
 import { LoadObjectNode } from './nodes/LoadObjectNode';
@@ -51,8 +49,6 @@ interface WorkflowData {
 }
 
 const nodeTypes: NodeTypes = {
-  start: StartNode,
-  end: EndNode,
   agent: AgentNode,
   create_object: CreateObjectNode,
   load_object: LoadObjectNode,
