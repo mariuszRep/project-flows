@@ -277,12 +277,10 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
     try {
       console.log('=== SAVE WORKFLOW DEBUG ===');
       console.log('All nodes:', nodes);
-      console.log('Nodes to process (excluding end):', nodes.filter(node => node.type !== 'end'));
 
       // CRITICAL FIX: Sort nodes by X position first, then assign execution_order
       // This ensures visual left-to-right order matches database execution order
       const currentSteps = nodes
-        .filter(node => node.type !== 'end')
         .sort((a, b) => a.position.x - b.position.x) // Sort by X position (left to right)
         .map((node, index) => ({
           id: node.data.dbId, // Include database ID if it exists
@@ -452,9 +450,6 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
       // CRITICAL FIX: Update nodes with database IDs so they don't get re-created on next save
       setNodes((nds) =>
         nds.map((node) => {
-          // Skip end nodes
-          if (node.type === 'end') return node;
-
           // Find the step by matching label
           const matchingStep = updatedOriginalSteps.find(
             step => step.name === node.data.label

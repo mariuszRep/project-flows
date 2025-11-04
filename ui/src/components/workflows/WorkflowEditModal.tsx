@@ -90,38 +90,10 @@ export function WorkflowEditModal({
     const nodeData = node.data as any;
     const parameters: Array<{ key: string; type: string; description?: string }> = [];
 
-    // Start nodes - extract from input_parameters
-    if (node.type === 'start' && nodeData?.config?.input_parameters) {
-      const inputParams = nodeData.config.input_parameters;
-      if (Array.isArray(inputParams)) {
-        inputParams.forEach((param: any) => {
-          if (param.key) {
-            parameters.push({
-              key: param.key,
-              type: param.type || 'string',
-              description: param.description,
-            });
-          }
-        });
-      }
-    }
-
     // Load object / Create object nodes - extract from properties
     if ((node.type === 'load_object' || node.type === 'create_object') && nodeData?.config?.properties) {
       const properties = nodeData.config.properties;
       Object.entries(properties).forEach(([key, value]: [string, any]) => {
-        parameters.push({
-          key,
-          type: typeof value === 'object' && value?.type ? value.type : 'string',
-          description: typeof value === 'object' && value?.description ? value.description : undefined,
-        });
-      });
-    }
-
-    // Call tool nodes - extract from parameters
-    if (node.type === 'call_tool' && nodeData?.config?.parameters) {
-      const params = nodeData.config.parameters;
-      Object.entries(params).forEach(([key, value]: [string, any]) => {
         parameters.push({
           key,
           type: typeof value === 'object' && value?.type ? value.type : 'string',
