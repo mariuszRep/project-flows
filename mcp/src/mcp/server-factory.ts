@@ -50,7 +50,7 @@ async function loadWorkflowsFromDatabase(dbService: DatabaseService): Promise<vo
     // Load each workflow
     for (const template of workflowTemplates) {
       try {
-        // Load workflow definition using workflow executor (extracts tool name from start node)
+        // Load workflow definition using workflow executor (extracts tool name from template metadata)
         const workflow = await workflowExecutor.loadWorkflowFromDatabase(template.id);
 
         if (!workflow) {
