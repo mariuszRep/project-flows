@@ -5,10 +5,11 @@
 
 import DatabaseService from '../database.js';
 import { RelatedEntry } from './create-handler.js';
+import { functionRegistry } from '../workflow-functions/function-registry.js';
 
 export interface WorkflowStep {
   name: string;
-  type: 'agent' | 'create_object' | 'load_object';
+  type: 'agent' | 'create_object' | 'load_object' | 'call_function';
   // Agent fields
   instructions?: string[];
   // Create/Load object fields
@@ -17,6 +18,9 @@ export interface WorkflowStep {
   resultVariable?: string;
   stage?: string;
   related?: RelatedEntry[];
+  // Call function fields
+  functionName?: string;
+  parameters?: Record<string, any>;
   status?: 'pending' | 'completed' | 'failed';
 }
 
@@ -139,6 +143,12 @@ export class WorkflowExecutor {
           case 'load_object':
             step.templateId = config.template_id;
             step.properties = config.properties;
+            step.resultVariable = config.result_variable;
+            break;
+
+          case 'call_function':
+            step.functionName = config.function_name;
+            step.parameters = config.parameters;
             step.resultVariable = config.result_variable;
             break;
 
@@ -459,6 +469,10 @@ export class WorkflowExecutor {
         await this.executeLoadObject(step, context);
         break;
 
+      case 'call_function':
+        await this.executeCallFunction(step, context);
+        break;
+
       default:
         throw new Error(`Unknown step type: ${(step as any).type}`);
     }
@@ -756,6 +770,58 @@ export class WorkflowExecutor {
 
     // Set this as the workflow result to pause execution
     context.result = returnValue;
+  }
+
+  /**
+   * Execute call_function step - calls an internal workflow function
+   * This step type executes automatically and continues to the next step (does not pause)
+   */
+  private async executeCallFunction(step: WorkflowStep, context: ExecutionContext): Promise<void> {
+    if (!step.functionName) {
+      throw new Error('call_function step requires a functionName');
+    }
+
+    console.log(`[Workflow ${step.name}] Calling function: ${step.functionName}`);
+
+    // Check if function exists in registry
+    if (!functionRegistry.has(step.functionName)) {
+      throw new Error(`Function '${step.functionName}' not found in function registry`);
+    }
+
+    // Interpolate parameters with context values
+    const interpolatedParams = this.interpolateValue(step.parameters || {}, context);
+    console.log(`[Workflow ${step.name}] Function parameters:`, interpolatedParams);
+
+    try {
+      // Call the function
+      const result = await functionRegistry.call(step.functionName, interpolatedParams);
+      console.log(`[Workflow ${step.name}] Function result:`, result);
+
+      // Check if function execution was successful
+      if (!result.success) {
+        throw new Error(`Function execution failed: ${result.error || 'Unknown error'}`);
+      }
+
+      // Store result in step results
+      context.stepResults.push({
+        step: step.name,
+        type: 'call_function',
+        status: 'completed',
+        output: result.data
+      });
+
+      // Store in variable if specified
+      if (step.resultVariable) {
+        context.variables.set(step.resultVariable, result.data);
+        console.log(`[Workflow ${step.name}] Stored result in variable: ${step.resultVariable}`);
+      }
+
+      // Continue to next step (don't set context.result - that would pause the workflow)
+      return;
+    } catch (error) {
+      console.error(`[Workflow ${step.name}] Function execution error:`, error);
+      throw new Error(`Function '${step.functionName}' execution failed: ${(error as Error).message}`);
+    }
   }
 
   /**

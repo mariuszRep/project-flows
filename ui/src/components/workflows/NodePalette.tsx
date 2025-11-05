@@ -1,5 +1,5 @@
 import { Card } from '@/components/ui/card';
-import { Bot, Database, FolderOpen } from 'lucide-react';
+import { Bot, Database, FolderOpen, Code } from 'lucide-react';
 
 export interface NodeType {
   type: string;
@@ -30,6 +30,13 @@ export const nodeTypes: NodeType[] = [
     icon: FolderOpen,
     color: 'bg-blue-500',
     description: 'Load object properties for agent population'
+  },
+  {
+    type: 'call_function',
+    label: 'Function',
+    icon: Code,
+    color: 'bg-orange-500',
+    description: 'Call internal workflow function'
   }
 ];
 
