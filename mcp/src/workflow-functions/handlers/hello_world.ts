@@ -9,7 +9,7 @@ export interface FunctionResult {
   error?: string;
 }
 
-export default async function hello_world(params: { name?: string }): Promise<FunctionResult> {
+export default async function hello_world(params: { name?: string }, context?: any): Promise<FunctionResult> {
   const name = params.name || "World";
   const message = `Hello, ${name}!`;
 

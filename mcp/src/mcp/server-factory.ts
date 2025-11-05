@@ -552,6 +552,9 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
   // Trigger workflow loading (don't await here, will await in tool list handler)
   ensureWorkflowsLoaded(sharedDbService);
 
+  // Trigger function loading (don't await here, will await in tool list handler)
+  ensureFunctionsLoaded(sharedDbService);
+
   // Set up tool list handler
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     // Ensure workflows are loaded before returning tool list

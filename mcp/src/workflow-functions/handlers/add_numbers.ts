@@ -9,7 +9,7 @@ export interface FunctionResult {
   error?: string;
 }
 
-export default async function add_numbers(params: { a: any; b: any }): Promise<FunctionResult> {
+export default async function add_numbers(params: { a: any; b: any }, context?: any): Promise<FunctionResult> {
   console.log('add_numbers called with params:', JSON.stringify(params));
 
   // Handle both direct values and { type, value } objects

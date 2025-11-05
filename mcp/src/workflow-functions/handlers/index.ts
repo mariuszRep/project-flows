@@ -11,4 +11,5 @@
 export const handlers: Record<string, () => Promise<any>> = {
   add_numbers: () => import('./add_numbers.js').then(m => m.default),
   hello_world: () => import('./hello_world.js').then(m => m.default),
+  get_object: () => import('./get_object.js').then(m => m.default),
 };

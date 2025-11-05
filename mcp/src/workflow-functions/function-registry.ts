@@ -34,7 +34,7 @@ export interface FunctionResult {
 /**
  * Function signature
  */
-type WorkflowFunction = (params: any) => Promise<FunctionResult>;
+type WorkflowFunction = (params: any, context?: any) => Promise<FunctionResult>;
 
 /**
  * Function Registry
@@ -43,12 +43,16 @@ class FunctionRegistry {
   private functions: Map<string, WorkflowFunction> = new Map();
   private definitions: Map<string, FunctionDefinition> = new Map();
   private loaded = false;
+  private dbService?: DatabaseService;
 
   /**
    * Load function definitions from database (type='node')
    */
   async loadFromDatabase(dbService: DatabaseService): Promise<void> {
     console.log('[FunctionRegistry] Loading function nodes from database...');
+
+    // Store dbService for context injection
+    this.dbService = dbService;
 
     try {
       // Get all templates with type='node'
@@ -145,7 +149,12 @@ class FunctionRegistry {
         }
       }
 
-      return await fn(processedParams);
+      // Inject context for handlers that need it (e.g., get_object needs dbService)
+      const context = {
+        dbService: this.dbService
+      };
+
+      return await fn(processedParams, context);
     } catch (error: any) {
       return {
         success: false,
