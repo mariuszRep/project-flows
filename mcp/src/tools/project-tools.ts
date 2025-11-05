@@ -3,7 +3,6 @@ import { TaskData } from "../types/task.js";
 import { SchemaProperties, ExecutionChainItem } from "../types/property.js";
 import DatabaseService from "../database.js";
 import { stateEvents, StateChangeEvent } from "../events/state-events.js";
-import { handleCreate } from "./create-handler.js";
 import { handleUpdate } from "./update-handler.js";
 
 export class ProjectTools {
@@ -11,35 +10,11 @@ export class ProjectTools {
     private sharedDbService: DatabaseService,
     private clientId: string,
     private loadProjectSchemaProperties: () => Promise<SchemaProperties>,
-    private createExecutionChain: (properties: SchemaProperties) => ExecutionChainItem[],
-    private validateDependencies: (properties: SchemaProperties, args: Record<string, any>, isUpdateContext?: boolean) => boolean
+    private createExecutionChain: (properties: SchemaProperties) => ExecutionChainItem[]
   ) {}
 
   getToolDefinitions(allProperties: Record<string, any>): Tool[] {
     return [
-      {
-        name: "create_project",
-        description: "Create a detailed project plan by following each property's individual prompt instructions exactly. Each field (Title, Description, etc.) has specific formatting requirements - read and follow each property's prompt precisely. Do not impose your own formatting or structure. Each property prompt defines exactly what content and format is required for that field. Use the related array to create hierarchical projects (e.g., subprojects under a project).",
-        inputSchema: {
-          type: "object",
-          properties: {
-            related: {
-              type: "array",
-              description: "Optional parent relationship array (max 1 entry). Example: [{ \"id\": 42, \"object\": \"project\" }]",
-              items: {
-                type: "object",
-                properties: {
-                  id: { type: "number", description: "Parent object ID" },
-                  object: { type: "string", description: "Parent object type: 'task', 'project', 'epic', or 'rule'" }
-                },
-                required: ["id", "object"]
-              }
-            },
-            ...allProperties
-          },
-          required: ["Title", "Description"],
-        },
-      } as Tool,
       {
         name: "update_project",
         description: "Update an existing project plan by project ID. Provide the project_id and any subset of fields to update. All fields except project_id are optional. To change a project's stage, include the 'stage' parameter with one of these values: 'draft', 'backlog', 'doing', 'review', or 'completed'.",
@@ -99,13 +74,11 @@ export class ProjectTools {
   }
 
   canHandle(toolName: string): boolean {
-    return ["create_project", "update_project", "select_project", "get_selected_project"].includes(toolName);
+    return ["update_project", "select_project", "get_selected_project"].includes(toolName);
   }
 
   async handle(name: string, toolArgs?: Record<string, any>) {
     switch (name) {
-      case "create_project":
-        return await this.handleCreateProject(toolArgs);
       case "update_project":
         return await this.handleUpdateProject(toolArgs);
       case "select_project":
@@ -115,22 +88,6 @@ export class ProjectTools {
       default:
         throw new Error(`Unknown project tool: ${name}`);
     }
-  }
-
-  private async handleCreateProject(toolArgs?: Record<string, any>) {
-    return handleCreate(
-      {
-        templateId: 2,
-        typeName: "Project",
-        responseIdField: "project_id",
-        loadSchema: this.loadProjectSchemaProperties,
-      },
-      toolArgs,
-      this.sharedDbService,
-      this.clientId,
-      this.createExecutionChain,
-      this.validateDependencies
-    );
   }
 
   private async handleUpdateProject(toolArgs?: Record<string, any>) {
@@ -265,14 +222,12 @@ export function createProjectTools(
   sharedDbService: DatabaseService,
   clientId: string,
   loadDynamicSchemaProperties: () => Promise<SchemaProperties>,
-  createExecutionChain: (properties: SchemaProperties) => ExecutionChainItem[],
-  validateDependencies: (properties: SchemaProperties, args: Record<string, any>, isUpdateContext?: boolean) => boolean
+  createExecutionChain: (properties: SchemaProperties) => ExecutionChainItem[]
 ): ProjectTools {
   return new ProjectTools(
     sharedDbService,
     clientId,
     loadDynamicSchemaProperties,
-    createExecutionChain,
-    validateDependencies
+    createExecutionChain
   );
 }

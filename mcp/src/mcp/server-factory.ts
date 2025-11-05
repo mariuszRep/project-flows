@@ -404,8 +404,7 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
     sharedDbService,
     clientId,
     loadProjectSchemaProperties,
-    createExecutionChain,
-    validateDependencies
+    createExecutionChain
   );
 
   // Create objectTools with all required dependencies

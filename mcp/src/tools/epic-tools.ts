@@ -2,7 +2,6 @@ import { Tool, TextContent } from "@modelcontextprotocol/sdk/types.js";
 import { EpicData, EpicStage } from "../types/epic.js";
 import { SchemaProperties, ExecutionChainItem } from "../types/property.js";
 import DatabaseService from "../database.js";
-import { handleCreate } from "./create-handler.js";
 import { handleUpdate } from "./update-handler.js";
 
 export class EpicTools {
@@ -17,29 +16,6 @@ export class EpicTools {
 
   getToolDefinitions(allProperties: Record<string, any>): Tool[] {
     return [
-      {
-        name: "create_epic",
-        description: "Create a new epic by following each property's individual prompt instructions exactly. Each field (Title, Description, etc.) has specific formatting requirements - read and follow each property's prompt precisely. Do not impose your own formatting or structure. Each property prompt defines exactly what content and format is required for that field. Use the related array to create hierarchical epics (e.g., epics under a project).",
-        inputSchema: {
-          type: "object",
-          properties: {
-            related: {
-              type: "array",
-              description: "Optional parent relationship array (max 1 entry). Example: [{ \"id\": 42, \"object\": \"project\" }]",
-              items: {
-                type: "object",
-                properties: {
-                  id: { type: "number", description: "Parent object ID" },
-                  object: { type: "string", description: "Parent object type: 'task', 'project', 'epic', or 'rule'" }
-                },
-                required: ["id", "object"]
-              }
-            },
-            ...allProperties
-          },
-          required: ["Title", "Description"],
-        },
-      } as Tool,
       {
         name: "update_epic",
         description: "Update an existing epic by epic ID. Provide the epic_id and any subset of fields to update. All fields except epic_id are optional. To change an epic's stage, include the 'stage' parameter with one of these values: 'draft', 'backlog', 'doing', 'review', or 'completed'.",
@@ -76,42 +52,16 @@ export class EpicTools {
   }
 
   canHandle(toolName: string): boolean {
-    return ["create_epic", "update_epic"].includes(toolName);
+    return ["update_epic"].includes(toolName);
   }
 
   async handle(name: string, toolArgs?: Record<string, any>) {
     switch (name) {
-      case "create_epic":
-        return await this.handleCreateEpic(toolArgs);
       case "update_epic":
         return await this.handleUpdateEpic(toolArgs);
       default:
         throw new Error(`Unknown epic tool: ${name}`);
     }
-  }
-
-  private async handleCreateEpic(toolArgs?: Record<string, any>) {
-    return handleCreate(
-      {
-        templateId: 3,
-        typeName: "Epic",
-        responseIdField: "epic_id",
-        loadSchema: this.loadDynamicSchemaProperties,
-        validateParent: async (parentId: number, dbService: DatabaseService) => {
-          // Validate that parent is a project (template_id=2)
-          const parentProject = await dbService.getObject(parentId);
-          if (!parentProject || parentProject.template_id !== 2) {
-            throw new Error("Error: Epics must have a project as parent (template_id=2).");
-          }
-        },
-      },
-      toolArgs,
-      this.sharedDbService,
-      this.clientId,
-      this.createExecutionChain,
-      this.validateDependencies,
-      this.projectTools
-    );
   }
 
   private async handleUpdateEpic(toolArgs?: Record<string, any>) {
