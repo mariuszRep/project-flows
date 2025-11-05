@@ -12,6 +12,7 @@ import { createExpressApp } from "./server/express-server.js";
 import { ConnectionManager } from "./server/connection-manager.js";
 import { createMcpServer, registerWorkflow, unregisterWorkflow, listDynamicWorkflows, getWorkflow } from "./mcp/server-factory.js";
 import { createNotificationHandler } from "./server/notification-handler.js";
+import { functionRegistry } from "./workflow-functions/function-registry.js";
 
 // Initialize shared database service for all connections
 const sharedDbService = new DatabaseService();
@@ -154,7 +155,7 @@ app.get("/api/workflows/:name", async (req: any, res: any) => {
   try {
     const { name } = req.params;
     const workflow = getWorkflow(name);
-    
+
     if (workflow) {
       res.status(200).json({
         success: true,
@@ -166,6 +167,23 @@ app.get("/api/workflows/:name", async (req: any, res: any) => {
         error: `Workflow '${name}' not found`
       });
     }
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: (error as Error).message
+    });
+  }
+});
+
+// REST API endpoint for available workflow functions
+app.get("/api/functions", async (_: any, res: any) => {
+  try {
+    const functions = functionRegistry.getDefinitions();
+    res.status(200).json({
+      success: true,
+      count: functions.length,
+      functions
+    });
   } catch (error) {
     res.status(500).json({
       success: false,

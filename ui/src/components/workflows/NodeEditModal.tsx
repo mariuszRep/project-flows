@@ -66,6 +66,11 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
   }>>({});
   const [stageLinked, setStageLinked] = useState(false);
 
+  // State for call_function configuration
+  const [availableFunctions, setAvailableFunctions] = useState<any[]>([]);
+  const [isLoadingFunctions, setIsLoadingFunctions] = useState(false);
+  const [functionParameters, setFunctionParameters] = useState<Record<string, string>>({});
+
   useEffect(() => {
     if (node && isOpen) {
       console.log('NodeEditModal opened for node:', node);
@@ -128,6 +133,18 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
         }
       } else if (node.type !== 'create_object') {
         setSelectedProperties({});
+      }
+
+      // Parse call_function configuration
+      if (node.type === 'call_function') {
+        const parameters = node.data.config?.parameters;
+        if (parameters && typeof parameters === 'object') {
+          setFunctionParameters(parameters);
+        } else {
+          setFunctionParameters({});
+        }
+      } else {
+        setFunctionParameters({});
       }
 
       // Focus first input after modal opens
@@ -257,6 +274,80 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
     };
 
     loadTemplates();
+  }, [isOpen, node, isConnected, callTool]);
+
+  // Load available functions for call_function nodes
+  useEffect(() => {
+    const loadFunctions = async () => {
+      if (!isOpen || !node || node.type !== 'call_function') {
+        return;
+      }
+
+      if (!isConnected || !callTool) {
+        console.warn('[NodeEditModal] MCP not connected, cannot load functions');
+        return;
+      }
+
+      setIsLoadingFunctions(true);
+      try {
+        // Use MCP tool to list node templates
+        const result = await callTool('list_templates', {});
+
+        if (result && result.content && result.content[0]) {
+          const templatesText = result.content[0].text;
+
+          if (!templatesText.includes('No templates found')) {
+            const templates = JSON.parse(templatesText);
+
+            // Filter to only node type templates
+            const nodeTemplates = templates.filter((t: any) => t.type === 'node');
+
+            // Convert to function definitions by loading properties
+            const functions = [];
+            for (const template of nodeTemplates) {
+              try {
+                const propsResult = await callTool('list_properties', { template_id: template.id });
+                if (propsResult && propsResult.content && propsResult.content[0]) {
+                  const propsText = propsResult.content[0].text;
+                  if (!propsText.includes('No properties found')) {
+                    const properties = JSON.parse(propsText);
+                    const parameters = properties
+                      .filter((p: any) => p.step_type === 'property')
+                      .map((p: any) => ({
+                        name: p.key,
+                        type: p.type === 'text' ? 'string' : p.type,
+                        description: p.description || '',
+                        required: p.step_config?.required || false
+                      }));
+
+                    functions.push({
+                      name: template.name,
+                      description: template.description,
+                      parameters
+                    });
+                  }
+                }
+              } catch (error) {
+                console.error(`Error loading properties for template ${template.id}:`, error);
+              }
+            }
+
+            setAvailableFunctions(functions);
+          } else {
+            setAvailableFunctions([]);
+          }
+        } else {
+          setAvailableFunctions([]);
+        }
+      } catch (error) {
+        console.error('Error loading functions via MCP:', error);
+        setAvailableFunctions([]);
+      } finally {
+        setIsLoadingFunctions(false);
+      }
+    };
+
+    loadFunctions();
   }, [isOpen, node, isConnected, callTool]);
 
   // Load properties when template is selected
@@ -423,6 +514,36 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
       return;
     }
 
+    // Validate function node
+    if (node.type === 'call_function') {
+      if (!config.function_name) {
+        setError('Function selection is required');
+        toast({
+          title: "Validation Error",
+          description: "Please select a function to execute",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Validate required parameters
+      const selectedFunction = availableFunctions.find(f => f.name === config.function_name);
+      if (selectedFunction) {
+        const missingParams = selectedFunction.parameters
+          .filter((p: any) => p.required && !config.parameters?.[p.name]);
+        
+        if (missingParams.length > 0) {
+          setError(`Missing required parameters: ${missingParams.map(p => p.name).join(', ')}`);
+          toast({
+            title: "Validation Error",
+            description: `Missing required parameters: ${missingParams.map(p => p.name).join(', ')}`,
+            variant: "destructive",
+          });
+          return;
+        }
+      }
+    }
+
     // Prepare config
     const updatedConfig = { ...config };
 
@@ -542,9 +663,41 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
     const labels: Record<string, string> = {
       agent: 'Agent Node',
       create_object: 'Create Object Node',
-      load_object: 'Load Object Node'
+      load_object: 'Load Object Node',
+      call_function: 'Function Node'
     };
     return labels[type] || type;
+  };
+
+  // Handler for function selection
+  const handleFunctionSelection = (functionName: string) => {
+    // Find the selected function to get its parameters
+    const selectedFunc = availableFunctions.find(f => f.name === functionName);
+    setConfig({ 
+      ...config, 
+      function_name: functionName,
+      // Initialize parameters if they don't exist
+      parameters: config.parameters || {}
+    });
+  };
+
+  // Update function parameter value
+  const handleParameterChange = (name: string, value: string) => {
+    // Get the parameter definition to check its type
+    const paramDef = inputParameters.find(p => p.name === name);
+    
+    // Convert to number if the parameter is supposed to be a number
+    const processedValue = paramDef?.type === 'number' && value !== '' 
+      ? Number(value) 
+      : value;
+
+    setConfig({
+      ...config,
+      parameters: {
+        ...(config.parameters || {}),
+        [name]: processedValue
+      }
+    });
   };
 
   return createPortal(
@@ -1085,6 +1238,99 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
               </div>
             )}
 
+
+            {/* Function Node Configuration */}
+            {node.type === 'call_function' && (
+              <div className="border rounded-xl border-border bg-muted/5 p-4 space-y-4">
+                <h3 className="text-sm font-semibold mb-2">Function Configuration</h3>
+
+                {/* Function Selection */}
+                <div>
+                  <Label className="text-xs">Select Function</Label>
+                  {isLoadingFunctions ? (
+                    <div className="flex items-center gap-2 p-2 text-sm text-muted-foreground">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Loading functions...
+                    </div>
+                  ) : (
+                    <Select
+                      value={config.function_name || ''}
+                      onValueChange={handleFunctionSelection}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a function..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableFunctions.length === 0 ? (
+                          <div className="p-2 text-sm text-muted-foreground">
+                            No functions available
+                          </div>
+                        ) : (
+                          availableFunctions.map((func) => (
+                            <SelectItem key={func.name} value={func.name}>
+                              {func.name}
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Select a function to execute in this node
+                  </p>
+                </div>
+
+                {/* Function Parameters */}
+                {config.function_name && (
+                  <div className="space-y-3">
+                    <Label className="text-xs">Parameters</Label>
+                    {availableFunctions
+                      .find(f => f.name === config.function_name)
+                      ?.parameters?.map((param: any) => (
+                        <div key={param.name} className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <Label className="text-xs font-medium">{param.name}</Label>
+                            <Badge variant="outline" className="text-xs">
+                              {param.type}
+                            </Badge>
+                            {param.required && (
+                              <Badge variant="destructive" className="text-xs">
+                                Required
+                              </Badge>
+                            )}
+                          </div>
+                          {param.description && (
+                            <p className="text-xs text-muted-foreground">{param.description}</p>
+                          )}
+                          <Input
+                            id={`param-${param.name}`}
+                            type={param.type === 'number' ? 'number' : 'text'}
+                            value={config.parameters?.[param.name] || ''}
+                            onChange={e => handleParameterChange(param.name, e.target.value)}
+                            placeholder={param.description || `Enter ${param.name}`}
+                            required={param.required}
+                            step={param.type === 'number' ? 'any' : undefined}
+                          />
+                        </div>
+                      ))}
+                  </div>
+                )}
+
+                {/* Result Variable */}
+                <div>
+                  <Label className="text-xs">Result Variable (Optional)</Label>
+                  <Input
+                    value={config.result_variable || ''}
+                    onChange={(e) => setConfig({ ...config, result_variable: e.target.value })}
+                    placeholder="e.g., function_result, calculation"
+                    className="font-mono text-sm"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Store the function result in a variable for use in subsequent nodes
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* Node Info */}
             <div className="border rounded-xl border-border bg-muted/5 p-4">

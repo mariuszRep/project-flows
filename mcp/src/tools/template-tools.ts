@@ -4,7 +4,7 @@
 
 import DatabaseService from "../database.js";
 import { z } from "zod";
-import { refreshWorkflows } from "../mcp/server-factory.js";
+import { refreshWorkflows, refreshFunctions } from "../mcp/server-factory.js";
 
 /**
  * Schema entry for template relationships
@@ -40,8 +40,8 @@ export interface TemplateToolsInterface {
 const CreateTemplateArgsSchema = z.object({
   name: z.string().min(1, "Template name must be a non-empty string"),
   description: z.string().min(1, "Template description must be a non-empty string"),
-  type: z.enum(["object", "workflow"], {
-    errorMap: () => ({ message: 'Type must be "object" or "workflow"' })
+  type: z.enum(["object", "workflow", "node"], {
+    errorMap: () => ({ message: 'Type must be "object", "workflow", or "node"' })
   }).optional(),
   metadata: z.record(z.any()).optional(),
   related_schema: z.array(SchemaEntrySchema).optional()
@@ -54,8 +54,8 @@ const UpdateTemplateArgsSchema = z.object({
   template_id: z.number().int().positive("template_id must be a positive integer"),
   name: z.string().min(1, "Template name must be a non-empty string").optional(),
   description: z.string().min(1, "Template description must be a non-empty string").optional(),
-  type: z.enum(["object", "workflow"], {
-    errorMap: () => ({ message: 'Type must be "object" or "workflow"' })
+  type: z.enum(["object", "workflow", "node"], {
+    errorMap: () => ({ message: 'Type must be "object", "workflow", or "node"' })
   }).optional(),
   metadata: z.record(z.any()).optional(),
   related_schema: z.array(SchemaEntrySchema).optional()
@@ -85,26 +85,32 @@ export function createTemplateTools(
     return [
       {
         name: "create_template",
-        description: `Creates a new template (workflow or object type) in the database. Templates define the structure and behavior of objects or workflows.
+        description: `Creates a new template (workflow, object, or node type) in the database. Templates define the structure and behavior of objects, workflows, or workflow functions.
+
+For node templates (workflow functions):
+- Set type to "node"
+- Provide metadata with: function_handler (string, maps to implementation file)
+- Use create_property tool to add function parameters after creating the template
+- Parameters are stored as properties with step_type='property'
 
 For workflow templates:
 - Set type to "workflow"
-- Provide metadata with: mcp_tool_name (string), input_schema (object), enabled (boolean)
+- Provide metadata with: mcp_tool_name (string), input_schema (object), published (boolean)
 - Use create_property tool to add workflow steps after creating the template
 
 For object templates:
 - Set type to "object" (default)
 - Define related_schema to specify parent relationship rules
 
-Example workflow template:
+Example node template (function):
 {
-  "name": "My Custom Workflow",
-  "description": "Processes data through multiple steps",
-  "type": "workflow",
+  "name": "add_numbers",
+  "description": "Adds two numbers together",
+  "type": "node",
   "metadata": {
-    "mcp_tool_name": "my_custom_workflow",
-    "input_schema": { "type": "object", "properties": {}, "required": [] },
-    "enabled": false
+    "function_handler": "add_numbers",
+    "category": "math",
+    "version": "1.0.0"
   }
 }`,
         inputSchema: {
@@ -120,12 +126,12 @@ Example workflow template:
             },
             type: {
               type: "string",
-              enum: ["object", "workflow"],
-              description: 'Template type: "object" for data templates, "workflow" for executable workflows (defaults to "object")'
+              enum: ["object", "workflow", "node"],
+              description: 'Template type: "object" for data templates, "workflow" for executable workflows, "node" for function definitions (defaults to "object")'
             },
             metadata: {
               type: "object",
-              description: "Optional metadata (JSONB). For workflows: {mcp_tool_name, input_schema, enabled}"
+              description: "Optional metadata (JSONB). For nodes: {function_handler}. For workflows: {mcp_tool_name, input_schema, published}"
             },
             related_schema: {
               type: "array",
@@ -177,7 +183,7 @@ Note: To update workflow steps, use update_property tool instead.`,
             },
             type: {
               type: "string",
-              enum: ["object", "workflow"],
+              enum: ["object", "workflow", "node"],
               description: 'Optional new template type'
             },
             metadata: {
@@ -343,6 +349,11 @@ This tool is useful when you need to modify which parent object types (project, 
           await refreshWorkflows(dbService);
         }
 
+        // Refresh functions if this is a node template
+        if (validatedArgs.type === 'node') {
+          await refreshFunctions(dbService);
+        }
+
         return {
           content: [
             {
@@ -418,6 +429,12 @@ This tool is useful when you need to modify which parent object types (project, 
             await refreshWorkflows(dbService);
           }
 
+          // Refresh functions if this is a node template
+          if (template && template.type === 'node') {
+            console.log(`Refreshing functions after template ${validatedArgs.template_id} update`);
+            await refreshFunctions(dbService);
+          }
+
           const updatedFields = Object.keys(updates).join(', ');
           return {
             content: [
@@ -489,6 +506,12 @@ This tool is useful when you need to modify which parent object types (project, 
           // Refresh workflows if we deleted a workflow template
           if (isWorkflow) {
             await refreshWorkflows(dbService);
+          }
+
+          // Refresh functions if we deleted a node template
+          const isNode = template && template.type === 'node';
+          if (isNode) {
+            await refreshFunctions(dbService);
           }
 
           return {

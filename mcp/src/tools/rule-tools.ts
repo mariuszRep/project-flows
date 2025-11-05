@@ -2,7 +2,6 @@ import { Tool, TextContent } from "@modelcontextprotocol/sdk/types.js";
 import { TaskData, TaskStage } from "../types/task.js";
 import { SchemaProperties, ExecutionChainItem } from "../types/property.js";
 import DatabaseService from "../database.js";
-import { handleCreate } from "./create-handler.js";
 import { handleUpdate } from "./update-handler.js";
 
 export class RuleTools {
@@ -17,29 +16,6 @@ export class RuleTools {
 
   getToolDefinitions(allProperties: Record<string, any>): Tool[] {
     return [
-      {
-        name: "create_rule",
-        description: "Create a rule by following each property's individual prompt instructions exactly. Each field (Title, Description, etc.) has specific formatting requirements - read and follow each property's prompt precisely. Do not impose your own formatting or structure. Each property prompt defines exactly what content and format is required for that field. Use the related array to create hierarchical rules (e.g., rules under a project).",
-        inputSchema: {
-          type: "object",
-          properties: {
-            related: {
-              type: "array",
-              description: "Optional parent relationship array (max 1 entry). Example: [{ \"id\": 42, \"object\": \"project\" }]",
-              items: {
-                type: "object",
-                properties: {
-                  id: { type: "number", description: "Parent object ID" },
-                  object: { type: "string", description: "Parent object type: 'task', 'project', 'epic', or 'rule'" }
-                },
-                required: ["id", "object"]
-              }
-            },
-            ...allProperties
-          },
-          required: ["Title", "Description"],
-        },
-      } as Tool,
       {
         name: "update_rule",
         description: "Update an existing rule by rule ID. Provide the rule_id and any subset of fields to update. All fields except rule_id are optional. To change a rule's stage, include the 'stage' parameter with one of these values: 'draft', 'backlog', 'doing', 'review', or 'completed'.",
@@ -76,35 +52,16 @@ export class RuleTools {
   }
 
   canHandle(toolName: string): boolean {
-    return ["create_rule", "update_rule"].includes(toolName);
+    return ["update_rule"].includes(toolName);
   }
 
   async handle(name: string, toolArgs?: Record<string, any>) {
     switch (name) {
-      case "create_rule":
-        return await this.handleCreateRule(toolArgs);
       case "update_rule":
         return await this.handleUpdateRule(toolArgs);
       default:
         throw new Error(`Unknown rule tool: ${name}`);
     }
-  }
-
-  private async handleCreateRule(toolArgs?: Record<string, any>) {
-    return handleCreate(
-      {
-        templateId: 4,
-        typeName: "Rule",
-        responseIdField: "rule_id",
-        loadSchema: this.loadRuleSchemaProperties,
-      },
-      toolArgs,
-      this.sharedDbService,
-      this.clientId,
-      this.createExecutionChain,
-      this.validateDependencies,
-      this.projectTools
-    );
   }
 
   private async handleUpdateRule(toolArgs?: Record<string, any>) {
