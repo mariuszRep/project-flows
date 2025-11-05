@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict 3ovflBuD2bDyjMHXN5Zmh0WmpDjwUqTc83BhHhchi12ZtnZI4QUePd2d2i8lDSx
+\restrict B3rRpEwNLxOMkgb4Bvx4FruFCUoKh1PzYYXLefKCukx3p7J2kIqvvuH2Zbj5YLY
 
 -- Dumped from database version 15.14 (Debian 15.14-1.pgdg13+1)
 -- Dumped by pg_dump version 15.14 (Debian 15.14-1.pgdg13+1)
@@ -309,8 +309,8 @@ CREATE TABLE public.template_properties (
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
     step_type text DEFAULT 'property'::text NOT NULL,
-    step_config jsonb DEFAULT '{}'::jsonb,
-    CONSTRAINT template_properties_step_type_check CHECK ((step_type = ANY (ARRAY['property'::text, 'call_tool'::text, 'log'::text, 'set_variable'::text, 'conditional'::text, 'return'::text, 'start'::text])))
+    step_config jsonb DEFAULT '{}'::jsonb NOT NULL,
+    CONSTRAINT template_properties_step_type_check CHECK ((step_type = ANY (ARRAY['property'::text, 'agent'::text, 'create_object'::text, 'load_object'::text])))
 );
 
 
@@ -348,7 +348,7 @@ CREATE TABLE public.templates (
     updated_by text DEFAULT 'system'::text NOT NULL,
     related_schema jsonb DEFAULT '[]'::jsonb NOT NULL,
     type text DEFAULT 'object'::text NOT NULL,
-    metadata jsonb DEFAULT '{}'::jsonb,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
     CONSTRAINT templates_type_check CHECK ((type = ANY (ARRAY['object'::text, 'workflow'::text])))
 );
 
@@ -610,5 +610,5 @@ ALTER TABLE ONLY public.objects
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 3ovflBuD2bDyjMHXN5Zmh0WmpDjwUqTc83BhHhchi12ZtnZI4QUePd2d2i8lDSx
+\unrestrict B3rRpEwNLxOMkgb4Bvx4FruFCUoKh1PzYYXLefKCukx3p7J2kIqvvuH2Zbj5YLY
 
