@@ -25,6 +25,10 @@ const dynamicWorkflows = new Map<string, WorkflowDefinition>();
 const workflowTemplateMap = new Map<string, number>(); // Maps tool name to template_id
 let workflowExecutor: WorkflowExecutor;
 
+// Track workflow loading state
+let workflowsLoadingPromise: Promise<void> | null = null;
+let workflowsLoaded = false;
+
 /**
  * Load workflows from database and register them as dynamic MCP tools
  */
@@ -76,9 +80,37 @@ async function loadWorkflowsFromDatabase(dbService: DatabaseService): Promise<vo
     }
 
     console.log(`Successfully registered ${dynamicWorkflows.size} workflow tool(s)`);
+    workflowsLoaded = true;
   } catch (error) {
     console.error('Error loading workflows from database:', error);
+    throw error; // Re-throw to propagate error to callers
   }
+}
+
+/**
+ * Ensure workflows are loaded, using cached promise if already loading
+ */
+function ensureWorkflowsLoaded(dbService: DatabaseService): Promise<void> {
+  // If already loaded, return immediately
+  if (workflowsLoaded) {
+    return Promise.resolve();
+  }
+
+  // If currently loading, return the existing promise
+  if (workflowsLoadingPromise) {
+    return workflowsLoadingPromise;
+  }
+
+  // Start loading and cache the promise
+  workflowsLoadingPromise = loadWorkflowsFromDatabase(dbService)
+    .catch((error) => {
+      console.error('Failed to load workflows from database:', error);
+      // Reset promise on error so it can be retried
+      workflowsLoadingPromise = null;
+      workflowsLoaded = false;
+    });
+
+  return workflowsLoadingPromise;
 }
 
 export function createMcpServer(clientId: string = 'unknown', sharedDbService: DatabaseService): Server {
@@ -474,13 +506,13 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
 
   workflowExecutor = new WorkflowExecutor(sharedDbService, toolCaller, server);
 
-  // Load workflows from database at startup
-  loadWorkflowsFromDatabase(sharedDbService).catch((error) => {
-    console.error('Failed to load workflows from database:', error);
-  });
+  // Trigger workflow loading (don't await here, will await in tool list handler)
+  ensureWorkflowsLoaded(sharedDbService);
 
   // Set up tool list handler
   server.setRequestHandler(ListToolsRequestSchema, async () => {
+    // Ensure workflows are loaded before returning tool list
+    await ensureWorkflowsLoaded(sharedDbService);
     // Detect context from request if available (future enhancement)
     // For now, we could check for custom headers or other indicators
     let context: ToolContext | undefined = undefined;
@@ -872,6 +904,9 @@ export function getWorkflow(name: string): WorkflowDefinition | undefined {
  */
 export async function refreshWorkflows(dbService: DatabaseService): Promise<void> {
   console.log('Refreshing workflows from database...');
-  await loadWorkflowsFromDatabase(dbService);
+  // Reset loading state to force reload
+  workflowsLoaded = false;
+  workflowsLoadingPromise = null;
+  await ensureWorkflowsLoaded(dbService);
   console.log('Workflows refreshed successfully');
 }
