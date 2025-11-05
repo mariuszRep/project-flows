@@ -283,13 +283,56 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
         return;
       }
 
+      if (!isConnected || !callTool) {
+        console.warn('[NodeEditModal] MCP not connected, cannot load functions');
+        return;
+      }
+
       setIsLoadingFunctions(true);
       try {
-        const response = await fetch('http://localhost:3001/api/functions');
-        if (response.ok) {
-          const data = await response.json();
-          if (data.success && Array.isArray(data.functions)) {
-            setAvailableFunctions(data.functions);
+        // Use MCP tool to list node templates
+        const result = await callTool('list_templates', {});
+
+        if (result && result.content && result.content[0]) {
+          const templatesText = result.content[0].text;
+
+          if (!templatesText.includes('No templates found')) {
+            const templates = JSON.parse(templatesText);
+
+            // Filter to only node type templates
+            const nodeTemplates = templates.filter((t: any) => t.type === 'node');
+
+            // Convert to function definitions by loading properties
+            const functions = [];
+            for (const template of nodeTemplates) {
+              try {
+                const propsResult = await callTool('list_properties', { template_id: template.id });
+                if (propsResult && propsResult.content && propsResult.content[0]) {
+                  const propsText = propsResult.content[0].text;
+                  if (!propsText.includes('No properties found')) {
+                    const properties = JSON.parse(propsText);
+                    const parameters = properties
+                      .filter((p: any) => p.step_type === 'property')
+                      .map((p: any) => ({
+                        name: p.key,
+                        type: p.type === 'text' ? 'string' : p.type,
+                        description: p.description || '',
+                        required: p.step_config?.required || false
+                      }));
+
+                    functions.push({
+                      name: template.name,
+                      description: template.description,
+                      parameters
+                    });
+                  }
+                }
+              } catch (error) {
+                console.error(`Error loading properties for template ${template.id}:`, error);
+              }
+            }
+
+            setAvailableFunctions(functions);
           } else {
             setAvailableFunctions([]);
           }
@@ -297,7 +340,7 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
           setAvailableFunctions([]);
         }
       } catch (error) {
-        console.error('Error loading functions:', error);
+        console.error('Error loading functions via MCP:', error);
         setAvailableFunctions([]);
       } finally {
         setIsLoadingFunctions(false);
@@ -305,7 +348,7 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
     };
 
     loadFunctions();
-  }, [isOpen, node]);
+  }, [isOpen, node, isConnected, callTool]);
 
   // Load properties when template is selected
   useEffect(() => {

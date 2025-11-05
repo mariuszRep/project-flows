@@ -14,6 +14,7 @@ import { createRuleTools } from "../tools/rule-tools.js";
 import { createWorkflowTools } from "../tools/workflow-tools.js";
 import { createTemplateTools } from "../tools/template-tools.js";
 import { WorkflowDefinition, WorkflowExecutor } from "../tools/workflow-executor.js";
+import { functionRegistry } from "../workflow-functions/function-registry.js";
 import pg from 'pg';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -27,6 +28,10 @@ let workflowExecutor: WorkflowExecutor;
 // Track workflow loading state
 let workflowsLoadingPromise: Promise<void> | null = null;
 let workflowsLoaded = false;
+
+// Track function loading state
+let functionsLoadingPromise: Promise<void> | null = null;
+let functionsLoaded = false;
 
 /**
  * Load workflows from database and register them as dynamic MCP tools
@@ -110,6 +115,46 @@ function ensureWorkflowsLoaded(dbService: DatabaseService): Promise<void> {
     });
 
   return workflowsLoadingPromise;
+}
+
+/**
+ * Load function nodes from database and register them in the function registry
+ */
+async function loadFunctionsFromDatabase(dbService: DatabaseService): Promise<void> {
+  try {
+    console.log('Loading function nodes from database...');
+    await functionRegistry.loadFromDatabase(dbService);
+    functionsLoaded = true;
+  } catch (error) {
+    console.error('Error loading function nodes from database:', error);
+    throw error;
+  }
+}
+
+/**
+ * Ensure functions are loaded, using cached promise if already loading
+ */
+function ensureFunctionsLoaded(dbService: DatabaseService): Promise<void> {
+  // If already loaded, return immediately
+  if (functionsLoaded) {
+    return Promise.resolve();
+  }
+
+  // If currently loading, return the existing promise
+  if (functionsLoadingPromise) {
+    return functionsLoadingPromise;
+  }
+
+  // Start loading and cache the promise
+  functionsLoadingPromise = loadFunctionsFromDatabase(dbService)
+    .catch((error) => {
+      console.error('Failed to load functions from database:', error);
+      // Reset promise on error so it can be retried
+      functionsLoadingPromise = null;
+      functionsLoaded = false;
+    });
+
+  return functionsLoadingPromise;
 }
 
 export function createMcpServer(clientId: string = 'unknown', sharedDbService: DatabaseService): Server {
@@ -511,6 +556,8 @@ export function createMcpServer(clientId: string = 'unknown', sharedDbService: D
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     // Ensure workflows are loaded before returning tool list
     await ensureWorkflowsLoaded(sharedDbService);
+    // Ensure functions are loaded before returning tool list
+    await ensureFunctionsLoaded(sharedDbService);
     // Detect context from request if available (future enhancement)
     // For now, we could check for custom headers or other indicators
     let context: ToolContext | undefined = undefined;
@@ -900,4 +947,16 @@ export async function refreshWorkflows(dbService: DatabaseService): Promise<void
   workflowsLoadingPromise = null;
   await ensureWorkflowsLoaded(dbService);
   console.log('Workflows refreshed successfully');
+}
+
+/**
+ * Refresh function registry from database
+ */
+export async function refreshFunctions(dbService: DatabaseService): Promise<void> {
+  console.log('Refreshing functions from database...');
+  // Reset loading state to force reload
+  functionsLoaded = false;
+  functionsLoadingPromise = null;
+  await ensureFunctionsLoaded(dbService);
+  console.log('Functions refreshed successfully');
 }
