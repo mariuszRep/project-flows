@@ -97,7 +97,17 @@ class FunctionRegistry {
     }
 
     try {
-      return await fn(params);
+      // Extract values from parameter objects if they have type/value structure
+      const processedParams: Record<string, any> = {};
+      for (const [key, value] of Object.entries(params)) {
+        if (value && typeof value === 'object' && 'value' in value) {
+          processedParams[key] = value.value;
+        } else {
+          processedParams[key] = value;
+        }
+      }
+      
+      return await fn(processedParams);
     } catch (error: any) {
       return {
         success: false,

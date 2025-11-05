@@ -639,12 +639,20 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
   };
 
   // Update function parameter value
-  const updateFunctionParameter = (paramName: string, value: string) => {
+  const handleParameterChange = (name: string, value: string) => {
+    // Get the parameter definition to check its type
+    const paramDef = inputParameters.find(p => p.name === name);
+    
+    // Convert to number if the parameter is supposed to be a number
+    const processedValue = paramDef?.type === 'number' && value !== '' 
+      ? Number(value) 
+      : value;
+
     setConfig({
       ...config,
       parameters: {
         ...(config.parameters || {}),
-        [paramName]: value
+        [name]: processedValue
       }
     });
   };
@@ -1251,16 +1259,14 @@ export function NodeEditModal({ node, isOpen, onClose, onSave, onDelete, workflo
                           {param.description && (
                             <p className="text-xs text-muted-foreground">{param.description}</p>
                           )}
-                          <ParameterSelector
+                          <Input
+                            id={`param-${param.name}`}
+                            type={param.type === 'number' ? 'number' : 'text'}
                             value={config.parameters?.[param.name] || ''}
-                            onChange={(value) => updateFunctionParameter(param.name, value)}
-                            propertyKey={param.name}
-                            propertyType={param.type}
-                            propertyDescription={param.description}
-                            workflowParameters={workflowParameters}
-                            previousSteps={previousSteps}
-                            placeholder={`Enter ${param.name} value or link parameter`}
-                            onCreateWorkflowParameter={handleCreateWorkflowParameter}
+                            onChange={e => handleParameterChange(param.name, e.target.value)}
+                            placeholder={param.description || `Enter ${param.name}`}
+                            required={param.required}
+                            step={param.type === 'number' ? 'any' : undefined}
                           />
                         </div>
                       ))}

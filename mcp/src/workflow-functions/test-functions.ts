@@ -35,23 +35,51 @@ export async function hello_world(params: { name?: string }): Promise<FunctionRe
 /**
  * Simple addition function
  */
-export async function add_numbers(params: { a: number; b: number }): Promise<FunctionResult> {
-  if (typeof params.a !== "number" || typeof params.b !== "number") {
+export async function add_numbers(params: { a: any; b: any }): Promise<FunctionResult> {
+  console.log('add_numbers called with params:', JSON.stringify(params));
+  
+  // Handle both direct values and { type, value } objects
+  const getValue = (param: any): number => {
+    console.log('getValue called with param:', JSON.stringify(param));
+    
+    if (param === undefined || param === null) {
+      console.log('Parameter is undefined or null');
+      return NaN;
+    }
+    
+    // Handle { type, value } object
+    if (param && typeof param === 'object' && 'value' in param) {
+      const value = param.value;
+      const num = typeof value === 'string' ? parseFloat(value) : Number(value);
+      console.log(`Extracted value from object: ${value} -> ${num}`);
+      return num;
+    }
+    
+    // Handle direct number or string
+    const num = typeof param === 'string' ? parseFloat(param) : Number(param);
+    console.log(`Converted direct value: ${param} -> ${num}`);
+    return num;
+  };
+
+  const a = getValue(params.a);
+  const b = getValue(params.b);
+
+  if (isNaN(a) || isNaN(b)) {
     return {
       success: false,
-      error: "Both 'a' and 'b' parameters are required and must be numbers"
+      error: "Both 'a' and 'b' parameters are required and must be valid numbers"
     };
   }
 
-  const sum = params.a + params.b;
+  const sum = a + b;
 
   return {
     success: true,
     data: {
-      a: params.a,
-      b: params.b,
+      a,
+      b,
       sum,
-      operation: `${params.a} + ${params.b} = ${sum}`
+      operation: `${a} + ${b} = ${sum}`
     }
   };
 }
