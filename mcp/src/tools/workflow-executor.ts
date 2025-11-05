@@ -1,6 +1,6 @@
 /**
  * Workflow Executor - Interprets and executes workflow step definitions
- * Supports: log, set_variable, conditional, call_tool, return, and create_object step types
+ * Supports: agent, create_object, and load_object step types
  */
 
 import DatabaseService from '../database.js';
@@ -8,30 +8,16 @@ import { RelatedEntry } from './create-handler.js';
 
 export interface WorkflowStep {
   name: string;
-  type: 'log' | 'set_variable' | 'conditional' | 'call_tool' | 'return' | 'create_object' | 'load_object' | 'load_state' | 'save_state' | 'switch' | 'agent';
-  message?: string;
-  variableName?: string;
-  value?: any;
-  condition?: string;
-  then?: WorkflowStep[];
-  else?: WorkflowStep[];
-  toolName?: string;
-  parameters?: Record<string, any>;
-  resultVariable?: string;
+  type: 'agent' | 'create_object' | 'load_object';
+  // Agent fields
+  instructions?: string[];
+  // Create/Load object fields
   templateId?: number;
   properties?: Record<string, any>;
+  resultVariable?: string;
   stage?: string;
   related?: RelatedEntry[];
   status?: 'pending' | 'completed' | 'failed';
-  // load_state / save_state fields
-  stateKey?: string;
-  defaultValue?: any;
-  // switch fields
-  switchValue?: string;
-  cases?: Record<string, WorkflowStep[]>;
-  defaultCase?: WorkflowStep[];
-  // agent fields
-  instructions?: string[];
 }
 
 export interface WorkflowDefinition {
@@ -138,32 +124,8 @@ export class WorkflowExecutor {
 
         // Map config properties to step properties based on step type
         switch (prop.step_type) {
-          case 'log':
-            step.message = config.message;
-            break;
-
-          case 'set_variable':
-            step.variableName = config.variableName;
-            step.value = config.value;
-            break;
-
-          case 'call_tool':
-            step.toolName = config.tool_name;
-            // Parse parameters if they're stored as JSON string
-            step.parameters = typeof config.parameters === 'string'
-              ? JSON.parse(config.parameters)
-              : config.parameters;
-            step.resultVariable = config.result_variable;
-            break;
-
-          case 'conditional':
-            step.condition = config.condition;
-            step.then = config.then || [];
-            step.else = config.else || [];
-            break;
-
-          case 'return':
-            step.value = config.value;
+          case 'agent':
+            step.instructions = config.instructions;
             break;
 
           case 'create_object':
@@ -180,25 +142,8 @@ export class WorkflowExecutor {
             step.resultVariable = config.result_variable;
             break;
 
-          case 'load_state':
-            step.stateKey = config.state_key;
-            step.defaultValue = config.default_value;
-            step.resultVariable = config.result_variable;
-            break;
-
-          case 'save_state':
-            step.stateKey = config.state_key;
-            step.value = config.value;
-            break;
-
-          case 'switch':
-            step.switchValue = config.switch_value;
-            step.cases = config.cases;
-            step.defaultCase = config.default;
-            break;
-
-          case 'agent':
-            step.instructions = config.instructions;
+          default:
+            console.warn(`Unknown step type: ${prop.step_type}, skipping configuration`);
             break;
         }
 
@@ -502,24 +447,8 @@ export class WorkflowExecutor {
    */
   private async executeStep(step: WorkflowStep, context: ExecutionContext): Promise<void> {
     switch (step.type) {
-      case 'log':
-        this.executeLog(step, context);
-        break;
-
-      case 'set_variable':
-        this.executeSetVariable(step, context);
-        break;
-
-      case 'conditional':
-        await this.executeConditional(step, context);
-        break;
-
-      case 'call_tool':
-        await this.executeCallTool(step, context);
-        break;
-
-      case 'return':
-        this.executeReturn(step, context);
+      case 'agent':
+        await this.executeAgent(step, context);
         break;
 
       case 'create_object':
@@ -530,134 +459,8 @@ export class WorkflowExecutor {
         await this.executeLoadObject(step, context);
         break;
 
-      case 'load_state':
-        await this.executeLoadState(step, context);
-        break;
-
-      case 'save_state':
-        await this.executeSaveState(step, context);
-        break;
-
-      case 'switch':
-        await this.executeSwitch(step, context);
-        break;
-
-      case 'agent':
-        await this.executeAgent(step, context);
-        break;
-
       default:
         throw new Error(`Unknown step type: ${(step as any).type}`);
-    }
-  }
-
-  /**
-   * Execute log step - outputs message to logs
-   */
-  private executeLog(step: WorkflowStep, context: ExecutionContext): void {
-    if (!step.message) {
-      throw new Error('Log step requires a message');
-    }
-    
-    const message = this.interpolateString(step.message, context);
-    context.logs.push(message);
-    console.log(`[Workflow ${step.name || 'Log'}] ${message}`);
-  }
-
-  /**
-   * Execute set_variable step - stores value in context
-   */
-  private executeSetVariable(step: WorkflowStep, context: ExecutionContext): void {
-    if (!step.variableName) {
-      throw new Error('set_variable step requires a variableName');
-    }
-    
-    if (step.value === undefined) {
-      throw new Error('set_variable step requires a value');
-    }
-    
-    const value = this.interpolateValue(step.value, context);
-    context.variables.set(step.variableName, value);
-  }
-
-  /**
-   * Execute conditional step - evaluates condition and executes then/else branches
-   */
-  private async executeConditional(step: WorkflowStep, context: ExecutionContext): Promise<void> {
-    if (!step.condition) {
-      throw new Error('conditional step requires a condition');
-    }
-    
-    const conditionResult = this.evaluateCondition(step.condition, context);
-    
-    if (conditionResult && step.then) {
-      for (const thenStep of step.then) {
-        await this.executeStep(thenStep, context);
-        if (context.result !== undefined) break;
-      }
-    } else if (!conditionResult && step.else) {
-      for (const elseStep of step.else) {
-        await this.executeStep(elseStep, context);
-        if (context.result !== undefined) break;
-      }
-    }
-  }
-
-  /**
-   * Execute return step - sets result and stops execution
-   */
-  private executeReturn(step: WorkflowStep, context: ExecutionContext): void {
-    if (step.value === undefined) {
-      throw new Error('return step requires a value');
-    }
-
-    context.result = this.interpolateValue(step.value, context);
-  }
-
-  /**
-   * Execute call_tool step - invokes MCP tool with interpolated parameters
-   */
-  private async executeCallTool(step: WorkflowStep, context: ExecutionContext): Promise<void> {
-    if (!this.toolCaller) {
-      throw new Error('ToolCaller is required to execute call_tool steps. Provide toolCaller in constructor.');
-    }
-
-    if (!step.toolName) {
-      throw new Error('call_tool step requires a toolName');
-    }
-
-    if (!step.parameters) {
-      throw new Error('call_tool step requires parameters');
-    }
-
-    // Interpolate parameters with context values
-    const interpolatedParams = this.interpolateValue(step.parameters, context);
-
-    console.log(`[Workflow ${step.name}] Calling tool: ${step.toolName}`);
-    console.log(`[Workflow ${step.name}] Parameters:`, JSON.stringify(interpolatedParams, null, 2));
-
-    try {
-      // Call the tool via the tool caller interface
-      const result = await this.toolCaller.callTool(step.toolName, interpolatedParams);
-
-      console.log(`[Workflow ${step.name}] Tool result:`, JSON.stringify(result, null, 2));
-
-      // Store result in step results for access via {{steps.stepName.*}}
-      context.stepResults.push({
-        step: step.name,
-        type: 'call_tool',
-        status: 'completed',
-        output: result
-      });
-
-      // Store result in context variable if specified (for backward compatibility)
-      if (step.resultVariable) {
-        context.variables.set(step.resultVariable, result);
-        console.log(`[Workflow ${step.name}] Stored result in variable: ${step.resultVariable}`);
-      }
-    } catch (error) {
-      console.error(`[Workflow ${step.name}] Tool execution failed:`, error);
-      throw new Error(`Tool '${step.toolName}' execution failed: ${(error as Error).message}`);
     }
   }
 
@@ -1233,122 +1036,10 @@ export class WorkflowExecutor {
     };
 
     // Search all step properties for references
-    findRefsInValue(step.message);
-    findRefsInValue(step.value);
-    findRefsInValue(step.condition);
-    findRefsInValue(step.parameters);
     findRefsInValue(step.properties);
     findRefsInValue(step.instructions);
-    findRefsInValue(step.switchValue);
 
     return refs;
-  }
-
-  /**
-   * Execute load_state step - loads workflow state from global_state table
-   */
-  private async executeLoadState(step: WorkflowStep, context: ExecutionContext): Promise<void> {
-    if (!this.dbService) {
-      throw new Error('DatabaseService is required to load state');
-    }
-
-    if (!step.stateKey) {
-      throw new Error('load_state step requires a stateKey');
-    }
-
-    const stateKey = this.interpolateString(step.stateKey, context);
-
-    console.log(`[Workflow ${step.name}] Loading state with key: ${stateKey}`);
-
-    try {
-      // Load from global_state table
-      const value = await this.dbService.getGlobalState(stateKey);
-
-      if (value !== null) {
-        console.log(`[Workflow ${step.name}] Loaded state:`, JSON.stringify(value, null, 2));
-        // Store in context variable
-        if (step.resultVariable) {
-          context.variables.set(step.resultVariable, value);
-        }
-      } else {
-        // Use default value if state doesn't exist
-        const defaultVal = step.defaultValue || null;
-        console.log(`[Workflow ${step.name}] No state found, using default:`, JSON.stringify(defaultVal, null, 2));
-        if (step.resultVariable) {
-          context.variables.set(step.resultVariable, defaultVal);
-        }
-      }
-    } catch (error) {
-      console.error(`[Workflow ${step.name}] Failed to load state:`, error);
-      // Use default value on error
-      if (step.resultVariable) {
-        context.variables.set(step.resultVariable, step.defaultValue || null);
-      }
-    }
-  }
-
-  /**
-   * Execute save_state step - saves workflow state to global_state table
-   */
-  private async executeSaveState(step: WorkflowStep, context: ExecutionContext): Promise<void> {
-    if (!this.dbService) {
-      throw new Error('DatabaseService is required to save state');
-    }
-
-    if (!step.stateKey) {
-      throw new Error('save_state step requires a stateKey');
-    }
-
-    if (step.value === undefined) {
-      throw new Error('save_state step requires a value');
-    }
-
-    const stateKey = this.interpolateString(step.stateKey, context);
-    const value = this.interpolateValue(step.value, context);
-
-    console.log(`[Workflow ${step.name}] Saving state with key: ${stateKey}`);
-    console.log(`[Workflow ${step.name}] Value:`, JSON.stringify(value, null, 2));
-
-    try {
-      // Save to global_state table
-      await this.dbService.setGlobalState(stateKey, value, 'workflow');
-      console.log(`[Workflow ${step.name}] State saved successfully`);
-    } catch (error) {
-      console.error(`[Workflow ${step.name}] Failed to save state:`, error);
-      throw new Error(`Failed to save workflow state: ${(error as Error).message}`);
-    }
-  }
-
-  /**
-   * Execute switch step - multi-branch routing based on value
-   */
-  private async executeSwitch(step: WorkflowStep, context: ExecutionContext): Promise<void> {
-    if (!step.switchValue) {
-      throw new Error('switch step requires a switchValue');
-    }
-
-    const switchValue = this.interpolateString(step.switchValue, context);
-    console.log(`[Workflow ${step.name}] Switch value: ${switchValue}`);
-
-    // Find matching case
-    const cases = step.cases || {};
-    const matchingCase = cases[switchValue];
-
-    if (matchingCase && matchingCase.length > 0) {
-      console.log(`[Workflow ${step.name}] Executing case: ${switchValue}`);
-      for (const caseStep of matchingCase) {
-        await this.executeStep(caseStep, context);
-        if (context.result !== undefined) break;
-      }
-    } else if (step.defaultCase && step.defaultCase.length > 0) {
-      console.log(`[Workflow ${step.name}] No matching case, executing default`);
-      for (const defaultStep of step.defaultCase) {
-        await this.executeStep(defaultStep, context);
-        if (context.result !== undefined) break;
-      }
-    } else {
-      console.log(`[Workflow ${step.name}] No matching case and no default - skipping`);
-    }
   }
 
   /**

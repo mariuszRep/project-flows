@@ -1,5 +1,5 @@
 import { Card } from '@/components/ui/card';
-import { Play, StopCircle, Bot, Database, FolderOpen } from 'lucide-react';
+import { Bot, Database, FolderOpen } from 'lucide-react';
 
 export interface NodeType {
   type: string;
@@ -10,13 +10,6 @@ export interface NodeType {
 }
 
 export const nodeTypes: NodeType[] = [
-  {
-    type: 'start',
-    label: 'Start',
-    icon: Play,
-    color: 'bg-green-500',
-    description: 'Workflow entry point'
-  },
   {
     type: 'agent',
     label: 'Agent',
@@ -37,13 +30,6 @@ export const nodeTypes: NodeType[] = [
     icon: FolderOpen,
     color: 'bg-blue-500',
     description: 'Load object properties for agent population'
-  },
-  {
-    type: 'end',
-    label: 'End',
-    icon: StopCircle,
-    color: 'bg-red-500',
-    description: 'Workflow exit point'
   }
 ];
 
@@ -78,7 +64,7 @@ export function NodePalette({ onNodeAdd, onNodeDragStart }: NodePaletteProps) {
       </div>
 
       <div className="space-y-2">
-        {nodeTypes.filter((nodeType) => nodeType.type !== 'start' && nodeType.type !== 'end').map((nodeType) => {
+        {nodeTypes.map((nodeType) => {
           const Icon = nodeType.icon;
           return (
             <Card

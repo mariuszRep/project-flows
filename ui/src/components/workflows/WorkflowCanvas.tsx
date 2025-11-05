@@ -17,8 +17,6 @@ import ReactFlow, {
   EdgeChange,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { StartNode } from './nodes/StartNode';
-import { EndNode } from './nodes/EndNode';
 import { AgentNode } from './nodes/AgentNode';
 import { CreateObjectNode } from './nodes/CreateObjectNode';
 import { LoadObjectNode } from './nodes/LoadObjectNode';
@@ -51,16 +49,21 @@ interface WorkflowData {
 }
 
 const nodeTypes: NodeTypes = {
-  start: StartNode,
-  end: EndNode,
   agent: AgentNode,
   create_object: CreateObjectNode,
   load_object: LoadObjectNode,
 };
 
 function workflowToReactFlow(workflow: WorkflowData): { nodes: Node[]; edges: Edge[] } {
-  const nodes: Node[] = workflow.steps.map((step, index) => {
-    const stepType = step.step_type || step.type || 'log';
+  // Filter out legacy node types when loading workflows
+  const legacyNodeTypes = ['start', 'end', 'call_tool', 'log', 'set_variable', 'conditional', 'return', 'load_state', 'save_state', 'switch'];
+  const activeSteps = workflow.steps.filter(step => {
+    const stepType = step.step_type || step.type || '';
+    return !legacyNodeTypes.includes(stepType);
+  });
+
+  const nodes: Node[] = activeSteps.map((step, index) => {
+    const stepType = step.step_type || step.type || 'agent';
 
     return {
       id: `step-${index}`,
@@ -77,7 +80,7 @@ function workflowToReactFlow(workflow: WorkflowData): { nodes: Node[]; edges: Ed
     };
   });
 
-  const edges: Edge[] = workflow.steps.slice(0, -1).map((step, index) => ({
+  const edges: Edge[] = activeSteps.slice(0, -1).map((step, index) => ({
     id: `edge-${index}`,
     source: `step-${index}`,
     target: `step-${index + 1}`,
@@ -281,12 +284,10 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
     try {
       console.log('=== SAVE WORKFLOW DEBUG ===');
       console.log('All nodes:', nodes);
-      console.log('Nodes to process (excluding end):', nodes.filter(node => node.type !== 'end'));
 
       // CRITICAL FIX: Sort nodes by X position first, then assign execution_order
       // This ensures visual left-to-right order matches database execution order
       const currentSteps = nodes
-        .filter(node => node.type !== 'end')
         .sort((a, b) => a.position.x - b.position.x) // Sort by X position (left to right)
         .map((node, index) => ({
           id: node.data.dbId, // Include database ID if it exists
@@ -456,9 +457,6 @@ function WorkflowCanvasInner({ workflowId }: WorkflowCanvasProps) {
       // CRITICAL FIX: Update nodes with database IDs so they don't get re-created on next save
       setNodes((nds) =>
         nds.map((node) => {
-          // Skip end nodes
-          if (node.type === 'end') return node;
-
           // Find the step by matching label
           const matchingStep = updatedOriginalSteps.find(
             step => step.name === node.data.label
