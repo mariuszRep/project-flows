@@ -75,12 +75,12 @@ export class TaskTools {
             try {
               await dbService.updateObject(taskId, { stage: 'review', template_id: 1 }, clientId);
               updatedTask.stage = 'review';
-              return updatedTask;
             } catch (error) {
               console.error('Error auto-transitioning task to review:', error);
+              // Return the task as-is even if auto-transition fails
             }
           }
-          return null;
+          return updatedTask;
         },
       },
       toolArgs,

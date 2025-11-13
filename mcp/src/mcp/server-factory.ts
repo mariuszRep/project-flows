@@ -107,11 +107,18 @@ function ensureWorkflowsLoaded(dbService: DatabaseService): Promise<void> {
 
   // Start loading and cache the promise
   workflowsLoadingPromise = loadWorkflowsFromDatabase(dbService)
+    .then(() => {
+      // Clear the loading promise and mark as loaded
+      workflowsLoadingPromise = null;
+      workflowsLoaded = true;
+    })
     .catch((error) => {
       console.error('Failed to load workflows from database:', error);
       // Reset promise on error so it can be retried
       workflowsLoadingPromise = null;
       workflowsLoaded = false;
+      // Re-throw to properly reject the promise
+      throw error;
     });
 
   return workflowsLoadingPromise;
@@ -147,11 +154,18 @@ function ensureFunctionsLoaded(dbService: DatabaseService): Promise<void> {
 
   // Start loading and cache the promise
   functionsLoadingPromise = loadFunctionsFromDatabase(dbService)
+    .then(() => {
+      // Clear the loading promise and mark as loaded
+      functionsLoadingPromise = null;
+      functionsLoaded = true;
+    })
     .catch((error) => {
       console.error('Failed to load functions from database:', error);
       // Reset promise on error so it can be retried
       functionsLoadingPromise = null;
       functionsLoaded = false;
+      // Re-throw to properly reject the promise
+      throw error;
     });
 
   return functionsLoadingPromise;

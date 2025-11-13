@@ -831,7 +831,11 @@ export class WorkflowExecutor {
   private interpolateString(template: string, context: ExecutionContext): string {
     return template.replace(/\{\{([^}]+)\}\}/g, (match, path) => {
       const value = this.resolveValue(path.trim(), context);
-      return value !== undefined ? String(value) : match;
+      // Keep placeholder if value is null or undefined
+      if (value === null || value === undefined) {
+        return match;
+      }
+      return String(value);
     });
   }
 

@@ -56,6 +56,9 @@ export class ConnectionManager {
         // Create event store for resumability
         const eventStore = new InMemoryEventStore();
 
+        // Create new MCP server instance for this connection
+        const serverInstance = createMcpServer(clientId);
+
         // Create new transport with session management
         transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
@@ -86,9 +89,6 @@ export class ConnectionManager {
             delete this.connections[sid];
           }
         };
-
-        // Create new MCP server instance for this connection
-        const serverInstance = createMcpServer(clientId);
 
         // Connect the server to the transport
         await serverInstance.connect(transport);

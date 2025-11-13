@@ -320,9 +320,10 @@ export class ObjectTools {
     // Build blocks object from object properties
     const blocks: Record<string, string> = {};
     const systemFields = ['id', 'stage', 'template_id', 'parent_id', 'parent_name', 'created_at', 'updated_at', 'created_by', 'updated_by'];
-    
+
     for (const [key, value] of Object.entries(object)) {
-      if (!systemFields.includes(key) && value) {
+      // Include all values except null and undefined (allow 0, false, empty string)
+      if (!systemFields.includes(key) && value !== null && value !== undefined) {
         blocks[key] = String(value);
       }
     }

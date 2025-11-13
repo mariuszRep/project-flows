@@ -541,7 +541,8 @@ class DatabaseService {
           try {
             relatedSchema = JSON.parse(relatedSchema);
           } catch (parseError) {
-            console.error('Failed to parse related_schema JSON:', parseError);
+            console.warn(`Failed to parse related_schema JSON for template ${row.template_id}:`, parseError,
+              `Data preview: ${relatedSchema.substring(0, 100)}`);
             relatedSchema = [];
           }
         }
@@ -550,7 +551,8 @@ class DatabaseService {
           try {
             metadata = JSON.parse(metadata);
           } catch (parseError) {
-            console.error('Failed to parse metadata JSON:', parseError);
+            console.warn(`Failed to parse metadata JSON for template ${row.template_id}:`, parseError,
+              `Data preview: ${metadata.substring(0, 100)}`);
             metadata = {};
           }
         }
@@ -1399,7 +1401,8 @@ class DatabaseService {
           try {
             relatedSchema = JSON.parse(relatedSchema);
           } catch (parseError) {
-            console.error('Failed to parse related_schema JSON:', parseError);
+            console.warn(`Failed to parse related_schema JSON for template ${row.template_id}:`, parseError,
+              `Data preview: ${relatedSchema.substring(0, 100)}`);
             relatedSchema = [];
           }
         }
@@ -1408,7 +1411,8 @@ class DatabaseService {
           try {
             metadata = JSON.parse(metadata);
           } catch (parseError) {
-            console.error('Failed to parse metadata JSON:', parseError);
+            console.warn(`Failed to parse metadata JSON for template ${row.template_id}:`, parseError,
+              `Data preview: ${metadata.substring(0, 100)}`);
             metadata = {};
           }
         }
